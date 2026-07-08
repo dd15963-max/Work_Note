@@ -23,6 +23,19 @@
 ## 파일 구조
 
 ```text
+./
+├─ index.html
+├─ .nojekyll
+├─ scripts/
+├─ .githooks/
+└─ sales-note-app/
+   ├─ index.html
+   ├─ style.css
+   ├─ script.js
+   └─ README.md
+```
+
+```text
 sales-note-app/
 ├─ index.html
 ├─ style.css
@@ -34,6 +47,18 @@ sales-note-app/
 - `style.css`: 대시보드, 입력 폼, 목록 화면 스타일
 - `script.js`: 메모 저장, 검색, 필터, 백업, 불러오기 로직
 - `README.md`: 실행 및 관리 안내
+
+## 공개 링크 배포 전 점검
+
+GitHub Pages 공개 링크는 앱 코드만 배포하고, 실제 고객 데이터와 첨부 원본은 GitHub에 올리지 않는 것을 원칙으로 합니다.
+
+공개 전 전체 폴더 점검:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\public-safety-check.ps1 -Mode full
+```
+
+커밋 전에는 `.githooks/pre-commit`, 푸시 전에는 `.githooks/pre-push`가 자동으로 백업 ZIP, 백업 JSON, CSV, 첨부자료로 보이는 문서/이미지 파일을 차단합니다.
 
 ## 주요 기능
 

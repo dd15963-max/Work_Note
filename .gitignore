@@ -4,12 +4,32 @@ attachments/
 backups/
 exports/
 *.zip
+*.7z
+*.rar
+*.tar
+*.gz
+*.tgz
 *.bak
 *.backup
 *backup*.json
 *백업*.json
 *.local.json
 *.csv
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+*.hwp
+*.hwpx
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.heic
 
 # Local planning/reference notes
 codex_sales_note_app_prompt.md
