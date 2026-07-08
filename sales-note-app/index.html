@@ -1,0 +1,1504 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Work Note</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">WORK NOTE</p>
+          <h1>업무 메모장</h1>
+        </div>
+        <div class="header-tools">
+          <details class="backup-menu" id="backupMenu">
+            <summary class="secondary-button backup-menu-trigger">백업 센터</summary>
+            <div class="backup-menu-panel">
+              <div class="backup-center-heading">
+                <div>
+                  <p class="eyebrow">Backup Center</p>
+                  <h2>백업 센터</h2>
+                </div>
+                <p>기록만 저장할지, 첨부 원본까지 포함할지 선택해서 관리합니다.</p>
+              </div>
+
+              <section class="backup-menu-section">
+                <p class="backup-menu-title">내보내기</p>
+                <p class="backup-menu-description">회사 PC 자료를 파일로 저장합니다.</p>
+                <div class="backup-action-grid">
+                  <button type="button" class="secondary-button" id="exportFullBackupButton">전체 백업</button>
+                  <button type="button" class="secondary-button" id="exportJsonButton">기록만 백업</button>
+                  <button type="button" class="secondary-button" id="exportCsvButton">CSV</button>
+                </div>
+              </section>
+
+              <section class="backup-menu-section">
+                <p class="backup-menu-title">불러오기</p>
+                <p class="backup-menu-description">현재 데이터를 백업 파일 내용으로 교체합니다.</p>
+                <div class="backup-action-grid">
+                  <button type="button" class="secondary-button" id="importFullBackupButton">전체 교체</button>
+                  <button type="button" class="secondary-button" id="importJsonButton">기록만 교체</button>
+                </div>
+              </section>
+
+              <section class="backup-menu-section">
+                <p class="backup-menu-title">병합</p>
+                <p class="backup-menu-description">다른 기기에서 작업한 내용을 현재 데이터에 합칩니다.</p>
+                <div class="backup-action-grid">
+                  <button type="button" class="secondary-button" id="mergeFullBackupButton" title="기존 데이터에 전체 백업 ZIP을 병합합니다.">전체 병합</button>
+                  <button type="button" class="secondary-button" id="mergeJsonButton" title="기존 데이터에 JSON 기록 백업을 병합합니다.">기록만 병합</button>
+                </div>
+              </section>
+
+              <section class="backup-menu-section">
+                <p class="backup-menu-title">점검</p>
+                <p class="backup-menu-description">현재 기록과 첨부 원본 상태를 확인합니다.</p>
+                <div class="backup-action-grid backup-action-grid-single">
+                  <button type="button" class="secondary-button" id="backupHealthButton">백업 상태 점검</button>
+                </div>
+              </section>
+
+              <section class="backup-menu-section">
+                <p class="backup-menu-title">정리</p>
+                <p class="backup-menu-description">현재 브라우저의 업무 메모장과 관련 파일을 모두 비웁니다.</p>
+                <div class="backup-action-grid backup-action-grid-single">
+                  <button type="button" class="danger-button" id="resetWorkspaceButton">전체 메모장 초기화</button>
+                </div>
+              </section>
+            </div>
+            <input type="file" id="importFileInput" accept="application/json,.json" hidden>
+            <input type="file" id="importFullBackupInput" accept="application/zip,.zip" hidden>
+          </details>
+          <p class="backup-reminder" id="backupReminder" role="status" aria-live="polite">백업 상태 확인 중</p>
+        </div>
+      </header>
+
+      <div class="panel-backdrop hidden" id="panelBackdrop"></div>
+
+      <aside class="file-drawer hidden" id="fileDrawer" aria-labelledby="fileDrawerTitle" aria-modal="true">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">File Folder</p>
+            <h2 id="fileDrawerTitle">관련 파일</h2>
+            <p class="file-drawer-subtitle" id="fileDrawerSubtitle">업무를 선택해 주세요.</p>
+          </div>
+          <button type="button" class="ghost-button icon-button" id="closeFileDrawerButton" aria-label="파일함 닫기">×</button>
+        </div>
+
+        <div class="file-drawer-summary">
+          <span>저장된 파일</span>
+          <strong id="fileDrawerCount">0개</strong>
+        </div>
+        <p class="attachment-hint" id="fileDrawerHint">관련 파일 원본은 이 브라우저의 IndexedDB에 저장됩니다.</p>
+
+        <div class="attachment-controls">
+          <label>
+            <span>파일 선택</span>
+            <input type="file" id="fileDrawerFileInput" multiple>
+          </label>
+          <label>
+            <span>자료 종류</span>
+            <select id="fileDrawerCategory">
+              <option value="사업자등록증">사업자등록증</option>
+              <option value="통장 사본">통장 사본</option>
+              <option value="회사 서류">회사 서류</option>
+              <option value="견적서">견적서</option>
+              <option value="발송자료">발송자료</option>
+              <option value="메일 캡처">메일 캡처</option>
+              <option value="출력 파일">출력 파일</option>
+              <option value="기타 파일">기타 파일</option>
+              <option value="정산자료">정산자료</option>
+              <option value="세금계산서">세금계산서</option>
+              <option value="입금증">입금증</option>
+              <option value="샘플/BMT">샘플/BMT</option>
+              <option value="계약/발주">계약/발주</option>
+              <option value="기타">기타</option>
+            </select>
+          </label>
+          <label>
+            <span>관련일</span>
+            <input type="date" id="fileDrawerSentDate">
+          </label>
+        </div>
+
+        <div class="file-memo-list" id="fileDrawerSelectedFiles"></div>
+
+        <div class="attachment-actions">
+          <button type="button" class="secondary-button" id="fileDrawerUploadButton">선택 파일 저장</button>
+          <button type="button" class="ghost-button" id="fileDrawerClearSelectionButton">선택 취소</button>
+        </div>
+
+        <div class="attachment-list file-drawer-list" id="fileDrawerList"></div>
+      </aside>
+
+      <aside class="customer-drawer hidden" id="customerDrawer" aria-labelledby="customerDrawerTitle" aria-modal="true">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Customer View</p>
+            <h2 id="customerDrawerTitle">업체 상세</h2>
+            <p class="file-drawer-subtitle" id="customerDrawerSubtitle">업체를 선택해 주세요.</p>
+          </div>
+          <button type="button" class="ghost-button icon-button" id="closeCustomerDrawerButton" aria-label="업체 상세 닫기">×</button>
+        </div>
+
+        <div class="customer-profile-summary" id="customerProfileSummary"></div>
+        <div class="customer-profile-actions" id="customerProfileActions"></div>
+
+        <section class="customer-profile-section" aria-labelledby="customerTimelineTitle">
+          <div class="attachment-heading">
+            <div>
+              <p class="eyebrow">Timeline</p>
+              <h3 id="customerTimelineTitle">업체 이력</h3>
+            </div>
+            <span class="attachment-count" id="customerTimelineCount">0개</span>
+          </div>
+          <div class="customer-timeline-list" id="customerTimelineList"></div>
+        </section>
+
+        <section class="customer-profile-section" aria-labelledby="customerRelatedTitle">
+          <div class="attachment-heading">
+            <div>
+              <p class="eyebrow">Related Work</p>
+              <h3 id="customerRelatedTitle">관련 업무</h3>
+            </div>
+            <span class="attachment-count" id="customerRelatedCount">0개</span>
+          </div>
+          <div class="customer-related-list" id="customerRelatedList"></div>
+        </section>
+
+        <section class="customer-profile-section" aria-labelledby="customerFilesTitle">
+          <div class="attachment-heading">
+            <div>
+              <p class="eyebrow">Files</p>
+              <h3 id="customerFilesTitle">관련 파일</h3>
+            </div>
+            <span class="attachment-count" id="customerFileCount">0개</span>
+          </div>
+          <div class="attachment-list" id="customerAttachmentList"></div>
+        </section>
+      </aside>
+
+      <aside class="file-preview-panel hidden" id="filePreviewPanel" aria-labelledby="filePreviewTitle" aria-modal="true">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Preview</p>
+            <h2 id="filePreviewTitle">파일 미리보기</h2>
+            <p class="file-drawer-subtitle" id="filePreviewMeta">선택한 파일을 확인합니다.</p>
+          </div>
+          <button type="button" class="ghost-button icon-button" id="closeFilePreviewButton" aria-label="파일 미리보기 닫기">×</button>
+        </div>
+        <div class="file-preview-body" id="filePreviewBody"></div>
+        <div class="attachment-actions">
+          <div class="file-preview-toolbar hidden" id="filePreviewZoomControls" aria-label="이미지 확대 축소">
+            <button type="button" class="secondary-button" id="filePreviewZoomOutButton" aria-label="이미지 축소">-</button>
+            <button type="button" class="secondary-button" id="filePreviewZoomResetButton">100%</button>
+            <button type="button" class="secondary-button" id="filePreviewZoomInButton" aria-label="이미지 확대">+</button>
+          </div>
+          <button type="button" class="secondary-button" id="filePreviewDownloadButton">다운로드</button>
+        </div>
+      </aside>
+
+      <nav class="portal-tabs" aria-label="업무 포탈">
+        <button type="button" class="portal-tab is-active" data-portal="schedule">일정</button>
+        <button type="button" class="portal-tab" data-portal="company">업체</button>
+        <button type="button" class="portal-tab" data-portal="sales">영업</button>
+        <button type="button" class="portal-tab" data-portal="account">계정</button>
+        <button type="button" class="portal-tab" data-portal="settlement">정산</button>
+        <button type="button" class="portal-tab" data-portal="output">출력</button>
+        <button type="button" class="portal-tab" data-portal="other">기타</button>
+      </nav>
+
+      <section class="global-search-panel" aria-label="통합 검색">
+        <label class="global-search-field">
+          <span>통합 검색</span>
+          <input type="search" id="globalSearchInput" placeholder="업체, 영업, 계정, 정산, 출력, 기타 전체 검색">
+        </label>
+        <button type="button" class="ghost-button hidden" id="globalSearchClearButton">초기화</button>
+        <div class="global-search-results hidden" id="globalSearchResults"></div>
+      </section>
+
+      <section class="portal-view" id="companyPortal">
+        <div class="workspace-grid">
+          <section class="entry-panel hidden" id="companyEditorPanel" aria-labelledby="companyFormTitle" aria-modal="true">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Company Master</p>
+                <h2 id="companyFormTitle">업체 등록</h2>
+              </div>
+              <div class="editor-actions">
+                <button type="button" class="ghost-button" id="resetCompanyButton">초기화</button>
+                <button type="button" class="ghost-button icon-button" id="closeCompanyEditorButton" aria-label="업체 등록 닫기">×</button>
+              </div>
+            </div>
+
+            <form id="companyForm" autocomplete="off">
+              <input type="hidden" id="companyRecordId">
+
+              <label>
+                <span>업체명</span>
+                <input type="text" id="companyName" placeholder="예: 예시테크">
+              </label>
+
+              <div class="form-row">
+                <label>
+                  <span>사업자번호</span>
+                  <input type="text" id="companyBusinessNumber" placeholder="000-00-00000">
+                </label>
+                <label>
+                  <span>대표자명</span>
+                  <input type="text" id="companyRepresentative" placeholder="예: 홍길동">
+                </label>
+              </div>
+
+              <div class="form-row">
+                <label>
+                  <span>업종/분류</span>
+                  <input type="text" id="companyBusinessType" placeholder="예: 제조, 연구소, 병원">
+                </label>
+                <label>
+                  <span>거래 상태</span>
+                  <select id="companyStatus">
+                    <option value="검토중">검토중</option>
+                    <option value="거래중">거래중</option>
+                    <option value="보류">보류</option>
+                    <option value="거래종료">거래종료</option>
+                  </select>
+                </label>
+              </div>
+
+              <label>
+                <span>주소</span>
+                <input type="text" id="companyAddress" placeholder="주소">
+              </label>
+
+              <div class="form-row">
+                <label>
+                  <span>대표 연락처</span>
+                  <input type="tel" id="companyMainPhone" placeholder="대표번호">
+                </label>
+                <label>
+                  <span>대표 이메일</span>
+                  <input type="email" id="companyMainEmail" placeholder="company@example.com">
+                </label>
+              </div>
+
+              <section class="company-contact-panel" aria-labelledby="companyContactsTitle">
+                <div class="attachment-heading">
+                  <div>
+                    <p class="eyebrow">Contacts</p>
+                    <h3 id="companyContactsTitle">담당자</h3>
+                  </div>
+                  <span class="attachment-count" id="companyContactCount">0명</span>
+                </div>
+                <div class="company-contact-list" id="companyContactList"></div>
+                <div class="attachment-actions">
+                  <button type="button" class="secondary-button" id="addCompanyContactButton">담당자 추가</button>
+                </div>
+              </section>
+
+              <label>
+                <span>업체 메모</span>
+                <textarea id="companyMemo" rows="5" placeholder="거래 조건, 주의사항, 업체 특이사항"></textarea>
+              </label>
+
+              <div class="form-actions">
+                <button type="button" class="secondary-button folder-action-button hidden" id="openCurrentCompanyFilesButton">
+                  <span class="folder-icon" aria-hidden="true"></span>
+                  <span>파일함</span>
+                </button>
+                <button type="submit" class="primary-button" id="saveCompanyButton">업체 저장</button>
+                <button type="button" class="danger-button hidden" id="deleteCompanyButton">삭제</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="list-panel">
+            <div class="section-heading list-heading">
+              <div>
+                <p class="eyebrow">Companies</p>
+                <h2 id="companyListTitle">업체 목록</h2>
+              </div>
+              <div class="list-heading-actions">
+                <button type="button" class="secondary-button" id="importCompaniesButton">기존 메모에서 가져오기</button>
+                <button type="button" class="primary-button" id="newCompanyButton">새 업체</button>
+              </div>
+            </div>
+
+            <div class="toolbar company-toolbar" aria-label="업체 검색 및 필터">
+              <label class="search-field">
+                <span>검색</span>
+                <input type="search" id="companySearchInput" placeholder="업체명, 사업자번호, 담당자, 연락처, 이메일">
+              </label>
+              <label>
+                <span>거래 상태</span>
+                <select id="companyStatusFilter">
+                  <option value="all">전체</option>
+                  <option value="검토중">검토중</option>
+                  <option value="거래중">거래중</option>
+                  <option value="보류">보류</option>
+                  <option value="거래종료">거래종료</option>
+                </select>
+              </label>
+              <label>
+                <span>정렬</span>
+                <select id="companySortSelect">
+                  <option value="name" selected>업체명</option>
+                  <option value="updated">최종 수정일</option>
+                  <option value="status">거래 상태</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="company-card-list" id="companyList"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="portal-view" id="accountPortal">
+        <div class="workspace-grid">
+          <section class="entry-panel hidden" id="accountEditorPanel" aria-labelledby="accountFormTitle" aria-modal="true">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Account Vault</p>
+                <h2 id="accountFormTitle">계정 등록</h2>
+              </div>
+              <div class="editor-actions">
+                <button type="button" class="ghost-button" id="resetAccountButton">초기화</button>
+                <button type="button" class="ghost-button icon-button" id="closeAccountEditorButton" aria-label="계정 등록 닫기">×</button>
+              </div>
+            </div>
+
+            <form id="accountForm" autocomplete="off">
+              <input type="hidden" id="accountId">
+
+              <div class="form-row">
+                <label>
+                  <span>홈페이지 이름</span>
+                  <input type="text" id="accountSiteName" placeholder="예: 장비 관리자 포털">
+                </label>
+                <label>
+                  <span>계정 용도</span>
+                  <input type="text" id="accountPurpose" placeholder="예: 장비 포털, 소재 주문, 테스트 계정">
+                </label>
+              </div>
+
+              <label>
+                <span>홈페이지 링크</span>
+                <input type="url" id="accountSiteUrl" placeholder="https://example.com">
+              </label>
+
+              <div class="form-row">
+                <label>
+                  <span>아이디</span>
+                  <input type="text" id="accountUsername" placeholder="아이디 또는 이메일">
+                </label>
+                <label>
+                  <span>비밀번호</span>
+                  <input type="password" id="accountPassword" placeholder="비밀번호">
+                </label>
+              </div>
+
+              <div class="form-row">
+                <label>
+                  <span>담당자/소유자</span>
+                  <input type="text" id="accountOwner" placeholder="예: 홍길동">
+                </label>
+                <label>
+                  <span>생성일</span>
+                  <input type="date" id="accountCreatedDate">
+                </label>
+              </div>
+
+              <label>
+                <span>비밀번호 변경일</span>
+                <input type="date" id="accountPasswordChangedDate">
+              </label>
+
+              <label>
+                <span>메모</span>
+                <textarea id="accountMemo" rows="5" placeholder="주의사항, 가입 이메일, 권한, 복구 정보 등"></textarea>
+              </label>
+
+              <div class="form-actions">
+                <button type="submit" class="primary-button" id="saveAccountButton">계정 저장</button>
+                <button type="button" class="danger-button hidden" id="deleteAccountButton">삭제</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="list-panel">
+            <div class="section-heading list-heading">
+              <div>
+                <p class="eyebrow">Accounts</p>
+                <h2 id="accountListTitle">계정 목록</h2>
+              </div>
+              <div class="list-heading-actions">
+                <button type="button" class="primary-button" id="newAccountButton">새 계정</button>
+              </div>
+            </div>
+
+            <div class="toolbar account-toolbar" aria-label="계정 검색">
+              <label class="search-field">
+                <span>검색</span>
+                <input type="search" id="accountSearchInput" placeholder="홈페이지, 링크, 아이디, 용도, 담당자, 메모">
+              </label>
+            </div>
+
+            <div class="account-card-list" id="accountList"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="portal-view" id="salesPortal">
+      <section class="summary-grid" aria-label="업무 요약">
+        <button type="button" class="summary-card summary-filter is-active" data-summary-filter="all" aria-pressed="true">
+          <span class="summary-label">전체 건</span>
+          <strong id="totalCount">0</strong>
+        </button>
+        <button type="button" class="summary-card summary-filter accent-week" data-summary-filter="active" aria-pressed="false">
+          <span class="summary-label">진행 중인 건</span>
+          <strong id="activeSalesCount">0</strong>
+        </button>
+        <button type="button" class="summary-card summary-filter accent-completed" data-summary-filter="completed" aria-pressed="false">
+          <span class="summary-label">완료된 건</span>
+          <strong id="completedSalesCount">0</strong>
+        </button>
+        <button type="button" class="summary-card summary-filter accent-failed" data-summary-filter="failed" aria-pressed="false">
+          <span class="summary-label">실패/종료된 건</span>
+          <strong id="failedSalesCount">0</strong>
+        </button>
+      </section>
+
+      <main class="workspace-grid">
+        <section class="entry-panel hidden" id="editorPanel" aria-labelledby="formTitle" aria-modal="true">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Quick Entry</p>
+              <h2 id="formTitle">새 메모</h2>
+            </div>
+            <div class="editor-actions">
+              <button type="button" class="ghost-button" id="resetFormButton">초기화</button>
+              <button type="button" class="ghost-button icon-button" id="closeEditorButton" aria-label="닫기">×</button>
+            </div>
+          </div>
+          <p class="draft-status" id="draftStatus" role="status" aria-live="polite">작성 중 초안 없음</p>
+
+          <form id="noteForm" autocomplete="off">
+            <input type="hidden" id="noteId">
+            <input type="hidden" id="salesCompanyId">
+            <input type="hidden" id="salesContactId">
+
+            <section class="company-link-picker" aria-labelledby="salesCompanyLinkTitle">
+              <div class="attachment-heading">
+                <div>
+                  <p class="eyebrow">Company</p>
+                  <h3 id="salesCompanyLinkTitle">업체 선택</h3>
+                </div>
+                <span class="attachment-count" id="salesCompanyLinkCount">연결 안 함</span>
+              </div>
+              <label>
+                <span>업체 검색</span>
+                <input type="search" id="salesCompanySearch" placeholder="업체명, 담당자, 연락처 검색">
+              </label>
+              <label class="checkbox-label deadline-weekend-option">
+                <input type="checkbox" id="salesCompanyUnknown">
+                <span>관련 업체 미정</span>
+              </label>
+              <div class="sales-link-selected" id="salesCompanySelected"></div>
+              <div class="sales-link-results" id="salesCompanyResults"></div>
+              <label class="hidden" id="salesContactPickerField">
+                <span>담당자 선택</span>
+                <select id="salesContactPicker"></select>
+              </label>
+            </section>
+
+            <label>
+              <span>선택된 고객사명</span>
+              <input type="text" id="company" class="readonly-field" readonly placeholder="업체 선택 시 자동 입력">
+            </label>
+
+            <div class="form-row">
+              <label>
+                <span>담당자명</span>
+                <input type="text" id="contactName" placeholder="예: 홍길동">
+              </label>
+              <label>
+                <span>연락처</span>
+                <input type="tel" id="contactPhone" placeholder="010-0000-0000">
+              </label>
+            </div>
+
+            <label>
+              <span>이메일</span>
+              <input type="email" id="contactEmail" placeholder="email@example.com">
+            </label>
+
+            <label>
+              <span>관심 장비/소재</span>
+              <input type="text" id="interest" placeholder="장비명, 소재명">
+            </label>
+
+            <label>
+              <span>구분</span>
+              <select id="itemCategory">
+                <option value="">선택 안 함</option>
+                <option value="장비">장비</option>
+                <option value="소재">소재</option>
+                <option value="타사 장비">타사 장비</option>
+                <option value="타사 소재">타사 소재</option>
+                <option value="기타">기타</option>
+              </select>
+            </label>
+
+            <div class="form-row">
+              <label>
+                <span>진행 상태</span>
+                <select id="status"></select>
+              </label>
+              <label>
+                <span>중요도</span>
+                <select id="priority">
+                  <option value="낮음">낮음</option>
+                  <option value="보통" selected>보통</option>
+                  <option value="높음">높음</option>
+                  <option value="긴급">긴급</option>
+                </select>
+              </label>
+            </div>
+
+            <label class="meeting-date-field hidden" id="meetingDateField">
+              <span>미팅 일자</span>
+              <input type="date" id="meetingDate">
+            </label>
+
+            <label>
+              <span>다음 액션</span>
+              <input type="text" id="nextAction" placeholder="다음 연락, 견적, 샘플 확인 등">
+            </label>
+
+            <div class="form-row">
+              <div class="date-with-option">
+                <label>
+                  <span>다음 연락 예정일</span>
+                  <input type="date" id="nextContactDate">
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="nextContactUnknown">
+                  <span>미정</span>
+                </label>
+              </div>
+              <label>
+                <span>최근 연락일</span>
+                <input type="date" id="lastContactDate">
+              </label>
+            </div>
+
+            <div class="form-row">
+              <label>
+                <span>견적 여부</span>
+                <select id="quoteStatus">
+                  <option value="">선택 안 함</option>
+                  <option value="미진행">미진행</option>
+                  <option value="진행 중">진행 중</option>
+                  <option value="발송 완료">발송 완료</option>
+                  <option value="보류">보류</option>
+                </select>
+              </label>
+              <label>
+                <span>구매 가능성</span>
+                <select id="purchasePossibility">
+                  <option value="">선택 안 함</option>
+                  <option value="낮음">낮음</option>
+                  <option value="중간">중간</option>
+                  <option value="높음">높음</option>
+                </select>
+              </label>
+            </div>
+
+            <label>
+              <span>예상 매출 금액</span>
+              <input type="number" id="expectedRevenueAmount" min="0" step="any" placeholder="예: 3000000">
+              <span class="checkbox-label vat-checkbox">
+                <input type="checkbox" id="expectedRevenueVatIncluded">
+                <span>부가세 포함</span>
+              </span>
+            </label>
+
+            <div class="form-row finance-row">
+              <label>
+                <span>매출 금액</span>
+                <input type="number" id="revenueAmount" min="0" step="any" placeholder="예: 3000000">
+                <span class="checkbox-label vat-checkbox">
+                  <input type="checkbox" id="revenueAmountVatIncluded">
+                  <span>부가세 포함</span>
+                </span>
+              </label>
+              <label>
+                <span>매출 구분</span>
+                <select id="revenueType">
+                  <option value="">선택 안 함</option>
+                  <option value="장비 매출">장비 매출</option>
+                  <option value="소재 매출">소재 매출</option>
+                  <option value="타사 장비">타사 장비</option>
+                  <option value="타사 소재">타사 소재</option>
+                </select>
+              </label>
+            </div>
+
+            <label>
+              <span>미팅/통화 메모</span>
+              <textarea id="memo" rows="6" placeholder="상담 내용, 요청사항, 결정사항"></textarea>
+            </label>
+
+            <section class="attachment-panel hidden" id="attachmentPanel" aria-labelledby="attachmentTitle">
+              <div class="attachment-heading">
+                <div>
+                  <p class="eyebrow">Files</p>
+                  <h3 id="attachmentTitle">첨부자료</h3>
+                </div>
+                <span class="attachment-count" id="attachmentCount">0개</span>
+              </div>
+              <p class="attachment-hint" id="attachmentHint">메모를 저장하면 견적서, 발송자료, 메일 캡처 이미지를 첨부할 수 있습니다.</p>
+
+              <div class="attachment-controls">
+                <label>
+                  <span>파일 선택</span>
+                  <input type="file" id="attachmentFileInput" multiple>
+                </label>
+                <label>
+                  <span>자료 종류</span>
+                  <select id="attachmentCategory">
+                    <option value="견적서">견적서</option>
+                    <option value="발송자료">발송자료</option>
+                    <option value="메일 캡처">메일 캡처</option>
+                    <option value="샘플/BMT">샘플/BMT</option>
+                    <option value="계약/발주">계약/발주</option>
+                    <option value="기타">기타</option>
+                  </select>
+                </label>
+                <label>
+                  <span>발송일</span>
+                  <input type="date" id="attachmentSentDate">
+                </label>
+                <label>
+                  <span>파일 메모</span>
+                  <input type="text" id="attachmentMemo" placeholder="예: 1차 견적 발송, 메일 캡처">
+                </label>
+              </div>
+
+              <div class="attachment-actions">
+                <button type="button" class="secondary-button" id="uploadAttachmentButton">첨부자료 저장</button>
+              </div>
+
+              <div class="attachment-list" id="attachmentList"></div>
+            </section>
+
+            <div class="form-actions">
+              <button type="button" class="secondary-button folder-action-button hidden" id="openCurrentNoteFilesButton">
+                <span class="folder-icon" aria-hidden="true"></span>
+                <span>파일함</span>
+              </button>
+              <button type="submit" class="primary-button" id="saveButton">저장</button>
+              <button type="button" class="danger-button hidden" id="deleteButton">삭제</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="list-panel" aria-labelledby="listTitle">
+          <div class="section-heading list-heading">
+            <div>
+              <p class="eyebrow">Pipeline Notes</p>
+              <h2 id="listTitle">메모 목록</h2>
+            </div>
+            <div class="list-heading-actions">
+              <div class="sales-view-toggle" aria-label="영업 보기 방식">
+                <button type="button" class="sales-view-button is-active" id="salesListViewButton" aria-pressed="true">목록</button>
+                <button type="button" class="sales-view-button" id="salesBoardViewButton" aria-pressed="false">보드</button>
+              </div>
+              <p class="save-status" id="saveStatus" role="status" aria-live="polite">자동 저장 준비됨</p>
+              <button type="button" class="primary-button" id="newNoteButton">새 메모</button>
+            </div>
+          </div>
+
+          <div class="toolbar sales-toolbar" aria-label="검색 및 필터">
+            <label class="search-field">
+              <span>검색</span>
+              <input type="search" id="searchInput" placeholder="고객사, 담당자, 연락처, 이메일, 금액, 메모">
+            </label>
+
+            <label>
+              <span>상태</span>
+              <select id="statusFilter"></select>
+            </label>
+
+            <label>
+              <span>구분</span>
+              <select id="itemCategoryFilter">
+                <option value="all">전체</option>
+                <option value="uncategorized">미지정</option>
+                <option value="장비">장비</option>
+                <option value="소재">소재</option>
+                <option value="타사 장비">타사 장비</option>
+                <option value="타사 소재">타사 소재</option>
+                <option value="기타">기타</option>
+              </select>
+            </label>
+
+            <label>
+              <span>중요도</span>
+              <select id="priorityFilter">
+                <option value="all">전체</option>
+                <option value="긴급">긴급</option>
+                <option value="높음">높음</option>
+                <option value="보통">보통</option>
+                <option value="낮음">낮음</option>
+              </select>
+            </label>
+
+            <label>
+              <span>정렬</span>
+              <div class="sort-control">
+                <select id="sortSelect">
+                  <option value="priority" selected>중요도순</option>
+                  <option value="nextContact">다음 연락일</option>
+                  <option value="updated">최종 수정일</option>
+                  <option value="company">고객사명</option>
+                </select>
+                <button type="button" class="secondary-button sort-direction-button" id="sortDirectionButton" title="중요도순은 최근 수정 우선 고정" aria-label="중요도순은 최근 수정 우선 고정" disabled>↓</button>
+              </div>
+            </label>
+          </div>
+
+          <div class="followup-board" id="followupBoard" aria-label="오늘 할 일"></div>
+
+          <div class="sales-pipeline-board hidden" id="salesPipelineBoard" aria-label="영업 진행 흐름 보드"></div>
+
+          <div class="table-wrap" id="notesTableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>고객/연락처</th>
+                  <th>진행</th>
+                  <th>구분</th>
+                  <th>중요도</th>
+                  <th>관심제품/자료</th>
+                  <th>다음 액션</th>
+                  <th>일정</th>
+                  <th>관리</th>
+                </tr>
+              </thead>
+              <tbody id="notesTableBody"></tbody>
+            </table>
+          </div>
+
+          <div class="mobile-card-list" id="mobileNotesList" aria-label="모바일 메모 목록"></div>
+
+          <div class="empty-state hidden" id="emptyState">
+            <strong>표시할 메모가 없습니다.</strong>
+            <span>검색어나 필터를 조정하거나 새 메모를 저장해 주세요.</span>
+          </div>
+        </section>
+      </main>
+      </section>
+
+      <section class="portal-view is-active" id="schedulePortal">
+        <div class="schedule-layout">
+          <div class="portal-panel">
+            <div class="section-heading list-heading">
+              <div>
+                <p class="eyebrow">Calendar</p>
+                <h2>통합 일정</h2>
+              </div>
+              <div class="calendar-controls">
+                <div class="calendar-view-toggle" aria-label="일정 보기 방식">
+                  <button type="button" class="calendar-view-button is-active" id="calendarMonthViewButton" aria-pressed="true">월간</button>
+                  <button type="button" class="calendar-view-button" id="calendarWeekViewButton" aria-pressed="false">주간</button>
+                </div>
+                <button type="button" class="secondary-button" id="calendarPrevButton">이전</button>
+                <button type="button" class="secondary-button" id="calendarTodayButton">오늘</button>
+                <button type="button" class="secondary-button" id="calendarNextButton">다음</button>
+              </div>
+            </div>
+            <div class="calendar-title" id="calendarTitle">-</div>
+            <div class="calendar-grid" id="calendarGrid"></div>
+          </div>
+
+          <aside class="portal-panel today-panel">
+            <div class="section-heading list-heading">
+              <div>
+                <p class="eyebrow">Today</p>
+                <h2>오늘 일정</h2>
+              </div>
+            </div>
+            <div class="today-task-list" id="todayTaskList"></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="portal-view" id="settlementPortal">
+        <div class="workspace-grid">
+          <section class="entry-panel hidden" id="settlementEditorPanel" aria-labelledby="settlementFormTitle" aria-modal="true">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Settlement</p>
+                <h2 id="settlementFormTitle">정산 업무 등록</h2>
+              </div>
+              <div class="editor-actions">
+                <button type="button" class="ghost-button" id="resetSettlementButton">초기화</button>
+                <button type="button" class="ghost-button icon-button" id="closeSettlementEditorButton" aria-label="정산 업무 창 닫기">×</button>
+              </div>
+            </div>
+            <form id="settlementForm" autocomplete="off">
+              <input type="hidden" id="settlementTaskId">
+              <input type="hidden" id="settlementCompanyId">
+              <input type="hidden" id="settlementContactId">
+              <section class="company-link-picker" aria-labelledby="settlementCompanyLinkTitle">
+                <div class="attachment-heading">
+                  <div>
+                    <p class="eyebrow">Company</p>
+                    <h3 id="settlementCompanyLinkTitle">관련 업체</h3>
+                  </div>
+                  <span class="attachment-count" id="settlementCompanyLinkCount">연결 안 함</span>
+                </div>
+                <label>
+                  <span>업체 검색</span>
+                  <input type="search" id="settlementCompanySearch" placeholder="업체명, 담당자, 연락처 검색">
+                </label>
+                <label class="checkbox-label deadline-weekend-option">
+                  <input type="checkbox" id="settlementCompanyUnknown">
+                  <span>관련 업체 미정</span>
+                </label>
+                <div class="sales-link-selected" id="settlementCompanySelected"></div>
+                <div class="sales-link-results" id="settlementCompanyResults"></div>
+                <label class="hidden" id="settlementContactPickerField">
+                  <span>담당자 선택</span>
+                  <select id="settlementContactPicker"></select>
+                </label>
+              </section>
+              <div class="form-row">
+                <label>
+                  <span>선택된 업체명</span>
+                  <input type="text" id="settlementCompany" class="readonly-field" readonly placeholder="업체 선택 시 자동 입력">
+                </label>
+                <label>
+                  <span>담당자</span>
+                  <input type="text" id="settlementContactName" placeholder="예: 홍길동">
+                </label>
+              </div>
+              <div class="form-row">
+                <label>
+                  <span>담당자 연락처</span>
+                  <input type="text" id="settlementContactPhone" placeholder="예: 010-0000-0000">
+                </label>
+                <label>
+                  <span>담당자 이메일</span>
+                  <input type="email" id="settlementContactEmail" placeholder="예: name@example.com">
+                </label>
+              </div>
+              <label>
+                <span>관련 영업 메모</span>
+                <select id="settlementSalesLink"></select>
+              </label>
+              <label class="checkbox-label deadline-weekend-option">
+                <input type="checkbox" id="settlementSalesLinkUnknown">
+                <span>관련 영업건 미정</span>
+              </label>
+              <div class="form-row">
+                <label>
+                  <span>결제 유형</span>
+                  <select id="settlementPaymentType">
+                    <option value="분할 결제">분할 결제</option>
+                    <option value="선금 결제">선금 결제</option>
+                  </select>
+                </label>
+                <label>
+                  <span>진행 상태</span>
+                  <select id="settlementStatus">
+                    <option value="예정">예정</option>
+                    <option value="선금 예정">선금 예정</option>
+                    <option value="선금 완료">선금 완료</option>
+                    <option value="차감 진행 중">차감 진행 중</option>
+                    <option value="확인 필요">확인 필요</option>
+                    <option value="보류">보류</option>
+                    <option value="완료">완료</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-row">
+                <label id="settlementTotalAmountLabel">
+                  <span id="settlementTotalAmountText">총 관리 금액</span>
+                  <input type="number" id="settlementTotalAmount" min="0" step="any" placeholder="예: 10000000">
+                  <span class="checkbox-label vat-checkbox">
+                    <input type="checkbox" id="settlementTotalAmountVatIncluded">
+                    <span>부가세 포함</span>
+                  </span>
+                </label>
+                <label id="settlementAdvanceAmountLabel" class="hidden">
+                  <span>선금/계약금</span>
+                  <input type="number" id="settlementAdvanceAmount" min="0" step="any" placeholder="예: 3000000">
+                  <span class="checkbox-label vat-checkbox">
+                    <input type="checkbox" id="settlementAdvanceAmountVatIncluded">
+                    <span>부가세 포함</span>
+                  </span>
+                </label>
+              </div>
+              <div class="form-row">
+                <label id="settlementReceivedAmountLabel">
+                  <span id="settlementReceivedAmountText">회차 입금 완료액</span>
+                  <input type="number" id="settlementReceivedAmount" min="0" step="any" placeholder="예: 5000000">
+                  <span class="checkbox-label vat-checkbox">
+                    <input type="checkbox" id="settlementReceivedAmountVatIncluded">
+                    <span>부가세 포함</span>
+                  </span>
+                </label>
+                <label id="settlementDeductedAmountLabel">
+                  <span id="settlementDeductedAmountText">기타 차감 금액</span>
+                  <input type="number" id="settlementDeductedAmount" min="0" step="any" placeholder="예: 1000000">
+                  <span class="checkbox-label vat-checkbox">
+                    <input type="checkbox" id="settlementDeductedAmountVatIncluded">
+                    <span>부가세 포함</span>
+                  </span>
+                </label>
+              </div>
+              <div class="form-row">
+                <label>
+                  <span id="settlementRemainingAmountText">잔여 금액</span>
+                  <input type="text" id="settlementRemainingAmount" class="readonly-field" readonly placeholder="자동 계산">
+                </label>
+                <label id="settlementInstallmentProgressLabel">
+                  <span id="settlementInstallmentProgressText">현재 회차 / 총 회차</span>
+                  <input type="text" id="settlementInstallmentProgress" placeholder="예: 2/6, 1회차 완료">
+                </label>
+              </div>
+              <div class="form-row">
+                <label>
+                  <span>다음 처리일</span>
+                  <input type="date" id="settlementNextActionDate">
+                </label>
+                <label>
+                  <span>다음 처리</span>
+                  <input type="text" id="settlementNextAction" placeholder="예: 2회차 청구, 선금 차감 확인">
+                </label>
+              </div>
+
+              <section class="settlement-schedule-panel" aria-labelledby="settlementScheduleTitle">
+                <div class="attachment-heading">
+                  <div>
+                    <p class="eyebrow">Payment Table</p>
+                    <h3 id="settlementScheduleTitle">회차별 결제 일정</h3>
+                  </div>
+                  <span class="attachment-count" id="settlementScheduleSummary">0회차</span>
+                </div>
+
+                <div class="settlement-schedule-tools">
+                  <label>
+                    <span id="settlementScheduleStartDateText">시작일</span>
+                    <input type="date" id="settlementScheduleStartDate">
+                  </label>
+                  <label>
+                    <span id="settlementScheduleIntervalDaysText">간격(일)</span>
+                    <input type="number" id="settlementScheduleIntervalDays" min="1" step="1" value="14">
+                  </label>
+                  <label>
+                    <span id="settlementScheduleCountText">예정 회차</span>
+                    <input type="number" id="settlementScheduleCount" min="1" step="1" placeholder="예: 25">
+                  </label>
+                  <label>
+                    <span id="settlementScheduleAmountText">회차별 금액</span>
+                    <input type="number" id="settlementScheduleAmount" min="0" step="any" placeholder="예: 1980000">
+                    <span class="checkbox-label vat-checkbox">
+                      <input type="checkbox" id="settlementScheduleAmountVatIncluded">
+                      <span>부가세 포함</span>
+                    </span>
+                  </label>
+                </div>
+
+                <div class="settlement-schedule-actions">
+                  <button type="button" class="secondary-button" id="generateSettlementScheduleButton">일정 자동 생성</button>
+                  <button type="button" class="ghost-button" id="addSettlementScheduleRowButton">회차 추가</button>
+                  <button type="button" class="ghost-button" id="syncSettlementScheduleButton">일정표 기준 반영</button>
+                </div>
+
+                <label>
+                  <span id="settlementSchedulePasteText">엑셀 일정 붙여넣기</span>
+                  <textarea id="settlementSchedulePaste" rows="3" placeholder="예: 1회차	2026-07-08	1980000	결제 완료"></textarea>
+                </label>
+                <div class="settlement-schedule-actions">
+                  <button type="button" class="secondary-button" id="parseSettlementScheduleButton">붙여넣은 일정 불러오기</button>
+                </div>
+
+                <div class="settlement-schedule-list" id="settlementScheduleList"></div>
+              </section>
+
+              <label>
+                <span>회차/차감 계획</span>
+                <textarea id="settlementPlan" rows="4" placeholder="예: 1회차 7/10 청구, 2회차 8/10 청구, 선금 50만원씩 차감"></textarea>
+              </label>
+              <label>
+                <span>정산 메모</span>
+                <textarea id="settlementMemo" rows="5" placeholder="계약 조건, 청구 기준, 입금 확인 내용, 주의사항"></textarea>
+              </label>
+              <div class="form-actions">
+                <button type="button" class="secondary-button folder-action-button hidden" id="openCurrentSettlementFilesButton">
+                  <span class="folder-icon" aria-hidden="true"></span>
+                  <span>파일함</span>
+                </button>
+                <button type="submit" class="primary-button" id="saveSettlementButton">정산 업무 저장</button>
+                <button type="button" class="danger-button hidden" id="deleteSettlementButton">삭제</button>
+              </div>
+            </form>
+          </section>
+          <section class="list-panel">
+            <div class="section-heading list-heading">
+              <div>
+                <p class="eyebrow">Settlement Jobs</p>
+                <h2 id="settlementListTitle">정산 업무 목록</h2>
+              </div>
+              <div class="list-heading-actions">
+                <button type="button" class="primary-button" id="newSettlementTaskButton">새 정산 업무</button>
+              </div>
+            </div>
+            <div class="work-explorer">
+              <div class="work-view-tabs" aria-label="정산 업무 보기">
+                <button type="button" class="work-view-tab is-active" data-work-view-category="settlement" data-work-view-mode="active">
+                  <span>진행 중</span>
+                  <strong id="settlementActiveCount">0</strong>
+                </button>
+                <button type="button" class="work-view-tab" data-work-view-category="settlement" data-work-view-mode="hold">
+                  <span>보류</span>
+                  <strong id="settlementHoldCount">0</strong>
+                </button>
+                <button type="button" class="work-view-tab" data-work-view-category="settlement" data-work-view-mode="closed">
+                  <span>완료</span>
+                  <strong id="settlementClosedCount">0</strong>
+                </button>
+              </div>
+              <div class="toolbar work-toolbar" aria-label="정산 업무 검색 및 정렬">
+                <label class="search-field">
+                  <span>검색</span>
+                  <input type="search" id="settlementSearchInput" placeholder="업체, 담당자, 금액, 메모">
+                </label>
+                <label>
+                  <span>상태</span>
+                  <select id="settlementStatusFilter">
+                    <option value="all">전체</option>
+                    <option value="예정">예정</option>
+                    <option value="선금 예정">선금 예정</option>
+                    <option value="선금 완료">선금 완료</option>
+                    <option value="차감 진행 중">차감 진행 중</option>
+                    <option value="확인 필요">확인 필요</option>
+                    <option value="보류">보류</option>
+                    <option value="완료">완료</option>
+                  </select>
+                </label>
+                <label>
+                  <span>정렬</span>
+                  <div class="sort-control">
+                    <select id="settlementSortSelect">
+                      <option value="nextDate" selected>다음 처리일</option>
+                      <option value="updated">최종 수정일</option>
+                      <option value="company">업체명</option>
+                      <option value="status">상태</option>
+                    </select>
+                    <button type="button" class="secondary-button sort-direction-button" id="settlementSortDirectionButton" title="빠른순" aria-label="정렬 방향: 빠른순">↑</button>
+                  </div>
+                </label>
+              </div>
+            </div>
+            <div class="work-card-list" id="settlementTaskList"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="portal-view" id="outputPortal">
+        <div class="workspace-grid">
+          <section class="entry-panel hidden" id="outputEditorPanel" aria-labelledby="outputFormTitle" aria-modal="true">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Output</p>
+                <h2 id="outputFormTitle">출력 업무 등록</h2>
+              </div>
+              <div class="editor-actions">
+                <button type="button" class="ghost-button" id="resetOutputButton">초기화</button>
+                <button type="button" class="ghost-button icon-button" id="closeOutputEditorButton" aria-label="출력 업무 창 닫기">×</button>
+              </div>
+            </div>
+            <form id="outputForm" autocomplete="off">
+              <input type="hidden" id="outputTaskId">
+              <input type="hidden" id="outputSalesNoteId">
+              <input type="hidden" id="outputCompanyId">
+              <input type="hidden" id="outputContactId">
+              <section class="company-link-picker" aria-labelledby="outputCompanyLinkTitle">
+                <div class="attachment-heading">
+                  <div>
+                    <p class="eyebrow">Company</p>
+                    <h3 id="outputCompanyLinkTitle">관련 업체</h3>
+                  </div>
+                  <span class="attachment-count" id="outputCompanyLinkCount">연결 안 함</span>
+                </div>
+                <label>
+                  <span>업체 검색</span>
+                  <input type="search" id="outputCompanySearch" placeholder="업체명, 담당자, 연락처 검색">
+                </label>
+                <label class="checkbox-label deadline-weekend-option">
+                  <input type="checkbox" id="outputCompanyUnknown">
+                  <span>관련 업체 미정</span>
+                </label>
+                <div class="sales-link-selected" id="outputCompanySelected"></div>
+                <div class="sales-link-results" id="outputCompanyResults"></div>
+                <label class="hidden" id="outputContactPickerField">
+                  <span>담당자 선택</span>
+                  <select id="outputContactPicker"></select>
+                </label>
+              </section>
+              <div class="form-row">
+                <label>
+                  <span>선택된 업체명</span>
+                  <input type="text" id="outputCompany" class="readonly-field" readonly placeholder="업체 선택 시 자동 입력">
+                </label>
+                <label>
+                  <span>담당자(요청자)</span>
+                  <input type="text" id="outputContactName" placeholder="예: 홍길동">
+                </label>
+              </div>
+              <div class="form-row">
+                <label>
+                  <span>담당자 연락처</span>
+                  <input type="text" id="outputContactPhone" placeholder="예: 010-0000-0000">
+                </label>
+                <label>
+                  <span>담당자 이메일</span>
+                  <input type="email" id="outputContactEmail" placeholder="예: name@example.com">
+                </label>
+              </div>
+              <section class="sales-link-picker" aria-labelledby="outputSalesLinkTitle">
+                <div class="attachment-heading">
+                  <div>
+                    <p class="eyebrow">Sales Link</p>
+                    <h3 id="outputSalesLinkTitle">관련 영업건</h3>
+                  </div>
+                  <span class="attachment-count" id="outputSalesLinkCount">연결 안 함</span>
+                </div>
+                <label>
+                  <span>영업건 검색</span>
+                  <input type="search" id="outputSalesLinkSearch" placeholder="업체, 담당자, 관심제품, 메모 검색">
+                </label>
+                <label class="checkbox-label deadline-weekend-option">
+                  <input type="checkbox" id="outputSalesLinkUnknown">
+                  <span>관련 영업건 미정</span>
+                </label>
+                <div class="sales-link-selected" id="outputSalesLinkSelected"></div>
+                <div class="sales-link-results" id="outputSalesLinkResults"></div>
+              </section>
+              <div class="form-row">
+                <label>
+                  <span>기한 시작</span>
+                  <input type="date" id="outputStartDate">
+                </label>
+                <label>
+                  <span>기한 종료</span>
+                  <input type="date" id="outputEndDate">
+                </label>
+              </div>
+              <label class="checkbox-label deadline-weekend-option">
+                <input type="checkbox" id="outputIncludeWeekends">
+                <span>주말 포함</span>
+              </label>
+              <div class="form-row">
+                <label>
+                  <span>진행 상태</span>
+                  <select id="outputStatus">
+                    <option value="대기">대기</option>
+                    <option value="진행 중">진행 중</option>
+                    <option value="검토 필요">검토 필요</option>
+                    <option value="완료">완료</option>
+                    <option value="보류">보류</option>
+                  </select>
+                </label>
+                <label>
+                  <span>출력 종류</span>
+                  <input type="text" id="outputType" placeholder="예: 샘플 출력, BMT, 시제품">
+                </label>
+              </div>
+              <label>
+                <span>중요도</span>
+                <select id="outputPriority">
+                  <option value="낮음">낮음</option>
+                  <option value="보통" selected>보통</option>
+                  <option value="높음">높음</option>
+                  <option value="긴급">긴급</option>
+                </select>
+              </label>
+              <label>
+                <span>업무 메모</span>
+                <textarea id="outputMemo" rows="5" placeholder="소재, 장비, 후처리, 납기, 주의사항"></textarea>
+              </label>
+              <div class="form-actions">
+                <button type="button" class="secondary-button folder-action-button hidden" id="openCurrentOutputFilesButton">
+                  <span class="folder-icon" aria-hidden="true"></span>
+                  <span>파일함</span>
+                </button>
+                <button type="submit" class="primary-button" id="saveOutputButton">출력 업무 저장</button>
+                <button type="button" class="danger-button hidden" id="deleteOutputButton">삭제</button>
+              </div>
+            </form>
+          </section>
+          <section class="list-panel">
+            <div class="section-heading list-heading">
+              <div>
+                <p class="eyebrow">Output Jobs</p>
+                <h2 id="outputListTitle">출력 업무 목록</h2>
+              </div>
+              <div class="list-heading-actions">
+                <button type="button" class="primary-button" id="newOutputTaskButton">새 출력 업무</button>
+              </div>
+            </div>
+            <div class="work-explorer">
+              <div class="work-view-tabs" aria-label="출력 업무 보기">
+                <button type="button" class="work-view-tab is-active" data-work-view-category="output" data-work-view-mode="active">
+                  <span>진행 중</span>
+                  <strong id="outputActiveCount">0</strong>
+                </button>
+                <button type="button" class="work-view-tab" data-work-view-category="output" data-work-view-mode="hold">
+                  <span>보류</span>
+                  <strong id="outputHoldCount">0</strong>
+                </button>
+                <button type="button" class="work-view-tab" data-work-view-category="output" data-work-view-mode="closed">
+                  <span>완료</span>
+                  <strong id="outputClosedCount">0</strong>
+                </button>
+              </div>
+              <div class="toolbar work-toolbar" aria-label="출력 업무 검색 및 정렬">
+                <label class="search-field">
+                  <span>검색</span>
+                  <input type="search" id="outputSearchInput" placeholder="업체, 요청자, 출력 종류, 메모">
+                </label>
+                <label>
+                  <span>상태</span>
+                  <select id="outputStatusFilter">
+                    <option value="all">전체</option>
+                    <option value="대기">대기</option>
+                    <option value="진행 중">진행 중</option>
+                    <option value="검토 필요">검토 필요</option>
+                    <option value="완료">완료</option>
+                    <option value="보류">보류</option>
+                  </select>
+                </label>
+                <label>
+                  <span>중요도</span>
+                  <select id="outputPriorityFilter">
+                    <option value="all">전체</option>
+                    <option value="긴급">긴급</option>
+                    <option value="높음">높음</option>
+                    <option value="보통">보통</option>
+                    <option value="낮음">낮음</option>
+                  </select>
+                </label>
+                <label>
+                  <span>정렬</span>
+                  <div class="sort-control">
+                    <select id="outputSortSelect">
+                      <option value="deadline" selected>기한</option>
+                      <option value="priority">중요도</option>
+                      <option value="updated">최종 수정일</option>
+                      <option value="company">업체명</option>
+                      <option value="status">상태</option>
+                    </select>
+                    <button type="button" class="secondary-button sort-direction-button" id="outputSortDirectionButton" title="빠른순" aria-label="정렬 방향: 빠른순">↑</button>
+                  </div>
+                </label>
+              </div>
+            </div>
+            <div class="work-card-list" id="outputTaskList"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="portal-view" id="otherPortal">
+        <div class="workspace-grid">
+          <section class="entry-panel hidden" id="otherEditorPanel" aria-labelledby="otherFormTitle" aria-modal="true">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">General</p>
+                <h2 id="otherFormTitle">기타 업무 등록</h2>
+              </div>
+              <div class="editor-actions">
+                <button type="button" class="ghost-button" id="resetOtherButton">초기화</button>
+                <button type="button" class="ghost-button icon-button" id="closeOtherEditorButton" aria-label="기타 업무 창 닫기">×</button>
+              </div>
+            </div>
+            <form id="otherForm" autocomplete="off">
+              <input type="hidden" id="otherTaskId">
+              <input type="hidden" id="otherCompanyId">
+              <input type="hidden" id="otherContactId">
+              <input type="hidden" id="otherCompany">
+              <input type="hidden" id="otherContactName">
+              <input type="hidden" id="otherContactPhone">
+              <input type="hidden" id="otherContactEmail">
+              <label>
+                <span>업무명</span>
+                <input type="text" id="otherTitle" placeholder="예: 사내 요청사항 확인">
+              </label>
+              <section class="company-link-picker" aria-labelledby="otherCompanyLinkTitle">
+                <div class="attachment-heading">
+                  <div>
+                    <p class="eyebrow">Company</p>
+                    <h3 id="otherCompanyLinkTitle">관련 업체</h3>
+                  </div>
+                  <span class="attachment-count" id="otherCompanyLinkCount">연결 안 함</span>
+                </div>
+                <label>
+                  <span>업체 검색</span>
+                  <input type="search" id="otherCompanySearch" placeholder="업체명, 담당자, 연락처 검색">
+                </label>
+                <label class="checkbox-label deadline-weekend-option">
+                  <input type="checkbox" id="otherCompanyUnknown">
+                  <span>관련 업체 미정</span>
+                </label>
+                <div class="sales-link-selected" id="otherCompanySelected"></div>
+                <div class="sales-link-results" id="otherCompanyResults"></div>
+                <label class="hidden" id="otherContactPickerField">
+                  <span>담당자 선택</span>
+                  <select id="otherContactPicker"></select>
+                </label>
+              </section>
+              <div class="form-row">
+                <label>
+                  <span>구분</span>
+                  <input type="text" id="otherCategory" placeholder="예: 내부, 회의, 행정">
+                </label>
+                <label>
+                  <span>담당/요청자</span>
+                  <input type="text" id="otherOwner" placeholder="예: 민병석 / 영업팀">
+                </label>
+              </div>
+              <div class="form-row">
+                <label>
+                  <span>기한 시작</span>
+                  <input type="date" id="otherStartDate">
+                </label>
+                <label>
+                  <span>기한 종료</span>
+                  <input type="date" id="otherEndDate">
+                </label>
+              </div>
+              <label class="checkbox-label deadline-weekend-option">
+                <input type="checkbox" id="otherIncludeWeekends">
+                <span>주말 포함</span>
+              </label>
+              <label>
+                <span>진행 상태</span>
+                <select id="otherStatus">
+                  <option value="대기">대기</option>
+                  <option value="진행 중">진행 중</option>
+                  <option value="완료">완료</option>
+                  <option value="보류">보류</option>
+                </select>
+              </label>
+              <label>
+                <span>중요도</span>
+                <select id="otherPriority">
+                  <option value="낮음">낮음</option>
+                  <option value="보통" selected>보통</option>
+                  <option value="높음">높음</option>
+                  <option value="긴급">긴급</option>
+                </select>
+              </label>
+              <label>
+                <span>업무 메모</span>
+                <textarea id="otherMemo" rows="6" placeholder="업무 내용, 필요한 조치, 참고사항"></textarea>
+              </label>
+              <div class="form-actions">
+                <button type="button" class="secondary-button folder-action-button hidden" id="openCurrentOtherFilesButton">
+                  <span class="folder-icon" aria-hidden="true"></span>
+                  <span>파일함</span>
+                </button>
+                <button type="submit" class="primary-button" id="saveOtherButton">기타 업무 저장</button>
+                <button type="button" class="danger-button hidden" id="deleteOtherButton">삭제</button>
+              </div>
+            </form>
+          </section>
+          <section class="list-panel">
+            <div class="section-heading list-heading">
+              <div>
+                <p class="eyebrow">General Tasks</p>
+                <h2 id="otherListTitle">기타 업무 목록</h2>
+              </div>
+              <div class="list-heading-actions">
+                <button type="button" class="primary-button" id="newOtherTaskButton">새 기타 업무</button>
+              </div>
+            </div>
+            <div class="work-explorer">
+              <div class="work-view-tabs" aria-label="기타 업무 보기">
+                <button type="button" class="work-view-tab is-active" data-work-view-category="other" data-work-view-mode="active">
+                  <span>진행 중</span>
+                  <strong id="otherActiveCount">0</strong>
+                </button>
+                <button type="button" class="work-view-tab" data-work-view-category="other" data-work-view-mode="hold">
+                  <span>보류</span>
+                  <strong id="otherHoldCount">0</strong>
+                </button>
+                <button type="button" class="work-view-tab" data-work-view-category="other" data-work-view-mode="closed">
+                  <span>완료</span>
+                  <strong id="otherClosedCount">0</strong>
+                </button>
+              </div>
+              <div class="toolbar work-toolbar" aria-label="기타 업무 검색 및 정렬">
+                <label class="search-field">
+                  <span>검색</span>
+                  <input type="search" id="otherSearchInput" placeholder="업무명, 구분, 담당자, 메모">
+                </label>
+                <label>
+                  <span>상태</span>
+                  <select id="otherStatusFilter">
+                    <option value="all">전체</option>
+                    <option value="대기">대기</option>
+                    <option value="진행 중">진행 중</option>
+                    <option value="완료">완료</option>
+                    <option value="보류">보류</option>
+                  </select>
+                </label>
+                <label>
+                  <span>중요도</span>
+                  <select id="otherPriorityFilter">
+                    <option value="all">전체</option>
+                    <option value="긴급">긴급</option>
+                    <option value="높음">높음</option>
+                    <option value="보통">보통</option>
+                    <option value="낮음">낮음</option>
+                  </select>
+                </label>
+                <label>
+                  <span>정렬</span>
+                  <div class="sort-control">
+                    <select id="otherSortSelect">
+                      <option value="deadline" selected>기한</option>
+                      <option value="priority">중요도</option>
+                      <option value="updated">최종 수정일</option>
+                      <option value="title">업무명</option>
+                      <option value="status">상태</option>
+                    </select>
+                    <button type="button" class="secondary-button sort-direction-button" id="otherSortDirectionButton" title="빠른순" aria-label="정렬 방향: 빠른순">↑</button>
+                  </div>
+                </label>
+              </div>
+            </div>
+            <div class="work-card-list" id="otherTaskList"></div>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <template id="followupItemTemplate">
+      <button type="button" class="followup-item">
+        <span class="followup-company"></span>
+        <small class="followup-meta"></small>
+      </button>
+    </template>
+
+    <script src="script.js"></script>
+  </body>
+</html>
