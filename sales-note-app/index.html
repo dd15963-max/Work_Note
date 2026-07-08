@@ -202,13 +202,19 @@
       </aside>
 
       <nav class="portal-tabs" aria-label="업무 포탈">
-        <button type="button" class="portal-tab is-active" data-portal="schedule">일정</button>
-        <button type="button" class="portal-tab" data-portal="company">업체</button>
-        <button type="button" class="portal-tab" data-portal="sales">영업</button>
-        <button type="button" class="portal-tab" data-portal="account">계정</button>
-        <button type="button" class="portal-tab" data-portal="settlement">정산</button>
-        <button type="button" class="portal-tab" data-portal="output">출력</button>
-        <button type="button" class="portal-tab" data-portal="other">기타</button>
+        <div class="portal-tab-group portal-tab-group-schedule" aria-label="일정">
+          <button type="button" class="portal-tab is-active" data-portal="schedule">일정</button>
+        </div>
+        <div class="portal-tab-group portal-tab-group-work" aria-label="업무">
+          <button type="button" class="portal-tab" data-portal="company">업체</button>
+          <button type="button" class="portal-tab" data-portal="sales">영업</button>
+          <button type="button" class="portal-tab" data-portal="settlement">정산</button>
+          <button type="button" class="portal-tab" data-portal="output">출력</button>
+          <button type="button" class="portal-tab" data-portal="other">기타</button>
+        </div>
+        <div class="portal-tab-group portal-tab-group-account" aria-label="계정">
+          <button type="button" class="portal-tab" data-portal="account">계정</button>
+        </div>
       </nav>
 
       <section class="global-search-panel" aria-label="통합 검색">

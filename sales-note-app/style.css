@@ -636,9 +636,33 @@ h2 {
 
 .portal-tabs {
   display: flex;
-  gap: 8px;
+  align-items: flex-end;
+  gap: 14px;
   margin: 0 0 18px;
   border-bottom: 1px solid var(--line);
+}
+
+.portal-tab-group {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.portal-tab-group-schedule {
+  justify-content: flex-start;
+}
+
+.portal-tab-group-work {
+  justify-content: center;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  padding: 0 14px;
+}
+
+.portal-tab-group-account {
+  justify-content: flex-end;
 }
 
 .portal-tab {
@@ -2775,13 +2799,24 @@ td .inline-edit-select {
     position: sticky;
     top: 0;
     z-index: 12;
-    gap: 6px;
+    gap: 10px;
     overflow-x: auto;
     margin: 0 -8px 14px;
     border-bottom: 0;
     background: var(--bg);
     padding: 8px;
     scrollbar-width: none;
+  }
+
+  .portal-tab-group {
+    flex: 0 0 auto;
+    gap: 6px;
+  }
+
+  .portal-tab-group-work {
+    border-left: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+    padding: 0 10px;
   }
 
   .portal-tabs::-webkit-scrollbar {
