@@ -37,6 +37,17 @@ function Test-IsInsideGitDirectory {
   return $FullPath.StartsWith($gitPath, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
+function Test-IsIgnoredWorkspaceDirectory {
+  param(
+    [string]$FullPath,
+    [string]$RootPath
+  )
+
+  $relativePath = ConvertTo-RepositoryPath -FullPath $FullPath -RootPath $RootPath
+  $segments = @($relativePath.ToLowerInvariant().Split("\", [System.StringSplitOptions]::RemoveEmptyEntries))
+  return $segments -contains "node_modules" -or $segments -contains ".vite"
+}
+
 function Get-CandidatePaths {
   param(
     [string]$Mode,
@@ -52,7 +63,10 @@ function Get-CandidatePaths {
   }
 
   $files = Get-ChildItem -LiteralPath $RootPath -Recurse -File -Force |
-    Where-Object { -not (Test-IsInsideGitDirectory -FullPath $_.FullName -RootPath $RootPath) }
+    Where-Object {
+      -not (Test-IsInsideGitDirectory -FullPath $_.FullName -RootPath $RootPath) -and
+      -not (Test-IsIgnoredWorkspaceDirectory -FullPath $_.FullName -RootPath $RootPath)
+    }
 
   return @($files | ForEach-Object { ConvertTo-RepositoryPath -FullPath $_.FullName -RootPath $RootPath })
 }

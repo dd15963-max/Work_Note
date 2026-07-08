@@ -3,6 +3,8 @@ data/
 attachments/
 backups/
 exports/
+node_modules/
+.vite/
 *.zip
 *.7z
 *.rar
