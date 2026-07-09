@@ -367,6 +367,26 @@ function BackupCenter({
     setSaveMessage(`CSV 내보내기 완료 · ${formatDateTime(new Date().toISOString())}`);
   };
 
+  const auditAttachments = async () => {
+    setBusy("첨부 원본 점검 중");
+    try {
+      const result = await auditAttachmentStorage(data);
+      const message = `첨부 원본 점검 완료 · 원본 ${result.foundCount}/${result.totalCount}개 확인`;
+      setSaveMessage(message);
+      if (!result.totalCount) {
+        alert("점검할 첨부 기록이 없습니다.");
+      } else if (result.missing.length) {
+        alert(`첨부 기록 ${result.totalCount}개 중 원본 파일 ${result.missing.length}개를 찾지 못했습니다.\n\n누락 예시:\n${result.missing.slice(0, 8).map((item) => `- ${item.ownerTitle} / ${item.fileName}`).join("\n")}\n\n누락된 파일은 JSON에는 기록만 남고, 전체 ZIP에도 원본이 포함되지 않습니다.`);
+      } else {
+        alert(`첨부 원본 ${result.totalCount}개를 모두 확인했습니다.`);
+      }
+    } catch (error) {
+      alert(`첨부 원본을 점검하지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusy("");
+    }
+  };
+
   const resetWorkspace = async () => {
     const ok = confirm("전체 메모장을 초기화할까요?\n\n영업, 정산, 출력, 기타, 업체, 계정 기록과 이 브라우저에 저장된 첨부 원본 파일이 모두 삭제됩니다.\n필요한 자료가 있으면 먼저 전체 ZIP 백업을 만들어 주세요.");
     if (!ok) return;
@@ -421,6 +441,7 @@ function BackupCenter({
         return;
       }
       if (!confirm("JSON 백업으로 현재 데이터를 교체할까요?\n\n첨부 파일 원본은 JSON에 포함되지 않습니다. 필요한 경우 전체 ZIP 백업을 사용해 주세요.")) return;
+      downloadPreImportBackup(loadWorkNoteData(), "before-json-replace");
       saveWorkNoteData(backupData, "JSON 백업 교체");
       finishImport("JSON 교체 완료");
     } catch (error) {
@@ -447,6 +468,7 @@ function BackupCenter({
         return;
       }
       if (!confirm(`전체 ZIP 백업으로 현재 데이터를 교체할까요?\n\n복원 가능한 원본 파일: ${zipResult.files.records.length}개`)) return;
+      downloadPreImportBackup(loadWorkNoteData(), "before-zip-replace");
       const next = normalizeBackupToWorkNote(zipResult.data);
       await restoreZipAttachmentRecords(zipResult.files, next);
       saveWorkNoteData(next, "전체 ZIP 백업 교체");
@@ -480,6 +502,11 @@ function BackupCenter({
           <strong>병합</strong>
           <button type="button" onClick={() => chooseJson("merge")} disabled={Boolean(busy)}>JSON 병합</button>
           <button type="button" onClick={() => chooseZip("merge")} disabled={Boolean(busy)}>ZIP 병합</button>
+        </div>
+        <div>
+          <strong>점검</strong>
+          <button type="button" onClick={auditAttachments} disabled={Boolean(busy)}>첨부 원본 점검</button>
+          <span className="backup-panel-spacer" aria-hidden="true" />
         </div>
         <div>
           <strong>관리</strong>
@@ -1275,6 +1302,14 @@ function SalesEditor({
             ))}
           </select>
         </label>
+        <div className="selection-summary wide-field">
+          <strong>{selectedCompany ? companyName(selectedCompany) : (draft.companyUnknown ? "업체 미정" : "직접 입력")}</strong>
+          <span>
+            {[firstText(draft, ["contactName"]), firstText(draft, ["contactPhone"]), firstText(draft, ["contactEmail"])]
+              .filter(Boolean)
+              .join(" · ") || "담당자 정보 없음"}
+          </span>
+        </div>
         <TextField label="고객/업체명" value={firstText(draft, ["company"])} onChange={(value) => updateField("company", value)} placeholder="업체명 또는 고객명" />
         {contacts.length > 0 && (
           <label className="field">
@@ -1992,6 +2027,14 @@ function WorkEditor({
             ))}
           </select>
         </label>
+        <div className="selection-summary wide-field">
+          <strong>{selectedCompany ? companyName(selectedCompany) : (draft.companyUnknown ? "업체 미정" : "직접 입력")}</strong>
+          <span>
+            {[firstText(draft, ["contactName"]), firstText(draft, ["contactPhone"]), firstText(draft, ["contactEmail"])]
+              .filter(Boolean)
+              .join(" · ") || "담당자 정보 없음"}
+          </span>
+        </div>
         <TextField label="업체명" value={firstText(draft, ["company"])} onChange={(value) => updateField("company", value)} placeholder="업체명 또는 미정" />
         {contacts.length > 0 && (
           <label className="field">
@@ -2889,6 +2932,63 @@ function cloneBackupState(data: WorkNoteData): Pick<WorkNoteData, "companies" | 
 
 function downloadJson(payload: AnyRecord, filename: string) {
   downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), filename, "application/json");
+}
+
+function downloadPreImportBackup(data: WorkNoteData, reason: string) {
+  const payload = createBackupPayload(data, reason);
+  downloadJson(payload, `work-note-${reason}-${getFilenameTimestamp()}.json`);
+}
+
+async function auditAttachmentStorage(data: WorkNoteData): Promise<{
+  totalCount: number;
+  foundCount: number;
+  missing: Array<{ id: string; ownerTitle: string; fileName: string }>;
+}> {
+  const attachments = collectAttachmentMetadata(data);
+  const missing: Array<{ id: string; ownerTitle: string; fileName: string }> = [];
+  let foundCount = 0;
+
+  for (const attachment of attachments) {
+    const record = await getAttachmentRecord(attachment.id);
+    if (record?.blob) {
+      foundCount += 1;
+    } else {
+      missing.push(attachment);
+    }
+  }
+
+  return {
+    totalCount: attachments.length,
+    foundCount,
+    missing
+  };
+}
+
+function collectAttachmentMetadata(data: WorkNoteData): Array<{ id: string; ownerTitle: string; fileName: string }> {
+  const items: Array<{ id: string; ownerTitle: string; fileName: string }> = [];
+  getAttachmentOwnerGroups(data).forEach((ownerGroup) => {
+    ownerGroup.items.forEach((owner) => {
+      const ownerTitle = attachmentOwnerTitle(ownerGroup.type, owner);
+      asArray(owner.attachments).forEach((attachment) => {
+        const id = firstText(attachment, ["id"]);
+        if (!id) return;
+        items.push({
+          id,
+          ownerTitle,
+          fileName: firstText(attachment, ["fileName", "name", "filename"]) || "attachment"
+        });
+      });
+    });
+  });
+  return items;
+}
+
+function attachmentOwnerTitle(type: AttachmentOwnerType, owner: AnyRecord): string {
+  if (type === "company") return companyName(owner) || "업체";
+  if (type === "sales") return salesCustomer(owner);
+  if (type === "settlement") return workTitle(owner, "settlement");
+  if (type === "output") return workTitle(owner, "output");
+  return workTitle(owner, "other");
 }
 
 function downloadWorkNoteCsv(data: WorkNoteData) {

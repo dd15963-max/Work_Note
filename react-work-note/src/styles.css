@@ -178,6 +178,10 @@ h2 {
   color: var(--primary);
 }
 
+.backup-panel-spacer {
+  min-height: 34px;
+}
+
 .backup-center-panel button.danger {
   border-color: #f0b4af;
   background: var(--red-soft);
@@ -1580,6 +1584,12 @@ h2 {
     padding: 12px;
   }
 
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
   .app-header {
     grid-template-columns: 1fr;
   }
@@ -1590,6 +1600,28 @@ h2 {
 
   .header-actions > * {
     flex: 1 1 160px;
+  }
+
+  .backup-center {
+    position: static;
+  }
+
+  .backup-center-panel {
+    position: fixed;
+    top: 72px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: calc(100dvh - 96px);
+    overflow: auto;
+  }
+
+  .backup-center-panel div {
+    grid-template-columns: 1fr;
+  }
+
+  .backup-panel-spacer {
+    display: none;
   }
 
   .safety-strip {
@@ -1654,6 +1686,30 @@ h2 {
   .section-title-row {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .editor-panel {
+    padding: 14px;
+  }
+
+  .editor-panel > .section-title-row {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .editor-panel > .form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    margin: 16px -14px -14px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(8px);
+  }
+
+  .editor-panel > .form-actions button {
+    flex: 1 1 120px;
   }
 
   .toolbar-cluster {
