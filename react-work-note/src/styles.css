@@ -886,7 +886,7 @@ h2 {
 
 .schedule-list-item {
   display: grid;
-  grid-template-columns: minmax(420px, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   border-left: 4px solid var(--primary);
   border-radius: 8px;
@@ -898,6 +898,10 @@ h2 {
   margin: 6px 0 0;
   color: var(--muted);
   line-height: 1.45;
+}
+
+.today-panel .schedule-list-item p {
+  display: none;
 }
 
 .schedule-list-item.settlement {
