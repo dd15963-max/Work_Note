@@ -20,6 +20,7 @@ import {
   Search,
   ShieldCheck,
   Trash2,
+  Upload,
   WalletCards,
   X,
   ZoomIn,
@@ -75,6 +76,22 @@ const PRIORITY_OPTIONS = ["긴급", "높음", "보통", "낮음"];
 const PURCHASE_POSSIBILITY_OPTIONS = ["미정", "낮음", "보통", "높음"];
 const QUOTE_STATUS_OPTIONS = ["미진행", "발송 완료", "진행 중", "불필요"];
 const REVENUE_TYPE_OPTIONS = ["장비 매출", "소재 매출", "타사 장비", "타사 소재", "기타"];
+
+const FILE_CATEGORY_OPTIONS = [
+  "견적서",
+  "발송자료",
+  "메일 캡처",
+  "사업자등록증",
+  "통장 사본",
+  "회사 서류",
+  "출력 파일",
+  "정산자료",
+  "세금계산서",
+  "입금증",
+  "샘플/BMT",
+  "계약/발주",
+  "기타 파일"
+];
 
 const portals: Array<{ id: PortalId; label: string; icon: typeof CalendarDays }> = [
   { id: "schedule", label: "일정", icon: CalendarDays },
@@ -715,6 +732,112 @@ function SalesPortal({
     if (salesPanel?.id === id) setSalesPanel(null);
   };
 
+  const updateSalesAttachments = (
+    noteId: string,
+    updater: (attachments: AnyRecord[]) => AnyRecord[],
+    reason: string
+  ) => {
+    onPersist((current) => {
+      const now = new Date().toISOString();
+      return {
+        ...current,
+        notes: current.notes.map((item, itemIndex) =>
+          recordId(item, itemIndex) === noteId
+            ? {
+                ...item,
+                attachments: updater(asArray(item.attachments)),
+                updatedAt: now
+              }
+            : item
+        )
+      };
+    }, reason);
+  };
+
+  const uploadSalesAttachments = async (
+    noteId: string,
+    files: File[],
+    meta: { category: string; sentDate: string; memo: string }
+  ) => {
+    if (!files.length) {
+      alert("업로드할 파일을 선택해 주세요.");
+      return;
+    }
+
+    const uploadedAt = new Date().toISOString();
+    const records = files.map((file) => {
+      const id = createId("file_");
+      const attachmentMeta: AttachmentRecord = {
+        id,
+        ownerType: "sales",
+        ownerId: noteId,
+        fileName: file.name,
+        name: file.name,
+        fileType: file.type || "application/octet-stream",
+        fileSize: file.size,
+        category: meta.category,
+        sentDate: meta.sentDate,
+        memo: meta.memo,
+        uploadedAt
+      };
+      return { meta: attachmentMeta, record: { ...attachmentMeta, blob: file } };
+    });
+
+    try {
+      await Promise.all(records.map(({ record }) => putAttachmentRecord(record)));
+      updateSalesAttachments(noteId, (attachments) => [...attachments, ...records.map(({ meta }) => meta)], "영업 파일 업로드");
+    } catch (error) {
+      alert(`파일을 저장하지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const updateSalesAttachmentMeta = async (
+    noteId: string,
+    attachmentKey: string,
+    values: { category: string; sentDate: string; memo: string }
+  ) => {
+    let updatedAttachment: AnyRecord | null = null;
+    updateSalesAttachments(
+      noteId,
+      (attachments) =>
+        attachments.map((attachment, attachmentIndex) => {
+          if (recordId(attachment, attachmentIndex) !== attachmentKey) return attachment;
+          updatedAttachment = { ...attachment, ...values };
+          return updatedAttachment;
+        }),
+      "영업 파일 정보 수정"
+    );
+
+    const attachmentId = updatedAttachment ? firstText(updatedAttachment, ["id"]) : "";
+    if (!attachmentId) return;
+    try {
+      const stored = await getAttachmentRecord(attachmentId);
+      if (stored?.blob) {
+        await putAttachmentRecord({ ...stored, ...updatedAttachment, blob: stored.blob });
+      }
+    } catch {
+      // Metadata is still saved in localStorage. The original blob can be restored by importing a full ZIP backup.
+    }
+  };
+
+  const deleteSalesAttachment = async (noteId: string, attachmentKey: string) => {
+    if (!confirm("이 파일을 파일함에서 삭제할까요? 원본 파일도 이 브라우저 저장소에서 삭제됩니다.")) return;
+    const targetNote = data.notes.find((item, itemIndex) => recordId(item, itemIndex) === noteId);
+    const targetAttachment = asArray(targetNote?.attachments).find((attachment, attachmentIndex) => recordId(attachment, attachmentIndex) === attachmentKey);
+    const attachmentId = targetAttachment ? firstText(targetAttachment, ["id"]) : "";
+
+    try {
+      if (attachmentId) await deleteAttachmentRecord(attachmentId);
+      updateSalesAttachments(
+        noteId,
+        (attachments) => attachments.filter((attachment, attachmentIndex) => recordId(attachment, attachmentIndex) !== attachmentKey),
+        "영업 파일 삭제"
+      );
+    } catch (error) {
+      alert(`파일을 삭제하지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   return (
     <section className="panel">
       <div className="section-title-row">
@@ -830,7 +953,17 @@ function SalesPortal({
                   <small>{formatDateTime(firstText(note, ["updatedAt"]))}</small>
                 </div>
               </article>
-              {expanded && <SalesDetailPanel note={note} company={linkedCompany} mode={activeMode || "detail"} />}
+              {expanded && (
+                <SalesDetailPanel
+                  note={note}
+                  company={linkedCompany}
+                  mode={activeMode || "detail"}
+                  noteId={id}
+                  onUploadAttachments={uploadSalesAttachments}
+                  onUpdateAttachmentMeta={updateSalesAttachmentMeta}
+                  onDeleteAttachment={deleteSalesAttachment}
+                />
+              )}
             </div>
           );
         })}
@@ -963,7 +1096,23 @@ function SalesEditor({
   );
 }
 
-function SalesDetailPanel({ note, company, mode }: { note: AnyRecord; company: AnyRecord | null; mode: SalesPanelMode }) {
+function SalesDetailPanel({
+  note,
+  company,
+  mode,
+  noteId,
+  onUploadAttachments,
+  onUpdateAttachmentMeta,
+  onDeleteAttachment
+}: {
+  note: AnyRecord;
+  company: AnyRecord | null;
+  mode: SalesPanelMode;
+  noteId: string;
+  onUploadAttachments: (noteId: string, files: File[], meta: { category: string; sentDate: string; memo: string }) => Promise<void>;
+  onUpdateAttachmentMeta: (noteId: string, attachmentKey: string, values: { category: string; sentDate: string; memo: string }) => Promise<void>;
+  onDeleteAttachment: (noteId: string, attachmentKey: string) => Promise<void>;
+}) {
   const attachments = asArray(note.attachments);
   const contacts = company ? asArray(company.contacts) : [];
   return (
@@ -1017,22 +1166,187 @@ function SalesDetailPanel({ note, company, mode }: { note: AnyRecord; company: A
         <div className="sales-detail-grid">
           <section className="wide-detail-section">
             <p className="eyebrow">FILES</p>
-            <div className="attachment-detail-list">
-              {attachments.map((attachment, index) => (
-                <article key={recordId(attachment, index)}>
-                  <div className="attachment-title-row">
-                    <strong>{firstText(attachment, ["fileName", "name"]) || "첨부자료"}</strong>
-                    <AttachmentActions attachment={attachment} />
-                  </div>
-                  <span>{[firstText(attachment, ["category"]), formatOptionalDate(firstText(attachment, ["sentDate"])), firstText(attachment, ["memo"])].filter(Boolean).join(" · ") || "파일 정보 없음"}</span>
-                </article>
-              ))}
-              {!attachments.length && <article><strong>첨부자료 없음</strong><span>기존 앱 파일함에서 첨부자료를 추가할 수 있습니다.</span></article>}
-            </div>
+            <SalesFileManager
+              noteId={noteId}
+              attachments={attachments}
+              onUpload={onUploadAttachments}
+              onUpdateMeta={onUpdateAttachmentMeta}
+              onDelete={onDeleteAttachment}
+            />
           </section>
         </div>
       )}
     </div>
+  );
+}
+
+function SalesFileManager({
+  noteId,
+  attachments,
+  onUpload,
+  onUpdateMeta,
+  onDelete
+}: {
+  noteId: string;
+  attachments: AnyRecord[];
+  onUpload: (noteId: string, files: File[], meta: { category: string; sentDate: string; memo: string }) => Promise<void>;
+  onUpdateMeta: (noteId: string, attachmentKey: string, values: { category: string; sentDate: string; memo: string }) => Promise<void>;
+  onDelete: (noteId: string, attachmentKey: string) => Promise<void>;
+}) {
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [category, setCategory] = useState(FILE_CATEGORY_OPTIONS[0]);
+  const [sentDate, setSentDate] = useState(toDateKey(new Date()));
+  const [memo, setMemo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [fileInputKey, setFileInputKey] = useState(0);
+
+  const handleUpload = async () => {
+    setBusy(true);
+    try {
+      await onUpload(noteId, selectedFiles, { category, sentDate, memo });
+      setSelectedFiles([]);
+      setMemo("");
+      setFileInputKey((value) => value + 1);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="sales-file-manager">
+      <div className="file-upload-panel">
+        <label className="file-picker">
+          <Upload size={17} />
+          <span>파일 선택</span>
+          <input
+            key={fileInputKey}
+            type="file"
+            multiple
+            onChange={(event) => setSelectedFiles(Array.from(event.target.files || []))}
+          />
+        </label>
+        <div className="file-upload-fields">
+          <label className="field">
+            <span>분류</span>
+            <select value={category} onChange={(event) => setCategory(event.target.value)}>
+              {FILE_CATEGORY_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </label>
+          <TextField label="발송/등록일" type="date" value={sentDate} onChange={setSentDate} />
+          <TextField label="파일 메모" value={memo} onChange={setMemo} placeholder="예: 발송 메일 캡처, 수정본, 최종 견적서" />
+          <button type="button" className="icon-text-button primary" disabled={busy || !selectedFiles.length} onClick={handleUpload}>
+            <Upload size={16} />
+            업로드
+          </button>
+        </div>
+        <div className="selected-file-list" aria-label="선택한 파일">
+          {selectedFiles.map((file) => (
+            <span key={`${file.name}-${file.size}-${file.lastModified}`}>
+              {file.name} · {formatFileSize(file.size)}
+            </span>
+          ))}
+          {!selectedFiles.length && <span>여러 파일을 한 번에 선택할 수 있습니다.</span>}
+        </div>
+      </div>
+
+      <div className="attachment-editor-list">
+        {attachments.map((attachment, index) => (
+          <AttachmentMetaEditor
+            key={recordId(attachment, index)}
+            noteId={noteId}
+            attachmentKey={recordId(attachment, index)}
+            attachment={attachment}
+            onUpdateMeta={onUpdateMeta}
+            onDelete={onDelete}
+          />
+        ))}
+        {!attachments.length && (
+          <div className="empty-inline">
+            <strong>첨부자료 없음</strong>
+            <span>이 영업 건에 보낸 견적서, 자료, 메일 캡처 이미지를 업로드해 두면 다시 다운로드할 수 있습니다.</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AttachmentMetaEditor({
+  noteId,
+  attachmentKey,
+  attachment,
+  onUpdateMeta,
+  onDelete
+}: {
+  noteId: string;
+  attachmentKey: string;
+  attachment: AnyRecord;
+  onUpdateMeta: (noteId: string, attachmentKey: string, values: { category: string; sentDate: string; memo: string }) => Promise<void>;
+  onDelete: (noteId: string, attachmentKey: string) => Promise<void>;
+}) {
+  const [category, setCategory] = useState(firstText(attachment, ["category"]) || FILE_CATEGORY_OPTIONS[0]);
+  const [sentDate, setSentDate] = useState(firstText(attachment, ["sentDate"]));
+  const [memo, setMemo] = useState(firstText(attachment, ["memo"]));
+  const [busy, setBusy] = useState(false);
+  const fileName = firstText(attachment, ["fileName", "name", "filename"]) || "첨부자료";
+
+  const saveMeta = async () => {
+    setBusy(true);
+    try {
+      await onUpdateMeta(noteId, attachmentKey, { category, sentDate, memo });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteFile = async () => {
+    setBusy(true);
+    try {
+      await onDelete(noteId, attachmentKey);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <article className="attachment-editor-card">
+      <div className="attachment-title-row">
+        <div>
+          <strong>{fileName}</strong>
+          <span>
+            {formatFileSize(Number(attachment.fileSize) || 0)}
+            {firstText(attachment, ["uploadedAt"]) ? ` · 등록 ${formatDateTime(firstText(attachment, ["uploadedAt"]))}` : ""}
+          </span>
+        </div>
+        <AttachmentActions attachment={attachment} />
+      </div>
+      <div className="attachment-editor-grid">
+        <label className="field">
+          <span>분류</span>
+          <select value={category} onChange={(event) => setCategory(event.target.value)}>
+            {FILE_CATEGORY_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+        <TextField label="발송/등록일" type="date" value={sentDate} onChange={setSentDate} />
+        <TextField label="메모" value={memo} onChange={setMemo} placeholder="파일별 메모" />
+        <div className="attachment-editor-actions">
+          <button type="button" onClick={saveMeta} disabled={busy}>
+            저장
+          </button>
+          <button type="button" className="danger-button" onClick={deleteFile} disabled={busy}>
+            삭제
+          </button>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -2243,6 +2557,40 @@ async function getAttachmentRecord(id: string): Promise<AttachmentRecord | null>
     request.onerror = () => reject(request.error || new Error("첨부파일을 읽지 못했습니다."));
     transaction.oncomplete = () => db.close();
     transaction.onerror = () => db.close();
+  });
+}
+
+async function putAttachmentRecord(record: AttachmentRecord): Promise<void> {
+  if (!record.id) throw new Error("파일 ID가 없습니다.");
+  const db = await openAttachmentDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(ATTACHMENT_STORE_NAME, "readwrite");
+    transaction.objectStore(ATTACHMENT_STORE_NAME).put(record);
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error || new Error("첨부 파일을 저장하지 못했습니다."));
+    };
+  });
+}
+
+async function deleteAttachmentRecord(id: string): Promise<void> {
+  if (!id) return;
+  const db = await openAttachmentDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(ATTACHMENT_STORE_NAME, "readwrite");
+    transaction.objectStore(ATTACHMENT_STORE_NAME).delete(id);
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error || new Error("첨부 파일을 삭제하지 못했습니다."));
+    };
   });
 }
 
