@@ -385,7 +385,7 @@ function BackupCenter({
     try {
       const text = await file.text();
       const parsed = JSON.parse(text) as AnyRecord;
-      const backupData = extractBackupData(parsed);
+      const backupData = normalizeBackupToWorkNote(extractBackupData(parsed));
       validateWorkNotePayload(backupData);
       if (jsonMode === "merge") {
         if (!confirm(`JSON 백업을 현재 데이터에 병합할까요?\n\nJSON에는 원본 파일이 없어서 새 첨부자료는 파일명 기록만 들어옵니다.`)) return;
@@ -395,7 +395,7 @@ function BackupCenter({
         return;
       }
       if (!confirm("JSON 백업으로 현재 데이터를 교체할까요?\n\n첨부 파일 원본은 JSON에 포함되지 않습니다. 필요한 경우 전체 ZIP 백업을 사용해 주세요.")) return;
-      saveWorkNoteData(normalizeBackupToWorkNote(backupData), "JSON 백업 교체");
+      saveWorkNoteData(backupData, "JSON 백업 교체");
       finishImport("JSON 교체 완료");
     } catch (error) {
       alert(`JSON 백업을 불러오지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
