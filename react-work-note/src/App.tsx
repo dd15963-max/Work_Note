@@ -955,6 +955,24 @@ function SalesPortal({
     setSalesPanel((current) => (current?.id === id && current.mode === mode ? null : { id, mode }));
   };
 
+  const updateSalesQuickField = (id: string, key: string, value: string) => {
+    onPersist((current) => {
+      const now = new Date().toISOString();
+      return {
+        ...current,
+        notes: current.notes.map((item, itemIndex) =>
+          recordId(item, itemIndex) === id
+            ? {
+                ...item,
+                [key]: value,
+                updatedAt: now
+              }
+            : item
+        )
+      };
+    }, "영업 목록 빠른 수정");
+  };
+
   const saveNote = (draft: AnyRecord) => {
     const normalized = normalizeSalesDraft(draft, data.companies);
     if (!normalized.company && !normalized.companyUnknown) {
@@ -1150,7 +1168,18 @@ function SalesPortal({
           const attachments = asArray(note.attachments);
           return (
             <div className="sales-row-group" key={id}>
-              <article className={`table-row sales-grid ${expanded ? "is-expanded" : ""}`}>
+              <article
+                className={`table-row sales-grid clickable-row ${expanded ? "is-expanded" : ""}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => toggleSalesPanel(id, "detail")}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    toggleSalesPanel(id, "detail");
+                  }
+                }}
+              >
                 <div>
                   <strong>{salesCustomer(note)}</strong>
                   <div className="contact-lines">
@@ -1159,14 +1188,38 @@ function SalesPortal({
                     <span>{firstText(note, ["contactEmail", "email"]) || "이메일 미입력"}</span>
                   </div>
                 </div>
-                <div>
-                  <Badge tone="blue">{salesStatus(note) || "미정"}</Badge>
+                <div onClick={(event) => event.stopPropagation()}>
+                  <select
+                    className="quick-select tone-blue"
+                    value={salesStatus(note) || SALES_STATUS_OPTIONS[0]}
+                    onChange={(event) => updateSalesQuickField(id, "status", event.target.value)}
+                  >
+                    {SALES_STATUS_OPTIONS.map((status) => (
+                      <option key={status} value={status}>{status}</option>
+                    ))}
+                  </select>
                 </div>
-                <div>
-                  <Badge tone="green">{salesCategory(note) || "미지정"}</Badge>
+                <div onClick={(event) => event.stopPropagation()}>
+                  <select
+                    className="quick-select tone-green"
+                    value={salesCategory(note) || SALES_ITEM_CATEGORY_OPTIONS[0]}
+                    onChange={(event) => updateSalesQuickField(id, "itemCategory", event.target.value)}
+                  >
+                    {SALES_ITEM_CATEGORY_OPTIONS.map((category) => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
                 </div>
-                <div>
-                  <Badge tone={priorityTone(salesPriority(note))}>{salesPriority(note) || "보통"}</Badge>
+                <div onClick={(event) => event.stopPropagation()}>
+                  <select
+                    className={`quick-select tone-${priorityTone(salesPriority(note))}`}
+                    value={salesPriority(note) || "보통"}
+                    onChange={(event) => updateSalesQuickField(id, "priority", event.target.value)}
+                  >
+                    {PRIORITY_OPTIONS.map((priority) => (
+                      <option key={priority} value={priority}>{priority}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="compact-lines sales-status-lines">
                   <InfoLine label="관심제품" value={salesInterest(note) || "-"} />
@@ -1190,7 +1243,7 @@ function SalesPortal({
                   )}
                   <InfoLine label="최근연락" value={formatOptionalDate(firstText(note, ["lastContactDate"])) || "-"} />
                 </div>
-                <div className="sales-management-actions">
+                <div className="sales-management-actions" onClick={(event) => event.stopPropagation()}>
                   <button
                     type="button"
                     onClick={() => toggleSalesPanel(id, "company")}
@@ -1206,13 +1259,7 @@ function SalesPortal({
                   >
                     파일 {attachments.length}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => toggleSalesPanel(id, "detail")}
-                    aria-expanded={activeMode === "detail"}
-                  >
-                    {activeMode === "detail" ? "접기" : "상세"}
-                  </button>
+
                   <button type="button" onClick={() => setEditingNote(prepareSalesDraft(note, index))}>
                     수정
                   </button>
@@ -1363,13 +1410,29 @@ function SalesEditor({
         <SelectField label="중요도" value={salesPriority(draft) || "보통"} onChange={(value) => updateField("priority", value)} options={PRIORITY_OPTIONS} />
         <SelectField label="견적 여부" value={firstText(draft, ["quoteStatus"]) || "미진행"} onChange={(value) => updateField("quoteStatus", value)} options={QUOTE_STATUS_OPTIONS} />
         <SelectField label="구매 가능성" value={firstText(draft, ["purchasePossibility"]) || "미정"} onChange={(value) => updateField("purchasePossibility", value)} options={PURCHASE_POSSIBILITY_OPTIONS} />
-        <TextField label="예상매출" value={firstText(draft, ["expectedRevenueAmount"])} onChange={(value) => updateField("expectedRevenueAmount", value)} placeholder="예: 15000000" />
-        <CheckField label="예상매출 VAT 포함" checked={Boolean(draft.expectedRevenueVatIncluded)} onChange={(checked) => updateField("expectedRevenueVatIncluded", checked)} />
-        <TextField label="매출" value={firstText(draft, ["revenueAmount"])} onChange={(value) => updateField("revenueAmount", value)} placeholder="예: 10000000" />
-        <CheckField label="매출 VAT 포함" checked={Boolean(draft.revenueAmountVatIncluded)} onChange={(checked) => updateField("revenueAmountVatIncluded", checked)} />
+        <TextField
+          label="예상매출"
+          value={firstText(draft, ["expectedRevenueAmount"])}
+          onChange={(value) => updateField("expectedRevenueAmount", value)}
+          placeholder="예: 15000000"
+          option={<FieldCheck label="VAT 포함" checked={Boolean(draft.expectedRevenueVatIncluded)} onChange={(checked) => updateField("expectedRevenueVatIncluded", checked)} />}
+        />
+        <TextField
+          label="매출"
+          value={firstText(draft, ["revenueAmount"])}
+          onChange={(value) => updateField("revenueAmount", value)}
+          placeholder="예: 10000000"
+          option={<FieldCheck label="VAT 포함" checked={Boolean(draft.revenueAmountVatIncluded)} onChange={(checked) => updateField("revenueAmountVatIncluded", checked)} />}
+        />
         <SelectField label="매출 구분" value={firstText(draft, ["revenueType"])} onChange={(value) => updateField("revenueType", value)} options={REVENUE_TYPE_OPTIONS} placeholder="선택 안 함" />
-        <TextField label="다음 연락 예정일" type="date" value={firstText(draft, ["nextContactDate"])} onChange={(value) => updateField("nextContactDate", value)} />
-        <CheckField label="다음 연락 미정" checked={Boolean(draft.nextContactUnknown)} onChange={(checked) => updateField("nextContactUnknown", checked)} />
+        <TextField
+          label="다음 연락 예정일"
+          type="date"
+          value={firstText(draft, ["nextContactDate"])}
+          onChange={(value) => updateField("nextContactDate", value)}
+          disabled={Boolean(draft.nextContactUnknown)}
+          option={<FieldCheck label="미정" checked={Boolean(draft.nextContactUnknown)} onChange={(checked) => updateField("nextContactUnknown", checked)} />}
+        />
         <TextField label="미팅 일정" type="date" value={firstText(draft, ["meetingDate"])} onChange={(value) => updateField("meetingDate", value)} />
         <TextField label="최근 연락" type="date" value={firstText(draft, ["lastContactDate"])} onChange={(value) => updateField("lastContactDate", value)} />
         <TextAreaField label="다음 액션" value={firstText(draft, ["nextAction"])} onChange={(value) => updateField("nextAction", value)} placeholder="다음에 할 일" wide />
@@ -2120,8 +2183,13 @@ function WorkEditor({
         {type === "output" && (
           <>
             <TextField label="기한 시작" type="date" value={firstText(draft, ["startDate"])} onChange={(value) => updateField("startDate", value)} />
-            <TextField label="기한 종료" type="date" value={firstText(draft, ["endDate"])} onChange={(value) => updateField("endDate", value)} />
-            <CheckField label="주말 포함" checked={Boolean(draft.includeWeekends)} onChange={(checked) => updateField("includeWeekends", checked)} />
+            <TextField
+              label="기한 종료"
+              type="date"
+              value={firstText(draft, ["endDate"])}
+              onChange={(value) => updateField("endDate", value)}
+              option={<FieldCheck label="주말 포함" checked={Boolean(draft.includeWeekends)} onChange={(checked) => updateField("includeWeekends", checked)} />}
+            />
             <SelectField label="진행 상태" value={firstText(draft, ["status"]) || "대기"} onChange={(value) => updateField("status", value)} options={WORK_STATUS_OPTIONS} />
             <SelectField label="중요도" value={firstText(draft, ["priority"]) || "보통"} onChange={(value) => updateField("priority", value)} options={PRIORITY_OPTIONS} />
             <TextField label="출력 종류" value={firstText(draft, ["outputType"])} onChange={(value) => updateField("outputType", value)} placeholder="예: 샘플 출력, BMT, 제작물" />
@@ -2134,8 +2202,13 @@ function WorkEditor({
             <TextField label="구분" value={firstText(draft, ["category"])} onChange={(value) => updateField("category", value)} placeholder="예: 내부, 구매, 행정" />
             <TextField label="담당/요청자" value={firstText(draft, ["owner"])} onChange={(value) => updateField("owner", value)} placeholder="담당자 또는 요청자" />
             <TextField label="기한 시작" type="date" value={firstText(draft, ["startDate"])} onChange={(value) => updateField("startDate", value)} />
-            <TextField label="기한 종료" type="date" value={firstText(draft, ["endDate"])} onChange={(value) => updateField("endDate", value)} />
-            <CheckField label="주말 포함" checked={Boolean(draft.includeWeekends)} onChange={(checked) => updateField("includeWeekends", checked)} />
+            <TextField
+              label="기한 종료"
+              type="date"
+              value={firstText(draft, ["endDate"])}
+              onChange={(value) => updateField("endDate", value)}
+              option={<FieldCheck label="주말 포함" checked={Boolean(draft.includeWeekends)} onChange={(checked) => updateField("includeWeekends", checked)} />}
+            />
             <SelectField label="진행 상태" value={firstText(draft, ["status"]) || "대기"} onChange={(value) => updateField("status", value)} options={WORK_STATUS_OPTIONS} />
             <SelectField label="중요도" value={firstText(draft, ["priority"]) || "보통"} onChange={(value) => updateField("priority", value)} options={PRIORITY_OPTIONS} />
           </>
@@ -2234,12 +2307,29 @@ function SettlementFields({
     <>
       <SelectField label="결제 유형" value={firstText(draft, ["paymentType"]) || "분할 결제"} onChange={(value) => updateField("paymentType", value)} options={SETTLEMENT_PAYMENT_OPTIONS} />
       <SelectField label="진행 상태" value={firstText(draft, ["status"]) || "예정"} onChange={(value) => updateField("status", value)} options={SETTLEMENT_STATUS_OPTIONS} />
-      <TextField label={isAdvance ? "선금/예치금" : "총 관리 금액"} value={firstText(draft, ["totalAmount", "advanceAmount"])} onChange={(value) => updateField(isAdvance ? "advanceAmount" : "totalAmount", value)} placeholder="예: 10000000" />
-      <CheckField label={`${isAdvance ? "선금" : "총액"} VAT 포함`} checked={Boolean(isAdvance ? draft.advanceAmountVatIncluded : draft.totalAmountVatIncluded)} onChange={(checked) => updateField(isAdvance ? "advanceAmountVatIncluded" : "totalAmountVatIncluded", checked)} />
-      <TextField label={isAdvance ? "차감 완료액" : "회차 입금 완료액"} value={firstText(draft, [isAdvance ? "deductedAmount" : "receivedAmount"])} onChange={(value) => updateField(isAdvance ? "deductedAmount" : "receivedAmount", value)} placeholder="예: 5000000" />
-      <CheckField label={`${isAdvance ? "차감" : "입금"} VAT 포함`} checked={Boolean(isAdvance ? draft.deductedAmountVatIncluded : draft.receivedAmountVatIncluded)} onChange={(checked) => updateField(isAdvance ? "deductedAmountVatIncluded" : "receivedAmountVatIncluded", checked)} />
-      {!isAdvance && <TextField label="기타 차감 금액" value={firstText(draft, ["deductedAmount"])} onChange={(value) => updateField("deductedAmount", value)} placeholder="예: 1000000" />}
-      {!isAdvance && <CheckField label="기타 차감 VAT 포함" checked={Boolean(draft.deductedAmountVatIncluded)} onChange={(checked) => updateField("deductedAmountVatIncluded", checked)} />}
+      <TextField
+        label={isAdvance ? "선금/예치금" : "총 관리 금액"}
+        value={firstText(draft, ["totalAmount", "advanceAmount"])}
+        onChange={(value) => updateField(isAdvance ? "advanceAmount" : "totalAmount", value)}
+        placeholder="예: 10000000"
+        option={<FieldCheck label="VAT 포함" checked={Boolean(isAdvance ? draft.advanceAmountVatIncluded : draft.totalAmountVatIncluded)} onChange={(checked) => updateField(isAdvance ? "advanceAmountVatIncluded" : "totalAmountVatIncluded", checked)} />}
+      />
+      <TextField
+        label={isAdvance ? "차감 완료액" : "회차 입금 완료액"}
+        value={firstText(draft, [isAdvance ? "deductedAmount" : "receivedAmount"])}
+        onChange={(value) => updateField(isAdvance ? "deductedAmount" : "receivedAmount", value)}
+        placeholder="예: 5000000"
+        option={<FieldCheck label="VAT 포함" checked={Boolean(isAdvance ? draft.deductedAmountVatIncluded : draft.receivedAmountVatIncluded)} onChange={(checked) => updateField(isAdvance ? "deductedAmountVatIncluded" : "receivedAmountVatIncluded", checked)} />}
+      />
+      {!isAdvance && (
+        <TextField
+          label="기타 차감 금액"
+          value={firstText(draft, ["deductedAmount"])}
+          onChange={(value) => updateField("deductedAmount", value)}
+          placeholder="예: 1000000"
+          option={<FieldCheck label="VAT 포함" checked={Boolean(draft.deductedAmountVatIncluded)} onChange={(checked) => updateField("deductedAmountVatIncluded", checked)} />}
+        />
+      )}
       <TextField label="현재 회차 / 총 회차" value={firstText(draft, ["installmentProgress"])} onChange={(value) => updateField("installmentProgress", value)} placeholder="예: 8/25" />
       <TextField label="다음 처리일" type="date" value={firstText(draft, ["nextActionDate"])} onChange={(value) => updateField("nextActionDate", value)} />
       <TextField label="다음 처리" value={firstText(draft, ["nextAction"])} onChange={(value) => updateField("nextAction", value)} placeholder="예: 9회차 청구" />
@@ -2257,8 +2347,7 @@ function SettlementFields({
           <TextField label="시작일" type="date" value={scheduleStart} onChange={setScheduleStart} />
           <TextField label="간격(일)" type="number" value={scheduleInterval} onChange={setScheduleInterval} />
           <TextField label="예정 회차" type="number" value={scheduleCount} onChange={setScheduleCount} />
-          <TextField label="회차별 금액" value={scheduleAmount} onChange={setScheduleAmount} />
-          <CheckField label="회차 금액 VAT 포함" checked={scheduleAmountVatIncluded} onChange={setScheduleAmountVatIncluded} />
+          <TextField label="회차별 금액" value={scheduleAmount} onChange={setScheduleAmount} option={<FieldCheck label="VAT 포함" checked={scheduleAmountVatIncluded} onChange={setScheduleAmountVatIncluded} />} />
           <button type="button" className="icon-text-button" onClick={generateRows}>일정 자동 생성</button>
           <button type="button" className="icon-text-button" onClick={addRow}>회차 추가</button>
         </div>
@@ -2292,8 +2381,7 @@ function SettlementFields({
             <div className="payment-row" key={recordId(row, index)}>
               <TextField label="회차" value={firstText(row, ["round"])} onChange={(value) => updateRow(index, "round", value)} />
               <TextField label="예정일" type="date" value={firstText(row, ["dueDate"])} onChange={(value) => updateRow(index, "dueDate", value)} />
-              <TextField label="금액" value={firstText(row, ["amount"])} onChange={(value) => updateRow(index, "amount", value)} />
-              <CheckField label="VAT 포함" checked={Boolean(row.amountVatIncluded)} onChange={(checked) => updateRow(index, "amountVatIncluded", checked)} />
+              <TextField label="금액" value={firstText(row, ["amount"])} onChange={(value) => updateRow(index, "amount", value)} option={<FieldCheck label="VAT 포함" checked={Boolean(row.amountVatIncluded)} onChange={(checked) => updateRow(index, "amountVatIncluded", checked)} />} />
               <TextField label={isAdvance ? "차감 품목" : "품목/메모"} value={firstText(row, ["item"])} onChange={(value) => updateRow(index, "item", value)} />
               <label className="field">
                 <span>상태</span>
@@ -2716,7 +2804,9 @@ function TextField({
   onChange,
   placeholder = "",
   type = "text",
-  wide = false
+  wide = false,
+  disabled = false,
+  option
 }: {
   label: string;
   value: string;
@@ -2724,11 +2814,14 @@ function TextField({
   placeholder?: string;
   type?: string;
   wide?: boolean;
+  disabled?: boolean;
+  option?: React.ReactNode;
 }) {
   return (
     <label className={`field ${wide ? "wide-field" : ""}`}>
       <span>{label}</span>
-      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} disabled={disabled} />
+      {option && <span className="field-option-row">{option}</span>}
     </label>
   );
 }
@@ -2788,6 +2881,15 @@ function CheckField({ label, checked, onChange }: { label: string; checked: bool
       <span>{label}</span>
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
     </label>
+  );
+}
+
+function FieldCheck({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <span className="inline-check">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span>{label}</span>
+    </span>
   );
 }
 

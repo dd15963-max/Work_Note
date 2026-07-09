@@ -234,6 +234,50 @@ h2 {
   color: var(--red);
 }
 
+.quick-select {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 4px 28px 4px 10px;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.2;
+  white-space: normal;
+  cursor: pointer;
+  outline: none;
+}
+
+.quick-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.12);
+}
+
+.quick-select.tone-blue {
+  background-color: var(--primary-soft);
+  color: #154a9c;
+}
+
+.quick-select.tone-green {
+  background-color: var(--green-soft);
+  color: var(--green);
+}
+
+.quick-select.tone-neutral {
+  background-color: #eef2f6;
+  color: #344054;
+}
+
+.quick-select.tone-orange {
+  background-color: var(--orange-soft);
+  color: var(--orange);
+}
+
+.quick-select.tone-red {
+  background-color: var(--red-soft);
+  color: var(--red);
+}
+
 .safety-strip {
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr);
@@ -468,6 +512,14 @@ h2 {
   outline: none;
 }
 
+.field input:disabled,
+.field select:disabled,
+.field textarea:disabled {
+  background: #f1f5f9;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
 .field textarea {
   resize: vertical;
   min-height: 92px;
@@ -484,11 +536,11 @@ h2 {
   align-content: end;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  min-height: 67px;
+  min-height: 42px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
-  padding: 10px 11px;
+  padding: 8px 10px;
 }
 
 .check-field span {
@@ -500,6 +552,38 @@ h2 {
   height: 18px;
   padding: 0;
   box-shadow: none;
+}
+
+.field-option-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 18px;
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.field .inline-check span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.inline-check input {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  box-shadow: none;
+  cursor: pointer;
 }
 
 .wide-field {
@@ -882,6 +966,16 @@ h2 {
 
 .table-row {
   background: #fff;
+}
+
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:hover,
+.clickable-row:focus-visible {
+  background: #f8fbff;
+  outline: none;
 }
 
 .table-row.is-expanded {
