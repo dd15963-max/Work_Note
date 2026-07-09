@@ -1146,6 +1146,38 @@ h2 {
   justify-content: flex-start;
 }
 
+.settlement-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settlement-summary-grid div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 9px 10px;
+}
+
+.settlement-summary-grid span,
+.settlement-summary-grid strong {
+  display: block;
+  min-width: 0;
+}
+
+.settlement-summary-grid span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.settlement-summary-grid strong {
+  margin-top: 4px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
 .payment-row-list {
   display: grid;
   gap: 8px;
@@ -1449,7 +1481,8 @@ h2 {
   .file-upload-fields,
   .attachment-editor-grid,
   .schedule-tool-grid,
-  .payment-row {
+  .payment-row,
+  .settlement-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1593,7 +1626,8 @@ h2 {
   .file-upload-fields,
   .attachment-editor-grid,
   .schedule-tool-grid,
-  .payment-row {
+  .payment-row,
+  .settlement-summary-grid {
     grid-template-columns: 1fr;
   }
 

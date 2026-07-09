@@ -97,6 +97,7 @@ const FILE_CATEGORY_OPTIONS = [
 const WORK_STATUS_OPTIONS = ["대기", "진행 중", "확인 필요", "보류", "완료"];
 const SETTLEMENT_STATUS_OPTIONS = ["예정", "선금 예정", "선금 완료", "차감 진행 중", "확인 필요", "보류", "완료"];
 const SETTLEMENT_PAYMENT_OPTIONS = ["분할 결제", "선금 결제"];
+const SETTLEMENT_ROW_STATUS_OPTIONS = ["예정", "청구 완료", "입금 완료", "차감 완료", "처리 완료", "확인 필요", "보류"];
 
 const portals: Array<{ id: PortalId; label: string; icon: typeof CalendarDays }> = [
   { id: "schedule", label: "일정", icon: CalendarDays },
@@ -1693,6 +1694,7 @@ function WorkEditor({
   onCancel: () => void;
 }) {
   const updateField = (key: string, value: string | boolean | AnyRecord[]) => setDraft({ ...draft, [key]: value });
+  const updateFields = (values: AnyRecord) => setDraft({ ...draft, ...values });
   const selectedCompany = firstText(draft, ["companyId"])
     ? data.companies.find((company, index) => recordId(company, index) === firstText(draft, ["companyId"]))
     : null;
@@ -1809,7 +1811,7 @@ function WorkEditor({
         )}
 
         {type === "settlement" && (
-          <SettlementFields draft={draft} updateField={updateField} />
+          <SettlementFields draft={draft} updateField={updateField} updateFields={updateFields} />
         )}
 
         {type === "output" && (
@@ -1852,10 +1854,12 @@ function WorkEditor({
 
 function SettlementFields({
   draft,
-  updateField
+  updateField,
+  updateFields
 }: {
   draft: AnyRecord;
   updateField: (key: string, value: string | boolean | AnyRecord[]) => void;
+  updateFields: (values: AnyRecord) => void;
 }) {
   const schedule = asArray(draft.paymentSchedule);
   const [scheduleStart, setScheduleStart] = useState(firstText(draft, ["nextActionDate"]) || toDateKey(new Date()));
@@ -1865,6 +1869,7 @@ function SettlementFields({
   const [scheduleAmountVatIncluded, setScheduleAmountVatIncluded] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const isAdvance = firstText(draft, ["paymentType"]).includes("선금");
+  const scheduleStats = getSettlementScheduleStats(schedule, isAdvance);
 
   const setSchedule = (rows: AnyRecord[]) => updateField("paymentSchedule", rows);
   const updateRow = (index: number, key: string, value: string | boolean) => {
@@ -1898,28 +1903,28 @@ function SettlementFields({
     setSchedule(rows);
   };
   const parsePasteRows = () => {
-    const rows = pasteText
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line, index) => {
-        const parts = line.split(/\t|,|\s{2,}/).map(clean).filter(Boolean);
-        return {
-          id: createId("pay_"),
-          round: parts[0]?.replace(/회차/g, "") || String(index + 1),
-          dueDate: parseDateKey(parts[1] || "") || "",
-          amount: normalizeAmountString(parts[2] || ""),
-          amountVatIncluded: false,
-          status: parts[3] || "예정",
-          item: parts.slice(4).join(" ")
-        };
-      });
+    const rows = parseSettlementSchedulePaste(pasteText);
     if (!rows.length) {
       alert("붙여넣은 일정이 없습니다.");
       return;
     }
     setSchedule(rows);
     setPasteText("");
+  };
+  const syncScheduleProgress = () => {
+    const nextValues: AnyRecord = {
+      installmentProgress: schedule.length ? `${scheduleStats.completedCount}/${schedule.length}` : "",
+      nextActionDate: firstText(scheduleStats.nextRow || {}, ["dueDate"]),
+      nextAction: scheduleStats.nextRow
+        ? `${firstText(scheduleStats.nextRow, ["round"]) || scheduleStats.completedCount + 1}회차 ${isAdvance ? "차감" : "결제"} 예정`
+        : "정산 완료 확인"
+    };
+    if (isAdvance) {
+      nextValues.deductedAmount = String(scheduleStats.completedAmount || "");
+    } else {
+      nextValues.receivedAmount = String(scheduleStats.completedAmount || "");
+    }
+    updateFields(nextValues);
   };
 
   return (
@@ -1954,22 +1959,52 @@ function SettlementFields({
           <button type="button" className="icon-text-button" onClick={generateRows}>일정 자동 생성</button>
           <button type="button" className="icon-text-button" onClick={addRow}>회차 추가</button>
         </div>
+        <div className="settlement-summary-grid">
+          <div>
+            <span>예정 합계</span>
+            <strong>{formatMoney(String(scheduleStats.totalAmount))}</strong>
+          </div>
+          <div>
+            <span>{isAdvance ? "차감 완료" : "입금 완료"}</span>
+            <strong>{formatMoney(String(scheduleStats.completedAmount))}</strong>
+          </div>
+          <div>
+            <span>회차 잔액</span>
+            <strong>{formatMoney(String(scheduleStats.remainingAmount))}</strong>
+          </div>
+          <div>
+            <span>다음 일정</span>
+            <strong>{scheduleStats.nextRow ? joinParts([`${firstText(scheduleStats.nextRow, ["round"])}회차`, formatOptionalDate(firstText(scheduleStats.nextRow, ["dueDate"]))], " · ") : "없음"}</strong>
+          </div>
+        </div>
         <TextAreaField label="엑셀 일정 붙여넣기" value={pasteText} onChange={setPasteText} placeholder="예: 1회차	2026-07-08	1980000	예정	품목" wide />
         <div className="form-actions compact-actions">
           <button type="button" className="icon-text-button" onClick={parsePasteRows}>붙여넣은 일정 불러오기</button>
+          <button type="button" className="icon-text-button primary" onClick={syncScheduleProgress}>회차표 완료액 반영</button>
         </div>
         <div className="payment-row-list">
-          {schedule.map((row, index) => (
+          {schedule.map((row, index) => {
+            const rowStatus = firstText(row, ["status"]) || "예정";
+            return (
             <div className="payment-row" key={recordId(row, index)}>
               <TextField label="회차" value={firstText(row, ["round"])} onChange={(value) => updateRow(index, "round", value)} />
               <TextField label="예정일" type="date" value={firstText(row, ["dueDate"])} onChange={(value) => updateRow(index, "dueDate", value)} />
               <TextField label="금액" value={firstText(row, ["amount"])} onChange={(value) => updateRow(index, "amount", value)} />
               <CheckField label="VAT 포함" checked={Boolean(row.amountVatIncluded)} onChange={(checked) => updateRow(index, "amountVatIncluded", checked)} />
               <TextField label={isAdvance ? "차감 품목" : "품목/메모"} value={firstText(row, ["item"])} onChange={(value) => updateRow(index, "item", value)} />
-              <TextField label="상태" value={firstText(row, ["status"])} onChange={(value) => updateRow(index, "status", value)} />
+              <label className="field">
+                <span>상태</span>
+                <select value={rowStatus} onChange={(event) => updateRow(index, "status", event.target.value)}>
+                  {!SETTLEMENT_ROW_STATUS_OPTIONS.includes(rowStatus) && <option value={rowStatus}>{rowStatus}</option>}
+                  {SETTLEMENT_ROW_STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>{status}</option>
+                  ))}
+                </select>
+              </label>
               <button type="button" className="danger-button" onClick={() => removeRow(index)}>삭제</button>
             </div>
-          ))}
+            );
+          })}
           {!schedule.length && <div className="empty-inline"><strong>일정 없음</strong><span>자동 생성, 회차 추가, 엑셀 붙여넣기로 일정을 만들 수 있습니다.</span></div>}
         </div>
       </section>
@@ -2950,6 +2985,62 @@ function normalizePaymentSchedule(rows: AnyRecord[]): AnyRecord[] {
     .filter((row) => ["dueDate", "amount", "status", "item"].some((key) => firstText(row, [key])));
 }
 
+function parseSettlementSchedulePaste(text: string): AnyRecord[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      const parts = line.split(/\t|,|;|\||\s{2,}/).map(clean).filter(Boolean);
+      const datePart = parts.find((part) => Boolean(parseDateKey(part))) || "";
+      const date = parseDateKey(datePart);
+      const amountPart = parts.find((part) => parseAmountNumber(part) !== null && !parseDateKey(part) && !/^\d+\s*회?차?$/.test(part));
+      const roundPart = parts.find((part) => /회차|^\d+$/.test(part) && !parseDateKey(part) && part !== amountPart);
+      const statusPart = parts.find(isLikelySettlementStatus) || "예정";
+      const consumed = new Set([datePart, amountPart || "", roundPart || "", statusPart].filter(Boolean));
+      const item = parts.filter((part) => !consumed.has(part)).join(" ");
+      return {
+        id: createId("pay_"),
+        round: clean(roundPart).replace(/회차/g, "") || String(index + 1),
+        dueDate: date,
+        amount: normalizeAmountString(amountPart || ""),
+        amountVatIncluded: false,
+        status: statusPart,
+        item
+      };
+    })
+    .filter((row) => ["dueDate", "amount", "status", "item"].some((key) => firstText(row, [key])));
+}
+
+function getSettlementScheduleStats(rows: AnyRecord[], isAdvance: boolean) {
+  const normalized = normalizePaymentSchedule(rows);
+  const totalAmount = normalized.reduce((sum, row) => sum + (parseAmountNumber(firstText(row, ["amount"])) || 0), 0);
+  const completedRows = normalized.filter((row) => isSettlementScheduleRowCompleted(row, isAdvance));
+  const completedAmount = completedRows.reduce((sum, row) => sum + (parseAmountNumber(firstText(row, ["amount"])) || 0), 0);
+  const nextRow = normalized
+    .filter((row) => !isSettlementScheduleRowCompleted(row, isAdvance))
+    .sort((a, b) => firstText(a, ["dueDate"]).localeCompare(firstText(b, ["dueDate"])))[0] || null;
+  return {
+    totalAmount,
+    completedAmount,
+    remainingAmount: Math.max(0, totalAmount - completedAmount),
+    completedCount: completedRows.length,
+    nextRow
+  };
+}
+
+function isLikelySettlementStatus(value: string): boolean {
+  const text = clean(value);
+  return SETTLEMENT_ROW_STATUS_OPTIONS.includes(text) || /예정|완료|입금|차감|처리|보류|확인|청구|대기|진행/.test(text);
+}
+
+function isSettlementScheduleRowCompleted(row: AnyRecord, isAdvance: boolean): boolean {
+  const status = firstText(row, ["status"]);
+  if (!status || status.includes("청구")) return false;
+  if (isAdvance && status.includes("차감")) return true;
+  return /입금|처리|결제|완료/.test(status);
+}
+
 function isWorkDraftValid(record: AnyRecord, type: "settlement" | "output" | "other"): boolean {
   if (type === "settlement") {
     return Boolean(companyName(record) || record.companyUnknown || firstText(record, ["paymentType", "totalAmount", "advanceAmount", "nextAction", "memo"]));
@@ -3444,8 +3535,9 @@ function settlementRemainingText(record: AnyRecord): string {
 
   const paymentType = firstText(record, ["paymentType"]);
   const isAdvance = paymentType.includes("선금");
-  const received = isAdvance ? 0 : parseAmountNumber(firstText(record, ["receivedAmount"])) || 0;
-  const deducted = parseAmountNumber(firstText(record, ["deductedAmount"])) || 0;
+  const scheduleStats = getSettlementScheduleStats(asArray(record.paymentSchedule), isAdvance);
+  const received = isAdvance ? 0 : parseAmountNumber(firstText(record, ["receivedAmount"])) || scheduleStats.completedAmount || 0;
+  const deducted = parseAmountNumber(firstText(record, ["deductedAmount"])) || (isAdvance ? scheduleStats.completedAmount : 0) || 0;
   return formatMoney(String(total - received - deducted));
 }
 
