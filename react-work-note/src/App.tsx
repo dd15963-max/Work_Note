@@ -387,6 +387,36 @@ function BackupCenter({
     }
   };
 
+  const auditFullBackupZip = async () => {
+    setBusy("ZIP 자체 점검 중");
+    try {
+      const result = await createFullBackupZipBlob(data);
+      const parsed = await readFullBackupZip(result.blob);
+      const expectedCounts = getBackupRecordCounts(data);
+      const parsedCounts = getBackupRecordCounts(parsed.data);
+      const countMismatches = compareBackupCounts(expectedCounts, parsedCounts);
+      const expectedRestoredFiles = result.totalCount - result.missingCount;
+
+      if (countMismatches.length || parsed.files.records.length !== expectedRestoredFiles) {
+        const detail = [
+          ...countMismatches,
+          parsed.files.records.length !== expectedRestoredFiles
+            ? `첨부 원본 수: 예상 ${expectedRestoredFiles}개 / 확인 ${parsed.files.records.length}개`
+            : ""
+        ].filter(Boolean).join("\n");
+        throw new Error(detail || "ZIP 자체 점검 결과가 일치하지 않습니다.");
+      }
+
+      const message = `ZIP 자체 점검 완료 · 기록 ${Object.values(parsedCounts).reduce((sum, count) => sum + count, 0)}건, 원본 ${parsed.files.records.length}/${result.totalCount}개 확인`;
+      setSaveMessage(message);
+      alert(`${message}${result.missingCount ? `\n\n주의: 원본이 없는 첨부 ${result.missingCount}개는 기록만 확인됐습니다.` : ""}`);
+    } catch (error) {
+      alert(`ZIP 자체 점검에 실패했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusy("");
+    }
+  };
+
   const resetWorkspace = async () => {
     const ok = confirm("전체 메모장을 초기화할까요?\n\n영업, 정산, 출력, 기타, 업체, 계정 기록과 이 브라우저에 저장된 첨부 원본 파일이 모두 삭제됩니다.\n필요한 자료가 있으면 먼저 전체 ZIP 백업을 만들어 주세요.");
     if (!ok) return;
@@ -506,7 +536,7 @@ function BackupCenter({
         <div>
           <strong>점검</strong>
           <button type="button" onClick={auditAttachments} disabled={Boolean(busy)}>첨부 원본 점검</button>
-          <span className="backup-panel-spacer" aria-hidden="true" />
+          <button type="button" onClick={auditFullBackupZip} disabled={Boolean(busy)}>ZIP 자체 점검</button>
         </div>
         <div>
           <strong>관리</strong>
@@ -2991,6 +3021,23 @@ function attachmentOwnerTitle(type: AttachmentOwnerType, owner: AnyRecord): stri
   return workTitle(owner, "other");
 }
 
+function getBackupRecordCounts(data: Pick<WorkNoteData, "companies" | "notes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts">): Record<string, number> {
+  return {
+    companies: asArray(data.companies).length,
+    notes: asArray(data.notes).length,
+    settlementTasks: asArray(data.settlementTasks).length,
+    outputTasks: asArray(data.outputTasks).length,
+    otherTasks: asArray(data.otherTasks).length,
+    accounts: asArray(data.accounts).length
+  };
+}
+
+function compareBackupCounts(expected: Record<string, number>, actual: Record<string, number>): string[] {
+  return Object.keys(expected)
+    .filter((key) => expected[key] !== actual[key])
+    .map((key) => `${key}: 예상 ${expected[key]}건 / 확인 ${actual[key]}건`);
+}
+
 function downloadWorkNoteCsv(data: WorkNoteData) {
   const headers = [
     "구분",
@@ -3368,7 +3415,7 @@ function getDosDate(date: Date): number {
   return ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
 }
 
-async function readFullBackupZip(file: File): Promise<{ data: WorkNoteData; files: { records: AttachmentRecord[]; missingCount: number } }> {
+async function readFullBackupZip(file: Blob): Promise<{ data: WorkNoteData; files: { records: AttachmentRecord[]; missingCount: number } }> {
   const zipEntries = parseZipArchive(new Uint8Array(await file.arrayBuffer()));
   const backupEntry = findZipBackupJson(zipEntries);
   if (!backupEntry) {
