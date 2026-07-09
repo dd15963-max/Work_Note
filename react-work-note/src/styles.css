@@ -609,6 +609,28 @@ h2 {
   line-height: 1.4;
 }
 
+.company-contact-details {
+  margin-top: 8px;
+  border-top: 1px dashed var(--line);
+  padding-top: 8px;
+}
+
+.company-contact-details summary {
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.company-contact-details div {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .editor-subsection {
   margin-top: 16px;
 }

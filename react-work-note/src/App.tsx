@@ -785,6 +785,10 @@ function CompanyPortal({
       <div className="card-grid">
         {companies.map(({ company, originalIndex, id }) => {
           const contacts = asArray(company.contacts);
+          const primaryContactIndex = contacts.findIndex((contact) => Boolean(contact.isPrimary));
+          const visibleContactIndex = primaryContactIndex >= 0 ? primaryContactIndex : 0;
+          const primaryContact = contacts[visibleContactIndex] || null;
+          const extraContacts = contacts.filter((_, contactIndex) => contactIndex !== visibleContactIndex);
           const attachments = asArray(company.attachments);
           return (
             <article className="company-card" key={id}>
@@ -799,7 +803,17 @@ function CompanyPortal({
               <InfoLine label="이메일" value={firstText(company, ["email", "mainEmail"])} />
               <InfoLine label="주소" value={firstText(company, ["address"])} />
               <InfoLine label="서류" value={attachments.length ? `${attachments.length}개` : ""} />
-              <InfoLine label="담당자" value={contacts.map(companyContactSummary).filter(Boolean).join(" / ")} />
+              <InfoLine label="담당자" value={primaryContact ? companyContactSummary(primaryContact) : ""} />
+              {extraContacts.length > 0 && (
+                <details className="company-contact-details">
+                  <summary>추가 담당자 {extraContacts.length}명</summary>
+                  <div>
+                    {extraContacts.map((contact, contactIndex) => (
+                      <span key={recordId(contact, contactIndex)}>{companyContactSummary(contact) || "담당자"}</span>
+                    ))}
+                  </div>
+                </details>
+              )}
               <AttachmentPreview record={company} />
               {firstText(company, ["memo"]) && <p className="muted-preview">{firstText(company, ["memo"])}</p>}
               <div className="card-actions">
