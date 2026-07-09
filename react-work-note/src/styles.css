@@ -1891,9 +1891,15 @@ h2 {
 
   .schedule-list-item {
     grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .schedule-list-item p {
+    display: none;
   }
 
   .stacked-meta {
     justify-items: start;
+    gap: 2px;
   }
 }
