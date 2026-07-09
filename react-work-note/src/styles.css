@@ -42,14 +42,14 @@ a {
 }
 
 .app-shell {
-  width: min(1520px, 100%);
+  width: min(1680px, 100%);
   margin: 0 auto;
-  padding: 22px;
+  padding: 24px 28px;
 }
 
 .app-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(420px, 1fr) auto;
   gap: 20px;
   align-items: end;
   margin-bottom: 16px;
@@ -363,7 +363,7 @@ h2 {
 
 .command-bar {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) auto;
+  grid-template-columns: minmax(420px, 1fr) auto;
   gap: 12px;
   align-items: center;
   margin-bottom: 16px;
@@ -534,7 +534,7 @@ h2 {
 
 .check-field {
   align-content: end;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(420px, 1fr) auto;
   align-items: center;
   min-height: 42px;
   border: 1px solid var(--line);
@@ -715,9 +715,19 @@ h2 {
 
 .schedule-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(310px, 360px);
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 390px);
   gap: 16px;
   align-items: start;
+}
+
+@media (min-width: 1181px) {
+  .header-actions {
+    max-width: 860px;
+  }
+
+  .panel {
+    padding: 20px;
+  }
 }
 
 .schedule-main {
@@ -876,7 +886,7 @@ h2 {
 
 .schedule-list-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(420px, 1fr) auto;
   gap: 12px;
   border-left: 4px solid var(--primary);
   border-radius: 8px;
@@ -1429,7 +1439,7 @@ h2 {
 }
 
 .preview-title {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(420px, 1fr) auto;
   background: #f2f5f9;
   color: #475467;
   font-size: 13px;

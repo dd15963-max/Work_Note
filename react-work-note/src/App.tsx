@@ -173,10 +173,10 @@ export function App() {
     <div className="app-shell">
       <header className="app-header">
         <div>
-          <p className="eyebrow">WORK NOTE REACT PREVIEW</p>
+          <p className="eyebrow">WORK NOTE</p>
           <h1>업무 메모장</h1>
           <p className="header-note">
-            기존 데이터를 안전하게 읽어서 일정, 검색, 목록 파악을 먼저 개선한 React 프리뷰입니다.
+            일정, 영업, 정산, 출력, 업체와 계정을 한 곳에서 관리하는 업무 메모장입니다.
           </p>
         </div>
         <div className="header-actions">
@@ -186,8 +186,8 @@ export function App() {
             <RefreshCw size={17} />
             새로고침
           </button>
-          <a className="icon-text-button primary" href={LEGACY_APP_PATH}>
-            기존 앱
+          <a className="icon-text-button" href={LEGACY_APP_PATH}>
+            이전 버전
             <ExternalLink size={16} />
           </a>
         </div>
@@ -197,7 +197,7 @@ export function App() {
         <ShieldCheck size={18} />
         <span>안전 저장 모드</span>
         <small>
-          계정, 업체, 영업 메모를 React에서 저장합니다. 저장 전 최근 데이터 스냅샷을 브라우저에 남기고, 나머지 업무 수정은 아직 기존 앱에서 처리합니다.
+          이 브라우저에 저장된 업무 데이터를 사용합니다. 교체/병합 불러오기 전에는 자동 스냅샷을 남기고, 전체 ZIP 백업으로 첨부 원본까지 보관할 수 있습니다.
           {saveMessage && <b> {saveMessage}</b>}
         </small>
       </section>

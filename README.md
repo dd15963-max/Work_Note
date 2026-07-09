@@ -5,7 +5,8 @@
 ## Links
 
 - Current app: https://dd15963-max.github.io/Work_Note/
-- React preview: https://dd15963-max.github.io/Work_Note/react/
+- React app direct link: https://dd15963-max.github.io/Work_Note/react/
+- Legacy app: https://dd15963-max.github.io/Work_Note/sales-note-app/
 
 ## Data Safety
 
@@ -20,6 +21,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\public-safety-check.ps1 -Mode
 
 This repository also uses local Git hooks and GitHub Actions to block backup files, exports, and attachment-like files from being committed.
 
-## React Preview
+## React App
 
-The React preview is a read-only first phase. It reads the existing `salesNoteAppDataV1` localStorage data and focuses on safer navigation, search, schedule review, and mobile-friendly layouts without overwriting the current app data.
+The root Work Note link now opens the React app. The legacy HTML app remains available under `/sales-note-app/` as a fallback while the React version continues to be refined.
