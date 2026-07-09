@@ -4258,17 +4258,44 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
 
   data.settlementTasks.forEach((task, index) => {
     if (isClosed(firstText(task, ["status", "progressStatus"]))) return;
-    addScheduleItem(items, task, index, firstText(task, ["nextProcessDate", "nextDate", "dueDate", "dueEndDate"]), `[정산] ${workTitle(task, "settlement")} 처리`, firstText(task, ["nextAction", "memo", "description"]), "settlement", firstText(task, ["status", "progressStatus"]), firstText(task, ["priority", "importance"]));
+    const status = firstText(task, ["status", "progressStatus"]);
+    const priority = firstText(task, ["priority", "importance"]);
+    const title = workTitle(task, "settlement");
+    const isAdvance = firstText(task, ["paymentType"]).includes("선금");
+    const rows = normalizePaymentSchedule(asArray(task.paymentSchedule));
+    rows
+      .filter((row) => !isSettlementScheduleRowCompleted(row, isAdvance))
+      .forEach((row, rowIndex) => {
+        const rowStatus = firstText(row, ["status"]);
+        const round = firstText(row, ["round"]);
+        const amount = formatMoney(firstText(row, ["amount"]));
+        const item = firstText(row, ["item"]);
+        addScheduleItem(
+          items,
+          task,
+          index,
+          firstText(row, ["dueDate"]),
+          `[정산] ${title} ${round ? `${round}회차` : isAdvance ? "차감" : "결제"}`,
+          joinParts([amount, item, rowStatus], " · "),
+          "settlement",
+          rowStatus || status,
+          priority,
+          `pay-${recordId(row, rowIndex)}`
+        );
+      });
+    if (!rows.length) {
+      addScheduleItem(items, task, index, firstText(task, ["nextActionDate", "nextProcessDate", "nextDate", "dueDate", "dueEndDate", "endDate"]), `[정산] ${title} 처리`, firstText(task, ["nextAction", "memo", "description"]), "settlement", status, priority);
+    }
   });
 
   data.outputTasks.forEach((task, index) => {
     if (isClosed(firstText(task, ["status", "progressStatus"]))) return;
-    addScheduleItem(items, task, index, firstText(task, ["dueEndDate", "deadline", "dueDate"]), `[출력] ${workTitle(task, "output")} 기한`, firstText(task, ["memo", "description"]), "output", firstText(task, ["status", "progressStatus"]), firstText(task, ["priority", "importance"]));
+    addWorkDateRangeItems(items, task, index, "output", `[출력] ${workTitle(task, "output")}`, firstText(task, ["memo", "description"]));
   });
 
   data.otherTasks.forEach((task, index) => {
     if (isClosed(firstText(task, ["status", "progressStatus"]))) return;
-    addScheduleItem(items, task, index, firstText(task, ["dueEndDate", "deadline", "dueDate"]), `[기타] ${workTitle(task, "other")} 기한`, firstText(task, ["memo", "description"]), "other", firstText(task, ["status", "progressStatus"]), firstText(task, ["priority", "importance"]));
+    addWorkDateRangeItems(items, task, index, "other", `[기타] ${workTitle(task, "other")}`, firstText(task, ["memo", "description"]));
   });
 
   return items.sort((a, b) => a.date.localeCompare(b.date) || priorityScoreFromText(b.priority) - priorityScoreFromText(a.priority));
@@ -4283,18 +4310,43 @@ function addScheduleItem(
   detail: string,
   type: ScheduleItem["type"],
   status: string,
-  priority: string
+  priority: string,
+  idSuffix = ""
 ) {
   const date = parseDateKey(dateValue);
   if (!date) return;
   target.push({
-    id: `${type}-${recordId(record, index)}-${date}-${target.length}`,
+    id: `${type}-${recordId(record, index)}-${idSuffix ? `${idSuffix}-` : ""}${date}-${target.length}`,
     date,
     title,
     detail,
     type,
     status,
     priority
+  });
+}
+
+function addWorkDateRangeItems(
+  target: ScheduleItem[],
+  record: AnyRecord,
+  index: number,
+  type: "output" | "other",
+  titlePrefix: string,
+  detail: string
+) {
+  const startKey = parseDateKey(firstText(record, ["startDate", "dueStartDate"])) || parseDateKey(firstText(record, ["dueEndDate", "deadline", "dueDate", "endDate"]));
+  const endKey = parseDateKey(firstText(record, ["endDate", "dueEndDate", "deadline", "dueDate"])) || startKey;
+  const status = firstText(record, ["status", "progressStatus"]);
+  const priority = firstText(record, ["priority", "importance"]);
+  if (!startKey || !endKey || endKey < startKey) {
+    addScheduleItem(target, record, index, endKey || startKey, `${titlePrefix} 기한`, detail, type, status, priority);
+    return;
+  }
+
+  const days = getDateRangeKeys(startKey, endKey, Boolean(record.includeWeekends));
+  days.forEach((date, dayIndex) => {
+    const rangeLabel = days.length > 1 ? `${dayIndex + 1}/${days.length}` : "기한";
+    addScheduleItem(target, record, index, date, `${titlePrefix} ${rangeLabel}`, detail || deadlineText(record), type, status, priority, `range-${dayIndex}`);
   });
 }
 
@@ -4786,6 +4838,18 @@ function getCalendarWeekDays(cursor: Date): Date[] {
     day.setDate(start.getDate() + index);
     return day;
   });
+}
+
+function getDateRangeKeys(startKey: string, endKey: string, includeWeekends: boolean): string[] {
+  const start = parseDate(startKey);
+  const end = parseDate(endKey);
+  if (start.getTime() <= 0 || end.getTime() <= 0 || end < start) return [];
+  const days: string[] = [];
+  for (const day = new Date(start); day <= end; day.setDate(day.getDate() + 1)) {
+    const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+    if (includeWeekends || !isWeekend) days.push(toDateKey(day));
+  }
+  return days;
 }
 
 function moveCalendar(cursor: Date, mode: CalendarMode, amount: number): Date {
