@@ -362,6 +362,32 @@ function BackupCenter({
     }
   };
 
+  const exportCsv = () => {
+    downloadWorkNoteCsv(data);
+    setSaveMessage(`CSV 내보내기 완료 · ${formatDateTime(new Date().toISOString())}`);
+  };
+
+  const resetWorkspace = async () => {
+    const ok = confirm("전체 메모장을 초기화할까요?\n\n영업, 정산, 출력, 기타, 업체, 계정 기록과 이 브라우저에 저장된 첨부 원본 파일이 모두 삭제됩니다.\n필요한 자료가 있으면 먼저 전체 ZIP 백업을 만들어 주세요.");
+    if (!ok) return;
+
+    setBusy("전체 초기화 중");
+    try {
+      await clearAttachmentStore();
+      const emptyData = createEmptyWorkNoteData();
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(emptyData));
+      window.localStorage.removeItem(REACT_AUTOSNAPSHOT_KEY);
+      const fresh = loadWorkNoteData();
+      setData(fresh);
+      setSaveMessage(`전체 메모장 초기화 완료 · ${formatDateTime(fresh.updatedAt || fresh.loadedAt)}`);
+      alert("전체 메모장을 초기화했습니다.");
+    } catch (error) {
+      alert(`전체 메모장을 초기화하지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusy("");
+    }
+  };
+
   const chooseJson = (mode: "replace" | "merge") => {
     setJsonMode(mode);
     if (jsonInputRef.current) {
@@ -454,6 +480,11 @@ function BackupCenter({
           <strong>병합</strong>
           <button type="button" onClick={() => chooseJson("merge")} disabled={Boolean(busy)}>JSON 병합</button>
           <button type="button" onClick={() => chooseZip("merge")} disabled={Boolean(busy)}>ZIP 병합</button>
+        </div>
+        <div>
+          <strong>관리</strong>
+          <button type="button" onClick={exportCsv} disabled={Boolean(busy)}>CSV 내보내기</button>
+          <button className="danger" type="button" onClick={resetWorkspace} disabled={Boolean(busy)}>전체 초기화</button>
         </div>
         <small>{busy || "ZIP은 원본 파일까지, JSON은 기록만 저장합니다."}</small>
       </div>
@@ -2760,6 +2791,21 @@ function validateWorkNotePayload(payload: AnyRecord) {
   }
 }
 
+function createEmptyWorkNoteData(): WorkNoteData {
+  const now = new Date().toISOString();
+  return {
+    version: "react-work-note-v1",
+    updatedAt: now,
+    companies: [],
+    notes: [],
+    settlementTasks: [],
+    outputTasks: [],
+    otherTasks: [],
+    accounts: [],
+    loadedAt: now
+  };
+}
+
 function createBackupPayload(data: WorkNoteData, reason: string, options: AnyRecord = {}): AnyRecord {
   const state = cloneBackupState(data);
   return {
@@ -2794,6 +2840,164 @@ function cloneBackupState(data: WorkNoteData): Pick<WorkNoteData, "companies" | 
 
 function downloadJson(payload: AnyRecord, filename: string) {
   downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), filename, "application/json");
+}
+
+function downloadWorkNoteCsv(data: WorkNoteData) {
+  const headers = [
+    "구분",
+    "제목/업체",
+    "담당자",
+    "연락처",
+    "이메일",
+    "상태",
+    "중요도",
+    "시작일",
+    "종료/다음일",
+    "금액/요약",
+    "관련 내용",
+    "첨부 수",
+    "최종 수정",
+    "메모"
+  ];
+  const rows: string[][] = [];
+  const addRow = (values: Array<string | number | boolean | null | undefined>) => {
+    rows.push(values.map((value) => clean(value)));
+  };
+
+  asArray(data.companies).forEach((company) => {
+    const contacts = asArray(company.contacts);
+    const primary = contacts.find((contact) => Boolean(contact.isPrimary)) || contacts[0] || {};
+    addRow([
+      "업체",
+      companyName(company),
+      firstText(primary, ["name", "contactName"]),
+      firstText(primary, ["phone", "contactPhone", "mobile"]) || firstText(company, ["mainPhone", "phone"]),
+      firstText(primary, ["email", "contactEmail"]) || firstText(company, ["mainEmail", "email"]),
+      firstText(company, ["status", "tradeStatus"]),
+      "",
+      "",
+      "",
+      firstText(company, ["businessType", "category"]),
+      firstText(company, ["address", "businessNumber"]),
+      asArray(company.attachments).length,
+      firstText(company, ["updatedAt"]),
+      summarizeForCsv(firstText(company, ["memo", "note"]))
+    ]);
+  });
+
+  asArray(data.notes).forEach((note) => {
+    addRow([
+      "영업",
+      salesCustomer(note),
+      firstText(note, ["contactName", "managerName"]),
+      firstText(note, ["contactPhone", "phone", "contact", "mobile"]),
+      firstText(note, ["contactEmail", "email"]),
+      firstText(note, ["status", "progressStatus"]),
+      firstText(note, ["priority", "importance"]),
+      firstText(note, ["lastContactDate"]),
+      firstText(note, ["meetingDate", "nextContactDate"]),
+      joinParts([
+        formatMoneyWithVat(firstText(note, ["expectedRevenueAmount"]), note.expectedRevenueVatIncluded),
+        formatMoneyWithVat(firstText(note, ["revenueAmount"]), note.revenueAmountVatIncluded),
+        firstText(note, ["revenueType"])
+      ], " / "),
+      joinParts([salesInterest(note), firstText(note, ["itemCategory"]), firstText(note, ["quoteStatus"]), firstText(note, ["purchasePossibility"]), firstText(note, ["nextAction"])], " / "),
+      asArray(note.attachments).length,
+      firstText(note, ["updatedAt"]),
+      summarizeForCsv(firstText(note, ["memo", "description", "note"]))
+    ]);
+  });
+
+  asArray(data.settlementTasks).forEach((record) => {
+    addRow([
+      "정산",
+      workTitle(record, "settlement"),
+      firstText(record, ["contactName", "requester", "assignee", "owner"]),
+      firstText(record, ["contactPhone", "phone", "mobile"]),
+      firstText(record, ["contactEmail", "email"]),
+      firstText(record, ["status", "progressStatus"]),
+      firstText(record, ["priority", "importance"]),
+      firstText(record, ["startDate"]),
+      firstText(record, ["nextActionDate", "endDate", "dueDate"]),
+      joinParts([
+        formatMoneyWithVat(firstText(record, ["totalAmount", "advanceAmount"]), record.totalAmountVatIncluded || record.advanceAmountVatIncluded),
+        formatMoneyWithVat(firstText(record, ["receivedAmount", "deductedAmount"]), record.receivedAmountVatIncluded || record.deductedAmountVatIncluded)
+      ], " / "),
+      joinParts([companyName(record), firstText(record, ["paymentType"]), firstText(record, ["nextAction"])], " / "),
+      asArray(record.attachments).length,
+      firstText(record, ["updatedAt"]),
+      summarizeForCsv(joinParts([firstText(record, ["memo", "description", "note"]), firstText(record, ["plan"])], "\n"))
+    ]);
+  });
+
+  asArray(data.outputTasks).forEach((record) => {
+    addRow([
+      "출력",
+      workTitle(record, "output"),
+      firstText(record, ["contactName", "requester", "assignee", "owner"]),
+      firstText(record, ["contactPhone", "phone", "mobile"]),
+      firstText(record, ["contactEmail", "email"]),
+      firstText(record, ["status", "progressStatus"]),
+      firstText(record, ["priority", "importance"]),
+      firstText(record, ["startDate", "dueStartDate"]),
+      firstText(record, ["endDate", "dueEndDate", "deadline", "dueDate"]),
+      firstText(record, ["outputType", "category", "taskType"]),
+      companyName(record),
+      asArray(record.attachments).length,
+      firstText(record, ["updatedAt"]),
+      summarizeForCsv(firstText(record, ["memo", "description", "note"]))
+    ]);
+  });
+
+  asArray(data.otherTasks).forEach((record) => {
+    addRow([
+      "기타",
+      workTitle(record, "other"),
+      firstText(record, ["contactName", "requester", "assignee", "owner"]),
+      firstText(record, ["contactPhone", "phone", "mobile"]),
+      firstText(record, ["contactEmail", "email"]),
+      firstText(record, ["status", "progressStatus"]),
+      firstText(record, ["priority", "importance"]),
+      firstText(record, ["startDate", "dueStartDate"]),
+      firstText(record, ["endDate", "dueEndDate", "deadline", "dueDate"]),
+      firstText(record, ["category", "taskType"]),
+      companyName(record),
+      asArray(record.attachments).length,
+      firstText(record, ["updatedAt"]),
+      summarizeForCsv(firstText(record, ["memo", "description", "note"]))
+    ]);
+  });
+
+  asArray(data.accounts).forEach((account) => {
+    addRow([
+      "계정",
+      firstText(account, ["siteName", "name"]),
+      firstText(account, ["owner"]),
+      "",
+      "",
+      "",
+      "",
+      firstText(account, ["accountCreatedDate", "createdDate"]),
+      firstText(account, ["passwordChangedDate"]),
+      firstText(account, ["purpose"]),
+      joinParts([firstText(account, ["siteUrl", "url"]), firstText(account, ["username", "id"])], " / "),
+      "",
+      firstText(account, ["updatedAt"]),
+      summarizeForCsv(firstText(account, ["memo", "note"]))
+    ]);
+  });
+
+  const csv = [headers, ...rows].map((row) => row.map(escapeCsv).join(",")).join("\r\n");
+  downloadBlob(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }), `work-note-export-${getFilenameTimestamp()}.csv`, "text/csv;charset=utf-8");
+}
+
+function escapeCsv(value: string): string {
+  const text = clean(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function summarizeForCsv(value: string): string {
+  return clean(value).replace(/\s+/g, " ").slice(0, 500);
 }
 
 function getFilenameTimestamp(): string {
@@ -4150,6 +4354,22 @@ async function deleteAttachmentRecord(id: string): Promise<void> {
     transaction.onerror = () => {
       db.close();
       reject(transaction.error || new Error("첨부 파일을 삭제하지 못했습니다."));
+    };
+  });
+}
+
+async function clearAttachmentStore(): Promise<void> {
+  const db = await openAttachmentDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(ATTACHMENT_STORE_NAME, "readwrite");
+    transaction.objectStore(ATTACHMENT_STORE_NAME).clear();
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error || new Error("첨부파일 저장소 초기화에 실패했습니다."));
     };
   });
 }
