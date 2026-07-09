@@ -411,6 +411,28 @@ h2 {
   box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.12);
 }
 
+.check-field {
+  align-content: end;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 67px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px 11px;
+}
+
+.check-field span {
+  color: var(--text);
+}
+
+.check-field input {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  box-shadow: none;
+}
+
 .wide-field {
   grid-column: 1 / -1;
 }
