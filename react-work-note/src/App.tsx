@@ -6,6 +6,8 @@ import {
   CalendarRange,
   CheckCircle2,
   Copy,
+  Download,
+  Eye,
   ExternalLink,
   FileText,
   KeyRound,
@@ -15,7 +17,10 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
-  WalletCards
+  WalletCards,
+  X,
+  ZoomIn,
+  ZoomOut
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -47,8 +52,19 @@ type ScheduleItem = {
   priority: string;
 };
 
+type AttachmentRecord = AnyRecord & {
+  id: string;
+  blob?: Blob;
+  fileName?: string;
+  fileType?: string;
+  fileSize?: number;
+};
+
 const STORAGE_KEY = "salesNoteAppDataV1";
 const LEGACY_APP_PATH = "../sales-note-app/";
+const ATTACHMENT_DB_NAME = "salesNoteAttachmentDbV1";
+const ATTACHMENT_STORE_NAME = "files";
+const ATTACHMENT_DB_VERSION = 1;
 
 const portals: Array<{ id: PortalId; label: string; icon: typeof CalendarDays }> = [
   { id: "schedule", label: "일정", icon: CalendarDays },
@@ -408,6 +424,7 @@ function CompanyPortal({ data, query }: { data: WorkNoteData; query: string }) {
               <InfoLine label="주소" value={firstText(company, ["address"])} />
               <InfoLine label="서류" value={attachments.length ? `${attachments.length}개` : ""} />
               <InfoLine label="담당자" value={contacts.map(companyContactSummary).filter(Boolean).join(" / ")} />
+              <AttachmentPreview record={company} />
               {firstText(company, ["memo"]) && <p className="muted-preview">{firstText(company, ["memo"])}</p>}
             </article>
           );
@@ -590,7 +607,10 @@ function SalesDetailPanel({ note, company, mode }: { note: AnyRecord; company: A
             <div className="attachment-detail-list">
               {attachments.map((attachment, index) => (
                 <article key={recordId(attachment, index)}>
-                  <strong>{firstText(attachment, ["fileName", "name"]) || "첨부자료"}</strong>
+                  <div className="attachment-title-row">
+                    <strong>{firstText(attachment, ["fileName", "name"]) || "첨부자료"}</strong>
+                    <AttachmentActions attachment={attachment} />
+                  </div>
                   <span>{[firstText(attachment, ["category"]), formatOptionalDate(firstText(attachment, ["sentDate"])), firstText(attachment, ["memo"])].filter(Boolean).join(" · ") || "파일 정보 없음"}</span>
                 </article>
               ))}
@@ -689,6 +709,7 @@ function WorkTaskDetails({
           <InfoLine label="수정" value={formatDateTime(firstText(record, ["updatedAt"]))} />
         </div>
         <SchedulePreview rows={schedule} isAdvance={isAdvance} />
+        <AttachmentPreview record={record} />
         {firstText(record, ["plan"]) && <p className="muted-preview">{firstText(record, ["plan"])}</p>}
         {firstText(record, ["memo", "description", "note"]) && <p className="muted-preview">{firstText(record, ["memo", "description", "note"])}</p>}
       </>
@@ -757,10 +778,112 @@ function AttachmentPreview({ record }: { record: AnyRecord }) {
   return (
     <div className="attachment-preview">
       {attachments.slice(0, 3).map((file, index) => (
-        <span key={recordId(file, index)}>{firstText(file, ["name", "fileName", "filename"]) || `파일 ${index + 1}`}</span>
+        <div className="attachment-chip" key={recordId(file, index)}>
+          <span>{firstText(file, ["name", "fileName", "filename"]) || `파일 ${index + 1}`}</span>
+          <AttachmentActions attachment={file} compact />
+        </div>
       ))}
-      {attachments.length > 3 && <span>+{attachments.length - 3}</span>}
+      {attachments.length > 3 && <div className="attachment-chip more-chip">+{attachments.length - 3}</div>}
     </div>
+  );
+}
+
+function AttachmentActions({ attachment, compact = false }: { attachment: AnyRecord; compact?: boolean }) {
+  const [preview, setPreview] = useState<{ url: string; name: string; fileType: string; zoom: number } | null>(null);
+  const canPreview = isPreviewableAttachment(attachment);
+  const fileName = firstText(attachment, ["fileName", "name", "filename"]) || "attachment";
+
+  const handleDownload = async () => {
+    try {
+      const record = await getAttachmentRecord(firstText(attachment, ["id"]));
+      if (!record?.blob) {
+        alert("파일 원본을 찾지 못했습니다. JSON 백업만 불러온 경우 전체 ZIP 백업을 불러와야 다운로드할 수 있습니다.");
+        return;
+      }
+      downloadBlob(record.blob, record.fileName || fileName, record.fileType || "application/octet-stream");
+    } catch (error) {
+      alert(`첨부자료를 다운로드하지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const handlePreview = async () => {
+    try {
+      const record = await getAttachmentRecord(firstText(attachment, ["id"]));
+      if (!record?.blob) {
+        alert("이 파일의 원본을 현재 브라우저 저장소에서 찾지 못했습니다. 전체 ZIP 백업을 불러오면 미리보기와 다운로드가 가능합니다.");
+        return;
+      }
+      const url = URL.createObjectURL(record.blob);
+      setPreview({
+        url,
+        name: record.fileName || fileName,
+        fileType: record.fileType || firstText(attachment, ["fileType"]),
+        zoom: 1
+      });
+    } catch (error) {
+      alert(`파일을 미리볼 수 없습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const closePreview = () => {
+    if (preview?.url) URL.revokeObjectURL(preview.url);
+    setPreview(null);
+  };
+
+  return (
+    <>
+      <div className={`attachment-actions ${compact ? "compact" : ""}`}>
+        {canPreview && (
+          <button type="button" title="미리보기" onClick={handlePreview}>
+            <Eye size={compact ? 14 : 15} />
+            {!compact && "미리보기"}
+          </button>
+        )}
+        <button type="button" title="다운로드" onClick={handleDownload}>
+          <Download size={compact ? 14 : 15} />
+          {!compact && "다운로드"}
+        </button>
+      </div>
+      {preview && (
+        <div className="file-preview-overlay" role="dialog" aria-modal="true" aria-label={`${preview.name} 미리보기`}>
+          <div className="file-preview-modal">
+            <div className="file-preview-header">
+              <div>
+                <strong>{preview.name}</strong>
+                <span>{formatFileSize(Number(attachment.fileSize) || 0)}</span>
+              </div>
+              <div className="file-preview-controls">
+                {isImageAttachmentType(preview.fileType, preview.name) && (
+                  <>
+                    <button type="button" onClick={() => setPreview({ ...preview, zoom: Math.max(0.5, preview.zoom - 0.25) })}>
+                      <ZoomOut size={16} />
+                    </button>
+                    <button type="button" onClick={() => setPreview({ ...preview, zoom: 1 })}>
+                      {Math.round(preview.zoom * 100)}%
+                    </button>
+                    <button type="button" onClick={() => setPreview({ ...preview, zoom: Math.min(3, preview.zoom + 0.25) })}>
+                      <ZoomIn size={16} />
+                    </button>
+                  </>
+                )}
+                <button type="button" onClick={closePreview} aria-label="미리보기 닫기">
+                  <X size={17} />
+                </button>
+              </div>
+            </div>
+            <div className="file-preview-body">
+              {isImageAttachmentType(preview.fileType, preview.name) ? (
+                <div className="file-preview-image-stage">
+                  <img src={preview.url} alt={preview.name} style={{ transform: `scale(${preview.zoom})` }} />
+                </div>
+              ) : (
+                <iframe src={preview.url} title={preview.name} />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1137,6 +1260,76 @@ function salesInterest(note: AnyRecord): string {
 function attachmentCountText(record: AnyRecord): string {
   const count = asArray(record.attachments).length;
   return count ? `${count}개` : "없음";
+}
+
+function openAttachmentDb(): Promise<IDBDatabase> {
+  if (!window.indexedDB) {
+    return Promise.reject(new Error("이 브라우저에서는 IndexedDB 첨부파일 저장소를 사용할 수 없습니다."));
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open(ATTACHMENT_DB_NAME, ATTACHMENT_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(ATTACHMENT_STORE_NAME)) {
+        db.createObjectStore(ATTACHMENT_STORE_NAME, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("첨부파일 저장소를 열지 못했습니다."));
+  });
+}
+
+async function getAttachmentRecord(id: string): Promise<AttachmentRecord | null> {
+  if (!id) return null;
+  const db = await openAttachmentDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(ATTACHMENT_STORE_NAME, "readonly");
+    const request = transaction.objectStore(ATTACHMENT_STORE_NAME).get(id);
+    request.onsuccess = () => resolve((request.result as AttachmentRecord | undefined) || null);
+    request.onerror = () => reject(request.error || new Error("첨부파일을 읽지 못했습니다."));
+    transaction.oncomplete = () => db.close();
+    transaction.onerror = () => db.close();
+  });
+}
+
+function downloadBlob(blob: Blob, filename: string, mimeType: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename || "attachment";
+  if (mimeType) link.type = mimeType;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 100);
+}
+
+function isImageFile(attachment: AnyRecord): boolean {
+  return isImageAttachmentType(firstText(attachment, ["fileType"]), firstText(attachment, ["fileName", "name", "filename"]));
+}
+
+function isPdfFile(attachment: AnyRecord): boolean {
+  const fileType = firstText(attachment, ["fileType"]).toLowerCase();
+  const fileName = firstText(attachment, ["fileName", "name", "filename"]).toLowerCase();
+  return fileType === "application/pdf" || fileName.endsWith(".pdf");
+}
+
+function isPreviewableAttachment(attachment: AnyRecord): boolean {
+  return isImageFile(attachment) || isPdfFile(attachment);
+}
+
+function isImageAttachmentType(fileType: string, fileName: string): boolean {
+  const type = clean(fileType).toLowerCase();
+  const name = clean(fileName).toLowerCase();
+  return type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
+}
+
+function formatFileSize(size: number): string {
+  if (!Number.isFinite(size) || size <= 0) return "크기 미상";
+  if (size < 1024) return `${size}B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)}KB`;
+  return `${(size / 1024 / 1024).toFixed(1)}MB`;
 }
 
 function moneyLine(record: AnyRecord): string {
