@@ -412,6 +412,7 @@ function CompanyPortal({ data, query }: { data: WorkNoteData; query: string }) {
 }
 
 function SalesPortal({ data, query }: { data: WorkNoteData; query: string }) {
+  const [expandedSalesId, setExpandedSalesId] = useState("");
   const notes = data.notes
     .filter((note) => matchesRecord(note, query))
     .sort((a, b) => priorityScore(b) - priorityScore(a) || compareDate(firstText(b, ["updatedAt"]), firstText(a, ["updatedAt"])));
@@ -429,41 +430,104 @@ function SalesPortal({ data, query }: { data: WorkNoteData; query: string }) {
           <span>고객/연락처</span>
           <span>진행</span>
           <span>구분</span>
-          <span>관심제품/자료</span>
+          <span>중요도</span>
+          <span>현황</span>
           <span>다음 액션</span>
           <span>일정</span>
+          <span>세부</span>
         </div>
-        {notes.map((note, index) => (
-          <article className="table-row sales-grid" key={recordId(note, index)}>
-            <div>
-              <strong>{salesCustomer(note)}</strong>
-              <small>{[firstText(note, ["contactName", "managerName"]), firstText(note, ["phone", "contact", "mobile"]), firstText(note, ["email"])].filter(Boolean).join(" · ")}</small>
+        {notes.map((note, index) => {
+          const id = recordId(note, index);
+          const expanded = expandedSalesId === id;
+          return (
+            <div className="sales-row-group" key={id}>
+              <article className={`table-row sales-grid ${expanded ? "is-expanded" : ""}`}>
+                <div>
+                  <strong>{salesCustomer(note)}</strong>
+                  <div className="contact-lines">
+                    <span>{firstText(note, ["contactName", "managerName"]) || "담당자 미입력"}</span>
+                    <span>{firstText(note, ["contactPhone", "phone", "contact", "mobile"]) || "연락처 미입력"}</span>
+                    <span>{firstText(note, ["contactEmail", "email"]) || "이메일 미입력"}</span>
+                  </div>
+                </div>
+                <div>
+                  <Badge tone="blue">{salesStatus(note) || "미정"}</Badge>
+                </div>
+                <div>
+                  <Badge tone="green">{salesCategory(note) || "미지정"}</Badge>
+                </div>
+                <div>
+                  <Badge tone={priorityTone(salesPriority(note))}>{salesPriority(note) || "보통"}</Badge>
+                </div>
+                <div className="compact-lines sales-status-lines">
+                  <InfoLine label="관심제품" value={salesInterest(note) || "-"} />
+                  <InfoLine label="견적여부" value={firstText(note, ["quoteStatus"]) || "미입력"} />
+                  <InfoLine label="구매가능성" value={firstText(note, ["purchasePossibility"]) || "미입력"} />
+                  {hasAmountValue(firstText(note, ["expectedRevenueAmount"])) && (
+                    <InfoLine label="예상매출" value={formatMoneyWithVat(firstText(note, ["expectedRevenueAmount"]), note.expectedRevenueVatIncluded)} />
+                  )}
+                  {(hasAmountValue(firstText(note, ["revenueAmount"])) || firstText(note, ["revenueType"])) && (
+                    <InfoLine label="매출" value={formatRevenueForDisplay(note)} />
+                  )}
+                  <InfoLine label="관련자료" value={attachmentCountText(note)} />
+                </div>
+                <div className="next-action-cell">
+                  <strong>{firstText(note, ["nextAction", "action"]) || "다음 액션 미입력"}</strong>
+                </div>
+                <div className="compact-lines sales-status-lines">
+                  <InfoLine label="다음연락" value={formatNextContact(note)} />
+                  {(salesStatus(note) === "미팅 예정" || firstText(note, ["meetingDate"])) && (
+                    <InfoLine label="미팅일정" value={formatOptionalDate(firstText(note, ["meetingDate"])) || "-"} />
+                  )}
+                  <InfoLine label="최근연락" value={formatOptionalDate(firstText(note, ["lastContactDate"])) || "-"} />
+                </div>
+                <div className="sales-detail-actions">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedSalesId(expanded ? "" : id)}
+                    aria-expanded={expanded}
+                  >
+                    {expanded ? "접기" : "보기"}
+                  </button>
+                  <small>{formatDateTime(firstText(note, ["updatedAt"]))}</small>
+                </div>
+              </article>
+              {expanded && <SalesDetailPanel note={note} />}
             </div>
-            <div>
-              <Badge tone="blue">{firstText(note, ["status", "progressStatus"]) || "미정"}</Badge>
-            </div>
-            <div>
-              <Badge tone="green">{firstText(note, ["productCategory", "category", "salesCategory"]) || "미지정"}</Badge>
-            </div>
-            <div className="compact-lines">
-              <InfoLine label="관심" value={firstText(note, ["product", "interestProduct", "interestedProduct"])} />
-              <InfoLine label="견적" value={firstText(note, ["quoteStatus"])} />
-              <InfoLine label="매출" value={moneyLine(note)} />
-              <InfoLine label="자료" value={attachmentCountText(note)} />
-            </div>
-            <div className="next-action-cell">
-              <strong>{firstText(note, ["nextAction", "action"]) || "다음 액션 미정"}</strong>
-            </div>
-            <div className="compact-lines">
-              <InfoLine label="다음" value={formatOptionalDate(firstText(note, ["nextContactDate"]))} />
-              <InfoLine label="미팅" value={formatOptionalDate(firstText(note, ["meetingDate"]))} />
-              <InfoLine label="수정" value={formatDateTime(firstText(note, ["updatedAt"]))} />
-            </div>
-          </article>
-        ))}
+          );
+        })}
         {!notes.length && <EmptyState title="영업 메모 없음" detail="검색 조건에 맞는 영업 메모가 없습니다." />}
       </div>
     </section>
+  );
+}
+
+function SalesDetailPanel({ note }: { note: AnyRecord }) {
+  const attachments = asArray(note.attachments);
+  return (
+    <div className="sales-detail-panel">
+      <div className="sales-detail-grid">
+        <section>
+          <p className="eyebrow">MEMO</p>
+          <p className="detail-text">{firstText(note, ["memo", "description", "note"]) || "상세 메모가 없습니다."}</p>
+        </section>
+        <section>
+          <p className="eyebrow">AMOUNT</p>
+          <InfoLine label="예상매출" value={hasAmountValue(firstText(note, ["expectedRevenueAmount"])) ? formatMoneyWithVat(firstText(note, ["expectedRevenueAmount"]), note.expectedRevenueVatIncluded) : "-"} />
+          <InfoLine label="매출" value={formatRevenueForDisplay(note)} />
+        </section>
+        <section>
+          <p className="eyebrow">FILES</p>
+          <div className="attachment-name-list">
+            {attachments.slice(0, 6).map((attachment, index) => (
+              <span key={recordId(attachment, index)}>{firstText(attachment, ["fileName", "name"]) || "첨부자료"}</span>
+            ))}
+            {!attachments.length && <span>첨부자료 없음</span>}
+            {attachments.length > 6 && <span>외 {attachments.length - 6}개</span>}
+          </div>
+        </section>
+      </div>
+    </div>
   );
 }
 
@@ -747,7 +811,7 @@ function recordId(record: AnyRecord, index: number): string {
 }
 
 function companyName(record: AnyRecord): string {
-  return firstText(record, ["companyName", "name", "clientName", "relatedCompany", "customerName"]);
+  return firstText(record, ["company", "companyName", "name", "clientName", "relatedCompany", "customerName"]);
 }
 
 function salesCustomer(note: AnyRecord): string {
@@ -797,6 +861,28 @@ function statusTone(status: string): "neutral" | "blue" | "green" | "orange" | "
   return "neutral";
 }
 
+function priorityTone(priority: string): "neutral" | "blue" | "green" | "orange" | "red" {
+  if (priority.includes("긴급") || priority.includes("높음") || priority.includes("중요")) return "orange";
+  if (priority.includes("낮")) return "green";
+  return "neutral";
+}
+
+function salesStatus(note: AnyRecord): string {
+  return firstText(note, ["status", "progressStatus"]);
+}
+
+function salesCategory(note: AnyRecord): string {
+  return firstText(note, ["itemCategory", "productCategory", "category", "salesCategory"]);
+}
+
+function salesPriority(note: AnyRecord): string {
+  return firstText(note, ["priority", "importance"]);
+}
+
+function salesInterest(note: AnyRecord): string {
+  return firstText(note, ["interest", "product", "interestProduct", "interestedProduct"]);
+}
+
 function attachmentCountText(record: AnyRecord): string {
   const count = asArray(record.attachments).length;
   return count ? `${count}개` : "없음";
@@ -809,12 +895,52 @@ function moneyLine(record: AnyRecord): string {
   return [formatMoney(amount), type].filter(Boolean).join(" · ");
 }
 
+function hasAmountValue(value: string): boolean {
+  return parseAmountNumber(value) !== null;
+}
+
+function parseAmountNumber(value: string): number | null {
+  const text = clean(value).replace(/,/g, "");
+  if (!text) return null;
+  const match = text.match(/-?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const number = Number(match[0]);
+  return Number.isFinite(number) ? number : null;
+}
+
 function formatMoney(value: string): string {
-  const digits = value.replace(/[^\d.-]/g, "");
-  if (!digits) return value;
-  const number = Number(digits);
-  if (!Number.isFinite(number)) return value;
-  return `${number.toLocaleString("ko-KR")}원`;
+  const number = parseAmountNumber(value);
+  if (number === null) return value;
+  return `${number.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}원`;
+}
+
+function booleanFlag(value: unknown): boolean {
+  if (value === true) return true;
+  const text = clean(value).toLowerCase();
+  return text === "true" || text === "1" || text === "vat" || text.includes("포함");
+}
+
+function formatVatStatus(value: unknown): string {
+  return booleanFlag(value) ? "VAT 포함" : "VAT 별도";
+}
+
+function formatMoneyWithVat(value: string, vatIncluded: unknown): string {
+  const money = formatMoney(value);
+  return money ? `${money} · ${formatVatStatus(vatIncluded)}` : "";
+}
+
+function formatRevenueForDisplay(note: AnyRecord): string {
+  return [
+    hasAmountValue(firstText(note, ["revenueAmount"])) ? formatMoneyWithVat(firstText(note, ["revenueAmount"]), note.revenueAmountVatIncluded) : "",
+    firstText(note, ["revenueType"])
+  ].filter(Boolean).join(" · ") || "-";
+}
+
+function formatNextContact(note: AnyRecord): string {
+  if (Boolean(note.nextContactUnknown) || clean(note.nextContactDate) === "") {
+    return "미정";
+  }
+  return formatOptionalDate(firstText(note, ["nextContactDate"])) || "-";
 }
 
 function deadlineText(record: AnyRecord): string {
