@@ -26,7 +26,7 @@ import {
   ZoomIn,
   ZoomOut
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type PortalId = "schedule" | "company" | "sales" | "settlement" | "output" | "other" | "account";
 type CalendarMode = "month" | "week";
@@ -72,6 +72,7 @@ const LEGACY_APP_PATH = "../sales-note-app/";
 const ATTACHMENT_DB_NAME = "salesNoteAttachmentDbV1";
 const ATTACHMENT_STORE_NAME = "files";
 const ATTACHMENT_DB_VERSION = 1;
+let zipCrcTable: Uint32Array | null = null;
 const SALES_STATUS_OPTIONS = ["신규 문의", "1차 대응 완료", "미팅 예정", "샘플/BMT 진행", "검토 중", "수주 가능성 높음", "보류", "완료", "실패/종료"];
 const SALES_ITEM_CATEGORY_OPTIONS = ["장비", "소재", "타사 장비", "타사 소재", "기타"];
 const PRIORITY_OPTIONS = ["긴급", "높음", "보통", "낮음"];
@@ -180,6 +181,7 @@ export function App() {
         </div>
         <div className="header-actions">
           <StatusBadge data={data} />
+          <BackupCenter data={data} setData={setData} setSaveMessage={setSaveMessage} />
           <button className="icon-text-button" type="button" onClick={refreshData}>
             <RefreshCw size={17} />
             새로고침
@@ -314,6 +316,150 @@ function StatusBadge({ data }: { data: WorkNoteData }) {
       <CheckCircle2 size={16} />
       로컬 데이터 연결
     </span>
+  );
+}
+
+function BackupCenter({
+  data,
+  setData,
+  setSaveMessage
+}: {
+  data: WorkNoteData;
+  setData: (data: WorkNoteData) => void;
+  setSaveMessage: (message: string) => void;
+}) {
+  const jsonInputRef = useRef<HTMLInputElement | null>(null);
+  const zipInputRef = useRef<HTMLInputElement | null>(null);
+  const [jsonMode, setJsonMode] = useState<"replace" | "merge">("replace");
+  const [zipMode, setZipMode] = useState<"replace" | "merge">("replace");
+  const [busy, setBusy] = useState("");
+
+  const finishImport = (message: string) => {
+    const fresh = loadWorkNoteData();
+    setData(fresh);
+    setSaveMessage(`${message} · ${formatDateTime(fresh.updatedAt || fresh.loadedAt)}`);
+  };
+
+  const exportJson = () => {
+    const payload = createBackupPayload(data, "manual-json");
+    downloadJson(payload, `sales-note-backup-${getFilenameTimestamp()}.json`);
+    setSaveMessage(`기록 백업 생성 · ${formatDateTime(new Date().toISOString())}`);
+  };
+
+  const exportZip = async () => {
+    setBusy("전체 ZIP 생성 중");
+    try {
+      const result = await createFullBackupZipBlob(data);
+      downloadBlob(result.blob, `work-note-full-backup-${getFilenameTimestamp()}.zip`, "application/zip");
+      setSaveMessage(`전체 백업 생성 · 파일 ${result.totalCount - result.missingCount}/${result.totalCount}개 포함`);
+      if (result.missingCount) {
+        alert(`전체 백업 ZIP을 만들었지만 원본 파일 ${result.missingCount}개를 찾지 못했습니다.\n해당 파일은 기록만 백업됩니다.`);
+      }
+    } catch (error) {
+      alert(`전체 백업 ZIP을 만들지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const chooseJson = (mode: "replace" | "merge") => {
+    setJsonMode(mode);
+    if (jsonInputRef.current) {
+      jsonInputRef.current.value = "";
+      jsonInputRef.current.click();
+    }
+  };
+
+  const chooseZip = (mode: "replace" | "merge") => {
+    setZipMode(mode);
+    if (zipInputRef.current) {
+      zipInputRef.current.value = "";
+      zipInputRef.current.click();
+    }
+  };
+
+  const handleJsonFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setBusy(jsonMode === "merge" ? "JSON 병합 중" : "JSON 교체 중");
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as AnyRecord;
+      const backupData = extractBackupData(parsed);
+      validateWorkNotePayload(backupData);
+      if (jsonMode === "merge") {
+        if (!confirm(`JSON 백업을 현재 데이터에 병합할까요?\n\nJSON에는 원본 파일이 없어서 새 첨부자료는 파일명 기록만 들어옵니다.`)) return;
+        const merged = mergeBackupData(loadWorkNoteData(), backupData);
+        saveWorkNoteData(merged, "JSON 백업 병합");
+        finishImport("JSON 병합 완료");
+        return;
+      }
+      if (!confirm("JSON 백업으로 현재 데이터를 교체할까요?\n\n첨부 파일 원본은 JSON에 포함되지 않습니다. 필요한 경우 전체 ZIP 백업을 사용해 주세요.")) return;
+      saveWorkNoteData(normalizeBackupToWorkNote(backupData), "JSON 백업 교체");
+      finishImport("JSON 교체 완료");
+    } catch (error) {
+      alert(`JSON 백업을 불러오지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusy("");
+      event.target.value = "";
+    }
+  };
+
+  const handleZipFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setBusy(zipMode === "merge" ? "ZIP 병합 중" : "ZIP 교체 중");
+    try {
+      const zipResult = await readFullBackupZip(file);
+      if (zipMode === "merge") {
+        if (!confirm(`전체 ZIP 백업을 현재 데이터에 병합할까요?\n\n복원 가능한 원본 파일: ${zipResult.files.records.length}개`)) return;
+        const current = loadWorkNoteData();
+        const merged = mergeBackupData(current, zipResult.data);
+        await restoreZipAttachmentRecords(zipResult.files, merged);
+        saveWorkNoteData(merged, "전체 ZIP 백업 병합");
+        finishImport(`ZIP 병합 완료 · 파일 ${zipResult.files.records.length}개`);
+        return;
+      }
+      if (!confirm(`전체 ZIP 백업으로 현재 데이터를 교체할까요?\n\n복원 가능한 원본 파일: ${zipResult.files.records.length}개`)) return;
+      const next = normalizeBackupToWorkNote(zipResult.data);
+      await restoreZipAttachmentRecords(zipResult.files, next);
+      saveWorkNoteData(next, "전체 ZIP 백업 교체");
+      finishImport(`ZIP 교체 완료 · 파일 ${zipResult.files.records.length}개`);
+    } catch (error) {
+      alert(`전체 ZIP 백업을 불러오지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusy("");
+      event.target.value = "";
+    }
+  };
+
+  return (
+    <details className="backup-center">
+      <summary className="icon-text-button">
+        <Archive size={16} />
+        백업 센터
+      </summary>
+      <div className="backup-center-panel">
+        <div>
+          <strong>내보내기</strong>
+          <button type="button" onClick={exportJson} disabled={Boolean(busy)}>기록 백업 JSON</button>
+          <button type="button" onClick={exportZip} disabled={Boolean(busy)}>전체 백업 ZIP</button>
+        </div>
+        <div>
+          <strong>불러오기</strong>
+          <button type="button" onClick={() => chooseJson("replace")} disabled={Boolean(busy)}>JSON 교체</button>
+          <button type="button" onClick={() => chooseZip("replace")} disabled={Boolean(busy)}>ZIP 교체</button>
+        </div>
+        <div>
+          <strong>병합</strong>
+          <button type="button" onClick={() => chooseJson("merge")} disabled={Boolean(busy)}>JSON 병합</button>
+          <button type="button" onClick={() => chooseZip("merge")} disabled={Boolean(busy)}>ZIP 병합</button>
+        </div>
+        <small>{busy || "ZIP은 원본 파일까지, JSON은 기록만 저장합니다."}</small>
+      </div>
+      <input ref={jsonInputRef} type="file" accept="application/json,.json" hidden onChange={handleJsonFile} />
+      <input ref={zipInputRef} type="file" accept="application/zip,.zip" hidden onChange={handleZipFile} />
+    </details>
   );
 }
 
@@ -469,12 +615,14 @@ function CompanyPortal({
     .filter(({ company }) => matchesRecord(company, query));
   const saveCompany = (draft: AnyRecord) => {
     const normalized = normalizeCompanyDraft(draft);
-    if (!normalized.name) {
+    const normalizedName = firstText(normalized, ["name"]);
+    const normalizedId = firstText(normalized, ["id"]);
+    if (!normalizedName) {
       alert("업체명을 입력해 주세요.");
       return;
     }
 
-    const similar = findSimilarCompanies(data.companies, normalized.name, normalized.id);
+    const similar = findSimilarCompanies(data.companies, normalizedName, normalizedId);
     if (similar.length && !confirm(`비슷한 업체명이 있습니다.\n\n${similar.map(companyName).join("\n")}\n\n그래도 저장할까요?`)) {
       return;
     }
@@ -487,7 +635,7 @@ function CompanyPortal({
         ...normalized,
         attachments: previous ? asArray(previous.attachments) : asArray(draft.attachments),
         history: previous ? asArray(previous.history) : [],
-        createdAt: firstText(previous || {}, ["createdAt"]) || now,
+        createdAt: firstText(previous || ({} as AnyRecord), ["createdAt"]) || now,
         updatedAt: now
       };
       const exists = current.companies.some((item, index) => recordId(item, index) === normalized.id);
@@ -840,12 +988,13 @@ function SalesPortal({
       "영업 파일 정보 수정"
     );
 
-    const attachmentId = updatedAttachment ? firstText(updatedAttachment, ["id"]) : "";
+    const nextAttachmentMeta = updatedAttachment as AnyRecord | null;
+    const attachmentId = nextAttachmentMeta ? firstText(nextAttachmentMeta, ["id"]) : "";
     if (!attachmentId) return;
     try {
       const stored = await getAttachmentRecord(attachmentId);
       if (stored?.blob) {
-        await putAttachmentRecord({ ...stored, ...updatedAttachment, blob: stored.blob });
+        await putAttachmentRecord({ ...stored, ...nextAttachmentMeta, blob: stored.blob });
       }
     } catch {
       // Metadata is still saved in localStorage. The original blob can be restored by importing a full ZIP backup.
@@ -1474,12 +1623,13 @@ function createAttachmentHandlers({
       `${reasonLabel} 정보 수정`
     );
 
-    const attachmentId = updatedAttachment ? firstText(updatedAttachment, ["id"]) : "";
+    const nextAttachmentMeta = updatedAttachment as AnyRecord | null;
+    const attachmentId = nextAttachmentMeta ? firstText(nextAttachmentMeta, ["id"]) : "";
     if (!attachmentId) return;
     try {
       const stored = await getAttachmentRecord(attachmentId);
       if (stored?.blob) {
-        await putAttachmentRecord({ ...stored, ...updatedAttachment, blob: stored.blob });
+        await putAttachmentRecord({ ...stored, ...nextAttachmentMeta, blob: stored.blob });
       }
     } catch {
       // Metadata has already been saved. Full ZIP import can restore the original blob if needed.
@@ -2610,6 +2760,582 @@ function validateWorkNotePayload(payload: AnyRecord) {
   }
 }
 
+function createBackupPayload(data: WorkNoteData, reason: string, options: AnyRecord = {}): AnyRecord {
+  const state = cloneBackupState(data);
+  return {
+    app: "work-note",
+    version: data.version && data.version !== "unknown" ? data.version : "react-work-note-v1",
+    backupCreatedAt: new Date().toISOString(),
+    reason,
+    updatedAt: data.updatedAt,
+    backupType: firstText(options, ["backupType"]) || "records-json",
+    attachmentStorage: firstText(options, ["attachmentStorage"]) || "indexedDB",
+    fileOriginalsIncluded: Boolean(options.fileOriginalsIncluded),
+    missingFileOriginals: Number(options.missingFileOriginals) || 0,
+    companies: Array.isArray(options.companies) ? options.companies : state.companies,
+    notes: Array.isArray(options.notes) ? options.notes : state.notes,
+    settlementTasks: Array.isArray(options.settlementTasks) ? options.settlementTasks : state.settlementTasks,
+    outputTasks: Array.isArray(options.outputTasks) ? options.outputTasks : state.outputTasks,
+    otherTasks: Array.isArray(options.otherTasks) ? options.otherTasks : state.otherTasks,
+    accounts: Array.isArray(options.accounts) ? options.accounts : state.accounts
+  };
+}
+
+function cloneBackupState(data: WorkNoteData): Pick<WorkNoteData, "companies" | "notes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts"> {
+  return {
+    companies: JSON.parse(JSON.stringify(asArray(data.companies))),
+    notes: JSON.parse(JSON.stringify(asArray(data.notes))),
+    settlementTasks: JSON.parse(JSON.stringify(asArray(data.settlementTasks))),
+    outputTasks: JSON.parse(JSON.stringify(asArray(data.outputTasks))),
+    otherTasks: JSON.parse(JSON.stringify(asArray(data.otherTasks))),
+    accounts: JSON.parse(JSON.stringify(asArray(data.accounts)))
+  };
+}
+
+function downloadJson(payload: AnyRecord, filename: string) {
+  downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), filename, "application/json");
+}
+
+function getFilenameTimestamp(): string {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+}
+
+async function createFullBackupZipBlob(data: WorkNoteData): Promise<{ blob: Blob; totalCount: number; missingCount: number }> {
+  const backupState = cloneBackupState(data);
+  const fileEntries: Array<{ path: string; data: Uint8Array }> = [];
+  let totalCount = 0;
+  let missingCount = 0;
+
+  for (const ownerGroup of getAttachmentOwnerGroups(backupState)) {
+    for (const owner of ownerGroup.items) {
+      const attachments = asArray(owner.attachments);
+      owner.attachments = attachments;
+      for (const attachment of attachments) {
+        totalCount += 1;
+        const backupPath = createAttachmentBackupPath(ownerGroup.type, owner, attachment);
+        attachment.backupPath = backupPath;
+        try {
+          const record = await getAttachmentRecord(firstText(attachment, ["id"]));
+          if (!record?.blob) {
+            attachment.missingOriginal = true;
+            missingCount += 1;
+            continue;
+          }
+          fileEntries.push({
+            path: backupPath,
+            data: new Uint8Array(await record.blob.arrayBuffer())
+          });
+        } catch {
+          attachment.missingOriginal = true;
+          missingCount += 1;
+        }
+      }
+    }
+  }
+
+  const payload = createBackupPayload(data, "full-zip", {
+    backupType: "full-zip",
+    attachmentStorage: "zip/attachments",
+    fileOriginalsIncluded: missingCount === 0,
+    missingFileOriginals: missingCount,
+    companies: backupState.companies,
+    notes: backupState.notes,
+    settlementTasks: backupState.settlementTasks,
+    outputTasks: backupState.outputTasks,
+    otherTasks: backupState.otherTasks,
+    accounts: backupState.accounts
+  });
+
+  return {
+    blob: createZipBlob([
+      { path: "backup.json", data: textToBytes(JSON.stringify(payload, null, 2)) },
+      ...fileEntries
+    ]),
+    totalCount,
+    missingCount
+  };
+}
+
+function getAttachmentOwnerGroups(data: Pick<WorkNoteData, "companies" | "notes" | "settlementTasks" | "outputTasks" | "otherTasks">): Array<{ type: AttachmentOwnerType; items: AnyRecord[] }> {
+  return [
+    { type: "company", items: asArray(data.companies) },
+    { type: "sales", items: asArray(data.notes) },
+    { type: "settlement", items: asArray(data.settlementTasks) },
+    { type: "output", items: asArray(data.outputTasks) },
+    { type: "other", items: asArray(data.otherTasks) }
+  ];
+}
+
+function collectAttachmentIdsFromData(data: Pick<WorkNoteData, "companies" | "notes" | "settlementTasks" | "outputTasks" | "otherTasks">): Set<string> {
+  const ids = new Set<string>();
+  getAttachmentOwnerGroups(data).forEach((ownerGroup) => {
+    ownerGroup.items.forEach((owner) => {
+      asArray(owner.attachments).forEach((attachment) => {
+        const id = firstText(attachment, ["id"]);
+        if (id) ids.add(id);
+      });
+    });
+  });
+  return ids;
+}
+
+function createAttachmentBackupPath(type: AttachmentOwnerType, owner: AnyRecord, attachment: AnyRecord): string {
+  const ownerId = sanitizePathSegment(firstText(owner, ["id"]) || "unknown");
+  const fileId = sanitizePathSegment(firstText(attachment, ["id"]) || createId("file_"));
+  const fileName = sanitizeFileName(firstText(attachment, ["fileName", "name", "filename"]) || "attachment");
+  return `attachments/${type}/${ownerId}/${fileId}-${fileName}`;
+}
+
+function sanitizePathSegment(value: string): string {
+  return clean(value)
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .replace(/\s+/g, "_")
+    .slice(0, 120) || "item";
+}
+
+function sanitizeFileName(value: string): string {
+  return sanitizePathSegment((value || "attachment").split(/[\\/]/).pop() || "attachment");
+}
+
+function createZipBlob(entries: Array<{ path: string; data: Uint8Array | string }>): Blob {
+  const chunks: BlobPart[] = [];
+  const centralDirectory: Uint8Array[] = [];
+  let offset = 0;
+  const now = new Date();
+  const dosTime = getDosTime(now);
+  const dosDate = getDosDate(now);
+
+  entries.forEach((entry) => {
+    const nameBytes = textToBytes(entry.path);
+    const data = entry.data instanceof Uint8Array ? entry.data : textToBytes(String(entry.data || ""));
+    const crc = calculateCrc32(data);
+    const size = data.length;
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+    const localView = new DataView(localHeader.buffer);
+
+    localView.setUint32(0, 0x04034b50, true);
+    localView.setUint16(4, 20, true);
+    localView.setUint16(6, 0x0800, true);
+    localView.setUint16(8, 0, true);
+    localView.setUint16(10, dosTime, true);
+    localView.setUint16(12, dosDate, true);
+    localView.setUint32(14, crc, true);
+    localView.setUint32(18, size, true);
+    localView.setUint32(22, size, true);
+    localView.setUint16(26, nameBytes.length, true);
+    localView.setUint16(28, 0, true);
+    localHeader.set(nameBytes, 30);
+    chunks.push(bytesToBlobPart(localHeader), bytesToBlobPart(data));
+
+    const centralHeader = new Uint8Array(46 + nameBytes.length);
+    const centralView = new DataView(centralHeader.buffer);
+    centralView.setUint32(0, 0x02014b50, true);
+    centralView.setUint16(4, 20, true);
+    centralView.setUint16(6, 20, true);
+    centralView.setUint16(8, 0x0800, true);
+    centralView.setUint16(10, 0, true);
+    centralView.setUint16(12, dosTime, true);
+    centralView.setUint16(14, dosDate, true);
+    centralView.setUint32(16, crc, true);
+    centralView.setUint32(20, size, true);
+    centralView.setUint32(24, size, true);
+    centralView.setUint16(28, nameBytes.length, true);
+    centralView.setUint16(30, 0, true);
+    centralView.setUint16(32, 0, true);
+    centralView.setUint16(34, 0, true);
+    centralView.setUint16(36, 0, true);
+    centralView.setUint32(38, 0, true);
+    centralView.setUint32(42, offset, true);
+    centralHeader.set(nameBytes, 46);
+    centralDirectory.push(centralHeader);
+    offset += localHeader.length + data.length;
+  });
+
+  const centralOffset = offset;
+  let centralSize = 0;
+  centralDirectory.forEach((header) => {
+    chunks.push(bytesToBlobPart(header));
+    centralSize += header.length;
+  });
+
+  const endRecord = new Uint8Array(22);
+  const endView = new DataView(endRecord.buffer);
+  endView.setUint32(0, 0x06054b50, true);
+  endView.setUint16(4, 0, true);
+  endView.setUint16(6, 0, true);
+  endView.setUint16(8, entries.length, true);
+  endView.setUint16(10, entries.length, true);
+  endView.setUint32(12, centralSize, true);
+  endView.setUint32(16, centralOffset, true);
+  endView.setUint16(20, 0, true);
+  chunks.push(bytesToBlobPart(endRecord));
+
+  return new Blob(chunks, { type: "application/zip" });
+}
+
+function bytesToBlobPart(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer as ArrayBuffer;
+}
+
+function calculateCrc32(data: Uint8Array): number {
+  const table = getZipCrcTable();
+  let crc = 0xffffffff;
+  for (let index = 0; index < data.length; index += 1) {
+    crc = (crc >>> 8) ^ table[(crc ^ data[index]) & 0xff];
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function getZipCrcTable(): Uint32Array {
+  if (zipCrcTable) return zipCrcTable;
+  zipCrcTable = new Uint32Array(256);
+  for (let index = 0; index < 256; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+    zipCrcTable[index] = value >>> 0;
+  }
+  return zipCrcTable;
+}
+
+function textToBytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
+}
+
+function getDosTime(date: Date): number {
+  return (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
+}
+
+function getDosDate(date: Date): number {
+  return ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+}
+
+async function readFullBackupZip(file: File): Promise<{ data: WorkNoteData; files: { records: AttachmentRecord[]; missingCount: number } }> {
+  const zipEntries = parseZipArchive(new Uint8Array(await file.arrayBuffer()));
+  const backupEntry = findZipBackupJson(zipEntries);
+  if (!backupEntry) {
+    throw new Error("ZIP 안에서 backup.json을 찾지 못했습니다.");
+  }
+  const parsed = JSON.parse(new TextDecoder().decode(backupEntry.data)) as AnyRecord;
+  const data = normalizeBackupToWorkNote(extractBackupData(parsed));
+  validateWorkNotePayload(data);
+  return { data, files: collectZipAttachmentRecords(data, zipEntries) };
+}
+
+function parseZipArchive(bytes: Uint8Array): Map<string, { path: string; data: Uint8Array }> {
+  const entries = new Map<string, { path: string; data: Uint8Array }>();
+  const decoder = new TextDecoder();
+  let offset = 0;
+
+  while (offset + 30 <= bytes.length) {
+    const signature = readZipUint32(bytes, offset);
+    if (signature === 0x02014b50 || signature === 0x06054b50) break;
+    if (signature !== 0x04034b50) {
+      if (offset === 0) throw new Error("ZIP 파일 형식이 아닙니다.");
+      break;
+    }
+
+    const flags = readZipUint16(bytes, offset + 6);
+    const method = readZipUint16(bytes, offset + 8);
+    const compressedSize = readZipUint32(bytes, offset + 18);
+    const fileNameLength = readZipUint16(bytes, offset + 26);
+    const extraLength = readZipUint16(bytes, offset + 28);
+    const nameStart = offset + 30;
+    const nameEnd = nameStart + fileNameLength;
+    const dataStart = nameEnd + extraLength;
+    const dataEnd = dataStart + compressedSize;
+
+    if (flags & 0x0008) {
+      throw new Error("데이터 설명자가 포함된 ZIP은 아직 불러올 수 없습니다. Work Note에서 만든 전체 ZIP을 사용해 주세요.");
+    }
+    if (method !== 0) {
+      throw new Error("압축된 ZIP 항목은 아직 불러올 수 없습니다. Work Note에서 만든 전체 ZIP을 사용해 주세요.");
+    }
+    if (dataEnd > bytes.length) {
+      throw new Error("ZIP 파일이 손상되었거나 일부가 누락되었습니다.");
+    }
+
+    const path = decoder.decode(bytes.slice(nameStart, nameEnd)).replace(/\\/g, "/");
+    entries.set(path, { path, data: bytes.slice(dataStart, dataEnd) });
+    offset = dataEnd;
+  }
+
+  return entries;
+}
+
+function findZipBackupJson(zipEntries: Map<string, { path: string; data: Uint8Array }>): { path: string; data: Uint8Array } | null {
+  return zipEntries.get("backup.json")
+    || Array.from(zipEntries.values()).find((entry) => entry.path.toLowerCase().endsWith("/backup.json") || entry.path.toLowerCase() === "backup.json")
+    || null;
+}
+
+function readZipUint16(bytes: Uint8Array, offset: number): number {
+  return bytes[offset] | (bytes[offset + 1] << 8);
+}
+
+function readZipUint32(bytes: Uint8Array, offset: number): number {
+  return (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0;
+}
+
+function extractBackupData(parsed: AnyRecord): AnyRecord {
+  return parsed && parsed.data && Array.isArray((parsed.data as AnyRecord).notes) ? parsed.data as AnyRecord : parsed;
+}
+
+function normalizeBackupToWorkNote(backupData: AnyRecord): WorkNoteData {
+  return {
+    version: firstText(backupData, ["version"]) || "react-work-note-v1",
+    updatedAt: firstText(backupData, ["updatedAt", "backupCreatedAt"]) || new Date().toISOString(),
+    companies: asArray(backupData.companies),
+    notes: asArray(backupData.notes),
+    settlementTasks: asArray(backupData.settlementTasks),
+    outputTasks: asArray(backupData.outputTasks),
+    otherTasks: asArray(backupData.otherTasks),
+    accounts: asArray(backupData.accounts),
+    loadedAt: new Date().toISOString()
+  };
+}
+
+function collectZipAttachmentRecords(
+  backupData: Pick<WorkNoteData, "companies" | "notes" | "settlementTasks" | "outputTasks" | "otherTasks">,
+  zipEntries: Map<string, { path: string; data: Uint8Array }>
+): { records: AttachmentRecord[]; missingCount: number } {
+  const records: AttachmentRecord[] = [];
+  let missingCount = 0;
+
+  getAttachmentOwnerGroups(backupData).forEach((ownerGroup) => {
+    ownerGroup.items.forEach((owner) => {
+      asArray(owner.attachments).forEach((attachment) => {
+        const id = firstText(attachment, ["id"]);
+        if (!id) return;
+        const backupPath = firstText(attachment, ["backupPath"]).replace(/\\/g, "/");
+        const entry = backupPath ? zipEntries.get(backupPath) : null;
+        if (!entry) {
+          missingCount += 1;
+          return;
+        }
+        records.push({
+          ...attachment,
+          id,
+          fileName: firstText(attachment, ["fileName", "name", "filename"]) || "attachment",
+          fileType: firstText(attachment, ["fileType"]) || "application/octet-stream",
+          fileSize: Number(attachment.fileSize) || entry.data.length,
+          backupOwnerType: ownerGroup.type,
+          backupOwnerId: firstText(owner, ["id"]),
+          blob: new Blob([bytesToBlobPart(entry.data)], { type: firstText(attachment, ["fileType"]) || "application/octet-stream" })
+        });
+      });
+    });
+  });
+
+  return { records, missingCount };
+}
+
+async function restoreZipAttachmentRecords(
+  files: { records: AttachmentRecord[]; missingCount: number },
+  targetData: Pick<WorkNoteData, "companies" | "notes" | "settlementTasks" | "outputTasks" | "otherTasks">
+): Promise<void> {
+  const targetIds = collectAttachmentIdsFromData(targetData);
+  for (const record of files.records) {
+    if (!targetIds.has(record.id)) continue;
+    const { backupOwnerType, backupOwnerId, backupPath, missingOriginal, ...recordData } = record;
+    await putAttachmentRecord(recordData as AttachmentRecord);
+  }
+}
+
+function mergeBackupData(current: WorkNoteData, incomingRaw: AnyRecord): WorkNoteData {
+  const incoming = normalizeBackupToWorkNote(incomingRaw);
+  const next: WorkNoteData = {
+    ...normalizeBackupToWorkNote(current),
+    version: incoming.version || current.version || "react-work-note-v1",
+    updatedAt: new Date().toISOString(),
+    companies: mergeRecordList("company", current.companies, incoming.companies),
+    notes: [],
+    settlementTasks: [],
+    outputTasks: [],
+    otherTasks: [],
+    accounts: [],
+    loadedAt: new Date().toISOString()
+  };
+
+  const companyIdMap = createIdMap(current.companies, incoming.companies, next.companies, "company");
+  remapCompanyLinks(incoming.notes, companyIdMap);
+  remapCompanyLinks(incoming.settlementTasks, companyIdMap);
+  remapCompanyLinks(incoming.outputTasks, companyIdMap);
+  remapCompanyLinks(incoming.otherTasks, companyIdMap);
+
+  next.notes = mergeRecordList("sales", current.notes, incoming.notes);
+  const salesIdMap = createIdMap(current.notes, incoming.notes, next.notes, "sales");
+  remapSalesLinks(incoming.settlementTasks, salesIdMap);
+  remapSalesLinks(incoming.outputTasks, salesIdMap);
+
+  next.settlementTasks = mergeRecordList("settlement", current.settlementTasks, incoming.settlementTasks);
+  next.outputTasks = mergeRecordList("output", current.outputTasks, incoming.outputTasks);
+  next.otherTasks = mergeRecordList("other", current.otherTasks, incoming.otherTasks);
+  next.accounts = mergeRecordList("account", current.accounts, incoming.accounts);
+  return next;
+}
+
+function createIdMap(current: AnyRecord[], incoming: AnyRecord[], merged: AnyRecord[], type: string): Map<string, string> {
+  const map = new Map<string, string>();
+  incoming.forEach((item, index) => {
+    const originalId = firstText(item, ["id"]) || recordId(item, index);
+    const key = createMergeKey(type, item, index);
+    const mergedItem = merged.find((candidate, candidateIndex) => firstText(candidate, ["id"]) === originalId || createMergeKey(type, candidate, candidateIndex) === key)
+      || current.find((candidate, candidateIndex) => firstText(candidate, ["id"]) === originalId || createMergeKey(type, candidate, candidateIndex) === key);
+    if (originalId && mergedItem) map.set(originalId, firstText(mergedItem, ["id"]) || originalId);
+  });
+  return map;
+}
+
+function remapCompanyLinks(records: AnyRecord[], companyIdMap: Map<string, string>) {
+  records.forEach((record) => {
+    const companyId = firstText(record, ["companyId"]);
+    if (companyId && companyIdMap.has(companyId)) record.companyId = companyIdMap.get(companyId);
+  });
+}
+
+function remapSalesLinks(records: AnyRecord[], salesIdMap: Map<string, string>) {
+  records.forEach((record) => {
+    const salesNoteId = firstText(record, ["salesNoteId"]);
+    if (salesNoteId && salesIdMap.has(salesNoteId)) record.salesNoteId = salesIdMap.get(salesNoteId);
+  });
+}
+
+function mergeRecordList(type: string, currentList: AnyRecord[], incomingList: AnyRecord[]): AnyRecord[] {
+  const next = JSON.parse(JSON.stringify(asArray(currentList))) as AnyRecord[];
+  const usedIds = new Set(next.map((item) => firstText(item, ["id"])).filter(Boolean));
+
+  asArray(incomingList).forEach((incomingItem, index) => {
+    const item = JSON.parse(JSON.stringify(incomingItem)) as AnyRecord;
+    const itemId = firstText(item, ["id"]);
+    const itemKey = createMergeKey(type, item, index);
+    const existingIndex = next.findIndex((candidate, candidateIndex) => (
+      (itemId && firstText(candidate, ["id"]) === itemId) || (itemKey && createMergeKey(type, candidate, candidateIndex) === itemKey)
+    ));
+
+    if (existingIndex >= 0) {
+      const existing = next[existingIndex];
+      next[existingIndex] = {
+        ...existing,
+        ...item,
+        id: firstText(existing, ["id"]) || itemId || createId(`${type}_`),
+        createdAt: firstText(existing, ["createdAt"]) || firstText(item, ["createdAt"]),
+        memo: mergeLongText(firstText(existing, ["memo"]), firstText(item, ["memo"])),
+        plan: mergeLongText(firstText(existing, ["plan"]), firstText(item, ["plan"])),
+        contacts: type === "company" ? mergeContactList(asArray(existing.contacts), asArray(item.contacts)) : item.contacts || existing.contacts,
+        attachments: mergeAttachmentList(asArray(existing.attachments), asArray(item.attachments))
+      };
+      return;
+    }
+
+    if (!item.id || usedIds.has(firstText(item, ["id"]))) {
+      item.id = createUniqueImportedId(type, usedIds);
+    }
+    usedIds.add(firstText(item, ["id"]));
+    next.push(item);
+  });
+
+  return next;
+}
+
+function createMergeKey(type: string, item: AnyRecord, index: number): string {
+  if (type === "company") return normalizeMergeText(companyName(item));
+  if (type === "account") {
+    return normalizeMergeText([firstText(item, ["siteUrl", "url"]), firstText(item, ["siteName", "name"]), firstText(item, ["username", "id"])].join("|"));
+  }
+  if (type === "sales") {
+    return normalizeMergeText([firstText(item, ["companyId"]), salesCustomer(item), firstText(item, ["contactName"]), salesInterest(item)].join("|"));
+  }
+  return normalizeMergeText([firstText(item, ["companyId"]), companyName(item), firstText(item, ["title", "outputType", "paymentType"]), firstText(item, ["startDate", "nextActionDate", "endDate"])].join("|")) || `${type}-${index}`;
+}
+
+function normalizeMergeText(value: string): string {
+  return clean(value).toLowerCase().replace(/\s+/g, "");
+}
+
+function createUniqueImportedId(type: string, usedIds: Set<string>): string {
+  let id = createId(`${type}_`);
+  while (usedIds.has(id)) id = createId(`${type}_`);
+  usedIds.add(id);
+  return id;
+}
+
+function mergeLongText(current: string, incoming: string): string {
+  const before = clean(current);
+  const after = clean(incoming);
+  if (!before) return after;
+  if (!after) return before;
+  if (after.includes(before)) return after;
+  if (before.includes(after)) return before;
+  return `${after}\n\n--- 기존 메모 ---\n${before}`;
+}
+
+function mergeContactList(currentContacts: AnyRecord[], incomingContacts: AnyRecord[]): AnyRecord[] {
+  const next = JSON.parse(JSON.stringify(asArray(currentContacts))) as AnyRecord[];
+  const bySignature = new Map<string, AnyRecord>();
+  next.forEach((contact) => {
+    const signature = createContactSignature(contact);
+    if (signature) bySignature.set(signature, contact);
+  });
+  asArray(incomingContacts).forEach((contact, index) => {
+    const item = { ...contact };
+    const signature = createContactSignature(item) || `contact-${index}`;
+    const existing = bySignature.get(signature);
+    if (existing) {
+      Object.assign(existing, item, { id: firstText(existing, ["id"]) || firstText(item, ["id"]) || createId("contact_") });
+      return;
+    }
+    if (!firstText(item, ["id"])) item.id = createId("contact_");
+    next.push(item);
+    bySignature.set(signature, item);
+  });
+  return next;
+}
+
+function createContactSignature(contact: AnyRecord): string {
+  return normalizeMergeText([firstText(contact, ["name", "contactName"]), firstText(contact, ["phone", "contactPhone", "mobile"]), firstText(contact, ["email", "contactEmail"])].join("|"));
+}
+
+function mergeAttachmentList(currentAttachments: AnyRecord[], incomingAttachments: AnyRecord[]): AnyRecord[] {
+  const next = JSON.parse(JSON.stringify(asArray(currentAttachments))) as AnyRecord[];
+  const byId = new Map<string, AnyRecord>();
+  const bySignature = new Map<string, AnyRecord>();
+  next.forEach((attachment) => {
+    const id = firstText(attachment, ["id"]);
+    const signature = createAttachmentSignature(attachment);
+    if (id) byId.set(id, attachment);
+    if (signature) bySignature.set(signature, attachment);
+  });
+  const usedIds = new Set(next.map((attachment) => firstText(attachment, ["id"])).filter(Boolean));
+
+  asArray(incomingAttachments).forEach((attachment) => {
+    const item = { ...attachment };
+    const id = firstText(item, ["id"]);
+    const signature = createAttachmentSignature(item);
+    const existing = (id && byId.get(id)) || (signature && bySignature.get(signature)) || null;
+    if (existing) {
+      Object.assign(existing, item, { id: firstText(existing, ["id"]) || id });
+      return;
+    }
+    if (!item.id || usedIds.has(firstText(item, ["id"]))) {
+      item.id = createUniqueImportedId("file", usedIds);
+    }
+    usedIds.add(firstText(item, ["id"]));
+    next.push(item);
+  });
+
+  return next;
+}
+
+function createAttachmentSignature(attachment: AnyRecord): string {
+  return normalizeMergeText([firstText(attachment, ["fileName", "name", "filename"]), firstText(attachment, ["fileSize"]), firstText(attachment, ["category"]), firstText(attachment, ["sentDate"])].join("|"));
+}
+
 function createBlankSalesNote(): AnyRecord {
   return {
     id: "",
@@ -3290,8 +4016,8 @@ function matchesText(value: unknown, query: string): boolean {
   return JSON.stringify(value).toLowerCase().includes(query.trim().toLowerCase());
 }
 
-function getWorkModeCounts(records: AnyRecord[]) {
-  return records.reduce(
+function getWorkModeCounts(records: AnyRecord[]): { active: number; hold: number; closed: number } {
+  return records.reduce<{ active: number; hold: number; closed: number }>(
     (counts, record) => {
       const status = firstText(record, ["status", "progressStatus"]);
       if (isClosed(status)) {
