@@ -308,6 +308,25 @@ h2 {
   font-weight: 900;
 }
 
+.mini-counts,
+.badge-stack {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.mini-counts span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: #475467;
+  padding: 5px 9px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
 .result-grid,
 .card-grid,
 .account-grid,
@@ -807,6 +826,78 @@ h2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 2px 12px;
+}
+
+.schedule-preview,
+.attachment-preview {
+  margin-top: 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.schedule-preview {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+}
+
+.preview-title,
+.schedule-preview-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  padding: 8px 10px;
+}
+
+.preview-title {
+  grid-template-columns: minmax(0, 1fr) auto;
+  background: #f2f5f9;
+  color: #475467;
+  font-size: 13px;
+}
+
+.schedule-preview-row {
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.schedule-preview-row span,
+.schedule-preview-row small,
+.more-line {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.schedule-preview-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.more-line {
+  padding: 8px 10px;
+}
+
+.attachment-preview {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px;
+}
+
+.attachment-preview span {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: #344054;
+  padding: 5px 8px;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .muted-preview {

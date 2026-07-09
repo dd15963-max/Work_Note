@@ -201,9 +201,9 @@ export function App() {
         )}
         {activePortal === "company" && <CompanyPortal data={data} query={query} />}
         {activePortal === "sales" && <SalesPortal data={data} query={query} />}
-        {activePortal === "settlement" && <GenericWorkPortal title="정산" records={data.settlementTasks} query={query} type="settlement" />}
-        {activePortal === "output" && <GenericWorkPortal title="출력" records={data.outputTasks} query={query} type="output" />}
-        {activePortal === "other" && <GenericWorkPortal title="기타" records={data.otherTasks} query={query} type="other" />}
+        {activePortal === "settlement" && <GenericWorkPortal title="정산" records={data.settlementTasks} query={query} type="settlement" data={data} />}
+        {activePortal === "output" && <GenericWorkPortal title="출력" records={data.outputTasks} query={query} type="output" data={data} />}
+        {activePortal === "other" && <GenericWorkPortal title="기타" records={data.otherTasks} query={query} type="other" data={data} />}
         {activePortal === "account" && <AccountPortal accounts={data.accounts} query={query} />}
       </main>
     </div>
@@ -393,16 +393,22 @@ function CompanyPortal({ data, query }: { data: WorkNoteData; query: string }) {
       <div className="card-grid">
         {companies.map((company, index) => {
           const contacts = asArray(company.contacts);
+          const attachments = asArray(company.attachments);
           return (
             <article className="company-card" key={recordId(company, index)}>
               <div className="card-heading">
                 <strong>{companyName(company) || "업체명 미입력"}</strong>
                 <Badge>{firstText(company, ["status", "dealStatus", "tradeStatus"]) || "상태 미정"}</Badge>
               </div>
-              <InfoLine label="대표" value={firstText(company, ["representativeName", "ceoName", "owner"])} />
+              <InfoLine label="사업자" value={firstText(company, ["businessNumber"])} />
+              <InfoLine label="대표" value={firstText(company, ["representative", "representativeName", "ceoName", "owner"])} />
+              <InfoLine label="업종" value={firstText(company, ["businessType", "industry", "category"])} />
               <InfoLine label="연락처" value={firstText(company, ["phone", "mainPhone", "contact"])} />
               <InfoLine label="이메일" value={firstText(company, ["email", "mainEmail"])} />
-              <InfoLine label="담당자" value={contacts.map((contact) => firstText(contact, ["name", "contactName"])).filter(Boolean).join(", ")} />
+              <InfoLine label="주소" value={firstText(company, ["address"])} />
+              <InfoLine label="서류" value={attachments.length ? `${attachments.length}개` : ""} />
+              <InfoLine label="담당자" value={contacts.map(companyContactSummary).filter(Boolean).join(" / ")} />
+              {firstText(company, ["memo"]) && <p className="muted-preview">{firstText(company, ["memo"])}</p>}
             </article>
           );
         })}
@@ -601,14 +607,17 @@ function GenericWorkPortal({
   title,
   records,
   query,
-  type
+  type,
+  data
 }: {
   title: string;
   records: AnyRecord[];
   query: string;
   type: "settlement" | "output" | "other";
+  data: WorkNoteData;
 }) {
   const filtered = records.filter((record) => matchesRecord(record, query));
+  const counts = getWorkModeCounts(filtered);
   return (
     <section className="panel">
       <div className="section-title-row">
@@ -616,29 +625,142 @@ function GenericWorkPortal({
           <p className="eyebrow">{title.toUpperCase()}</p>
           <h2>{title} 업무</h2>
         </div>
-        <span>{filtered.length}건</span>
+        <div className="mini-counts" aria-label={`${title} 업무 현황`}>
+          <span>진행 {counts.active}</span>
+          <span>보류 {counts.hold}</span>
+          <span>완료 {counts.closed}</span>
+        </div>
       </div>
       <div className="task-list">
-        {filtered.map((record, index) => (
-          <article className={`task-card ${type}`} key={recordId(record, index)}>
-            <div className="card-heading">
-              <strong>{workTitle(record, type)}</strong>
-              <Badge tone={statusTone(firstText(record, ["status", "progressStatus"]))}>
-                {firstText(record, ["status", "progressStatus"]) || "상태 미정"}
-              </Badge>
-            </div>
-            <div className="task-card-grid">
-              <InfoLine label="업체" value={firstText(record, ["companyName", "relatedCompany", "clientName"])} />
-              <InfoLine label="담당" value={firstText(record, ["assignee", "requester", "owner", "managerName"])} />
-              <InfoLine label="기한" value={deadlineText(record)} />
-              <InfoLine label="파일" value={attachmentCountText(record)} />
-            </div>
-            {firstText(record, ["memo", "description", "note"]) && <p className="muted-preview">{firstText(record, ["memo", "description", "note"])}</p>}
-          </article>
-        ))}
+        {filtered.map((record, index) => {
+          const linkedSales = getLinkedSalesForWork(record, data.notes);
+          return (
+            <article className={`task-card ${type}`} key={recordId(record, index)}>
+              <div className="card-heading">
+                <div>
+                  <strong>{workTitle(record, type)}</strong>
+                  <small>{linkedSales ? `관련 영업: ${salesCustomer(linkedSales)}` : relatedSalesFallback(record)}</small>
+                </div>
+                <div className="badge-stack">
+                  <Badge tone={statusTone(firstText(record, ["status", "progressStatus"]))}>
+                    {firstText(record, ["status", "progressStatus"]) || "상태 미정"}
+                  </Badge>
+                  {firstText(record, ["priority", "importance"]) && (
+                    <Badge tone={priorityTone(firstText(record, ["priority", "importance"]))}>
+                      {firstText(record, ["priority", "importance"])}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+              <WorkTaskDetails record={record} type={type} linkedSales={linkedSales} />
+            </article>
+          );
+        })}
         {!filtered.length && <EmptyState title={`${title} 업무 없음`} detail="검색 조건에 맞는 업무가 없습니다." />}
       </div>
     </section>
+  );
+}
+
+function WorkTaskDetails({
+  record,
+  type,
+  linkedSales
+}: {
+  record: AnyRecord;
+  type: "settlement" | "output" | "other";
+  linkedSales: AnyRecord | null;
+}) {
+  if (type === "settlement") {
+    const schedule = asArray(record.paymentSchedule);
+    const isAdvance = firstText(record, ["paymentType"]).includes("선금");
+    return (
+      <>
+        <div className="task-card-grid">
+          <InfoLine label="결제" value={firstText(record, ["paymentType"]) || "분할 결제"} />
+          <InfoLine label="업체" value={companyName(record) || (linkedSales ? salesCustomer(linkedSales) : "")} />
+          <InfoLine label="담당" value={contactBundle(record)} />
+          <InfoLine label="진행" value={firstText(record, ["installmentProgress"])} />
+          <InfoLine label={isAdvance ? "선금" : "총금액"} value={formatMoneyWithVat(firstText(record, ["totalAmount", "advanceAmount"]), record.totalAmountVatIncluded)} />
+          <InfoLine label={isAdvance ? "차감" : "입금"} value={formatMoneyWithVat(firstText(record, ["deductedAmount", "receivedAmount"]), isAdvance ? record.deductedAmountVatIncluded : record.receivedAmountVatIncluded)} />
+          <InfoLine label="잔액" value={settlementRemainingText(record)} />
+          <InfoLine label="다음" value={joinParts([formatOptionalDate(firstText(record, ["nextActionDate"])), firstText(record, ["nextAction"])], " · ")} />
+          <InfoLine label="파일" value={attachmentCountText(record)} />
+          <InfoLine label="수정" value={formatDateTime(firstText(record, ["updatedAt"]))} />
+        </div>
+        <SchedulePreview rows={schedule} isAdvance={isAdvance} />
+        {firstText(record, ["plan"]) && <p className="muted-preview">{firstText(record, ["plan"])}</p>}
+        {firstText(record, ["memo", "description", "note"]) && <p className="muted-preview">{firstText(record, ["memo", "description", "note"])}</p>}
+      </>
+    );
+  }
+
+  if (type === "output") {
+    return (
+      <>
+        <div className="task-card-grid">
+          <InfoLine label="업체" value={companyName(record) || (linkedSales ? salesCustomer(linkedSales) : "")} />
+          <InfoLine label="요청자" value={contactBundle(record)} />
+          <InfoLine label="기한" value={deadlineText(record)} />
+          <InfoLine label="출력" value={firstText(record, ["outputType", "category", "taskType"])} />
+          <InfoLine label="주말" value={record.includeWeekends ? "포함" : "제외"} />
+          <InfoLine label="파일" value={attachmentCountText(record)} />
+          <InfoLine label="수정" value={formatDateTime(firstText(record, ["updatedAt"]))} />
+        </div>
+        <AttachmentPreview record={record} />
+        {firstText(record, ["memo", "description", "note"]) && <p className="muted-preview">{firstText(record, ["memo", "description", "note"])}</p>}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="task-card-grid">
+        <InfoLine label="업체" value={companyName(record) || (linkedSales ? salesCustomer(linkedSales) : "")} />
+        <InfoLine label="담당" value={contactBundle(record) || firstText(record, ["owner", "assignee", "managerName"])} />
+        <InfoLine label="분류" value={firstText(record, ["category", "taskType"])} />
+        <InfoLine label="기한" value={deadlineText(record)} />
+        <InfoLine label="주말" value={record.includeWeekends ? "포함" : "제외"} />
+        <InfoLine label="파일" value={attachmentCountText(record)} />
+        <InfoLine label="수정" value={formatDateTime(firstText(record, ["updatedAt"]))} />
+      </div>
+      <AttachmentPreview record={record} />
+      {firstText(record, ["memo", "description", "note"]) && <p className="muted-preview">{firstText(record, ["memo", "description", "note"])}</p>}
+    </>
+  );
+}
+
+function SchedulePreview({ rows, isAdvance }: { rows: AnyRecord[]; isAdvance: boolean }) {
+  if (!rows.length) return null;
+  const completed = rows.filter((row) => firstText(row, ["status"]).includes("완료")).length;
+  return (
+    <div className="schedule-preview">
+      <div className="preview-title">
+        <strong>{isAdvance ? "차감 목록" : "회차 일정"}</strong>
+        <span>{completed}/{rows.length}</span>
+      </div>
+      {rows.slice(0, 4).map((row, index) => (
+        <div className="schedule-preview-row" key={recordId(row, index)}>
+          <span>{firstText(row, ["round"]) || `${index + 1}`}회차</span>
+          <strong>{joinParts([formatOptionalDate(firstText(row, ["dueDate"])), formatMoneyWithVat(firstText(row, ["amount"]), row.amountVatIncluded), firstText(row, ["item"])], " · ")}</strong>
+          <small>{firstText(row, ["status"]) || "예정"}</small>
+        </div>
+      ))}
+      {rows.length > 4 && <small className="more-line">외 {rows.length - 4}건</small>}
+    </div>
+  );
+}
+
+function AttachmentPreview({ record }: { record: AnyRecord }) {
+  const attachments = asArray(record.attachments);
+  if (!attachments.length) return null;
+  return (
+    <div className="attachment-preview">
+      {attachments.slice(0, 3).map((file, index) => (
+        <span key={recordId(file, index)}>{firstText(file, ["name", "fileName", "filename"]) || `파일 ${index + 1}`}</span>
+      ))}
+      {attachments.length > 3 && <span>+{attachments.length - 3}</span>}
+    </div>
   );
 }
 
@@ -880,6 +1002,19 @@ function companyName(record: AnyRecord): string {
   return firstText(record, ["company", "companyName", "name", "clientName", "relatedCompany", "customerName"]);
 }
 
+function companyContactSummary(contact: AnyRecord): string {
+  return joinParts(
+    [
+      firstText(contact, ["name", "contactName"]),
+      firstText(contact, ["department"]),
+      firstText(contact, ["title"]),
+      firstText(contact, ["phone", "contactPhone"]),
+      firstText(contact, ["email", "contactEmail"])
+    ],
+    " · "
+  );
+}
+
 function getLinkedCompanyForSales(note: AnyRecord, companies: AnyRecord[]): AnyRecord | null {
   const linkedId = firstText(note, ["companyId", "salesCompanyId", "relatedCompanyId"]);
   if (linkedId) {
@@ -893,6 +1028,24 @@ function getLinkedCompanyForSales(note: AnyRecord, companies: AnyRecord[]): AnyR
   }
 
   return companies.find((company) => companyName(company).toLowerCase() === name) || null;
+}
+
+function getLinkedSalesForWork(record: AnyRecord, notes: AnyRecord[]): AnyRecord | null {
+  const linkedId = firstText(record, ["salesNoteId", "relatedSalesId", "salesId"]);
+  if (linkedId) {
+    const byId = notes.find((note, index) => recordId(note, index) === linkedId || firstText(note, ["id"]) === linkedId);
+    if (byId) return byId;
+  }
+
+  const name = companyName(record).toLowerCase();
+  if (!name) return null;
+  return notes.find((note) => salesCustomer(note).toLowerCase() === name) || null;
+}
+
+function relatedSalesFallback(record: AnyRecord): string {
+  if (Boolean(record.salesLinkUnknown)) return "관련 영업: 미정";
+  if (firstText(record, ["salesNoteId", "relatedSalesId", "salesId"])) return "관련 영업: 연결 정보 확인 필요";
+  return "";
 }
 
 function salesCustomer(note: AnyRecord): string {
@@ -917,6 +1070,23 @@ function matchesRecord(record: AnyRecord, query: string): boolean {
 function matchesText(value: unknown, query: string): boolean {
   if (!query.trim()) return true;
   return JSON.stringify(value).toLowerCase().includes(query.trim().toLowerCase());
+}
+
+function getWorkModeCounts(records: AnyRecord[]) {
+  return records.reduce(
+    (counts, record) => {
+      const status = firstText(record, ["status", "progressStatus"]);
+      if (isClosed(status)) {
+        counts.closed += 1;
+      } else if (status.includes("보류")) {
+        counts.hold += 1;
+      } else {
+        counts.active += 1;
+      }
+      return counts;
+    },
+    { active: 0, hold: 0, closed: 0 }
+  );
 }
 
 function isClosed(status: string): boolean {
@@ -1015,6 +1185,35 @@ function formatRevenueForDisplay(note: AnyRecord): string {
     hasAmountValue(firstText(note, ["revenueAmount"])) ? formatMoneyWithVat(firstText(note, ["revenueAmount"]), note.revenueAmountVatIncluded) : "",
     firstText(note, ["revenueType"])
   ].filter(Boolean).join(" · ") || "-";
+}
+
+function contactBundle(record: AnyRecord): string {
+  return joinParts(
+    [
+      firstText(record, ["contactName", "requester", "assignee", "owner", "managerName"]),
+      firstText(record, ["contactPhone", "phone", "mobile"]),
+      firstText(record, ["contactEmail", "email"])
+    ],
+    " · "
+  );
+}
+
+function settlementRemainingText(record: AnyRecord): string {
+  const explicit = firstText(record, ["remainingAmount", "balanceAmount"]);
+  if (hasAmountValue(explicit)) return formatMoney(explicit);
+
+  const total = parseAmountNumber(firstText(record, ["totalAmount", "advanceAmount"]));
+  if (total === null) return "";
+
+  const paymentType = firstText(record, ["paymentType"]);
+  const isAdvance = paymentType.includes("선금");
+  const received = isAdvance ? 0 : parseAmountNumber(firstText(record, ["receivedAmount"])) || 0;
+  const deducted = parseAmountNumber(firstText(record, ["deductedAmount"])) || 0;
+  return formatMoney(String(total - received - deducted));
+}
+
+function joinParts(parts: string[], separator: string): string {
+  return parts.map(clean).filter(Boolean).join(separator);
 }
 
 function formatNextContact(note: AnyRecord): string {
