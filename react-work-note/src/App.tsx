@@ -32,6 +32,8 @@ type PortalId = "schedule" | "company" | "sales" | "settlement" | "output" | "ot
 type CalendarMode = "month" | "week";
 type SalesPanelMode = "detail" | "company" | "files";
 type AnyRecord = Record<string, unknown>;
+type AttachmentCollectionKey = "companies" | "notes" | "settlementTasks" | "outputTasks" | "otherTasks";
+type AttachmentOwnerType = "company" | "sales" | "settlement" | "output" | "other";
 
 type WorkNoteData = {
   version: string;
@@ -262,9 +264,9 @@ export function App() {
         )}
         {activePortal === "company" && <CompanyPortal data={data} query={query} onPersist={persistData} />}
         {activePortal === "sales" && <SalesPortal data={data} query={query} onPersist={persistData} />}
-        {activePortal === "settlement" && <GenericWorkPortal title="정산" records={data.settlementTasks} query={query} type="settlement" data={data} />}
-        {activePortal === "output" && <GenericWorkPortal title="출력" records={data.outputTasks} query={query} type="output" data={data} />}
-        {activePortal === "other" && <GenericWorkPortal title="기타" records={data.otherTasks} query={query} type="other" data={data} />}
+        {activePortal === "settlement" && <GenericWorkPortal title="정산" records={data.settlementTasks} query={query} type="settlement" data={data} onPersist={persistData} />}
+        {activePortal === "output" && <GenericWorkPortal title="출력" records={data.outputTasks} query={query} type="output" data={data} onPersist={persistData} />}
+        {activePortal === "other" && <GenericWorkPortal title="기타" records={data.otherTasks} query={query} type="other" data={data} onPersist={persistData} />}
         {activePortal === "account" && <AccountPortal data={data} query={query} onPersist={persistData} />}
       </main>
     </div>
@@ -450,7 +452,17 @@ function CompanyPortal({
   onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
 }) {
   const [editingCompany, setEditingCompany] = useState<AnyRecord | null>(null);
-  const companies = data.companies.filter((company) => matchesRecord(company, query));
+  const [companyFilePanel, setCompanyFilePanel] = useState<string | null>(null);
+  const companyFiles = createAttachmentHandlers({
+    data,
+    onPersist,
+    collectionKey: "companies",
+    ownerType: "company",
+    reasonLabel: "업체 파일"
+  });
+  const companies = data.companies
+    .map((company, originalIndex) => ({ company, originalIndex, id: recordId(company, originalIndex) }))
+    .filter(({ company }) => matchesRecord(company, query));
   const saveCompany = (draft: AnyRecord) => {
     const normalized = normalizeCompanyDraft(draft);
     if (!normalized.name) {
@@ -531,11 +543,11 @@ function CompanyPortal({
         />
       )}
       <div className="card-grid">
-        {companies.map((company, index) => {
+        {companies.map(({ company, originalIndex, id }) => {
           const contacts = asArray(company.contacts);
           const attachments = asArray(company.attachments);
           return (
-            <article className="company-card" key={recordId(company, index)}>
+            <article className="company-card" key={id}>
               <div className="card-heading">
                 <strong>{companyName(company) || "업체명 미입력"}</strong>
                 <Badge>{firstText(company, ["status", "dealStatus", "tradeStatus"]) || "상태 미정"}</Badge>
@@ -551,15 +563,31 @@ function CompanyPortal({
               <AttachmentPreview record={company} />
               {firstText(company, ["memo"]) && <p className="muted-preview">{firstText(company, ["memo"])}</p>}
               <div className="card-actions">
-                <button type="button" onClick={() => setEditingCompany(prepareCompanyDraft(company, index))}>
+                <button type="button" onClick={() => setCompanyFilePanel(companyFilePanel === id ? null : id)}>
+                  <FileText size={15} />
+                  파일 {attachments.length}
+                </button>
+                <button type="button" onClick={() => setEditingCompany(prepareCompanyDraft(company, originalIndex))}>
                   <Pencil size={15} />
                   수정
                 </button>
-                <button type="button" className="danger-button" onClick={() => deleteCompany(company, index)}>
+                <button type="button" className="danger-button" onClick={() => deleteCompany(company, originalIndex)}>
                   <Trash2 size={15} />
                   삭제
                 </button>
               </div>
+              {companyFilePanel === id && (
+                <div className="inline-file-panel">
+                  <SalesFileManager
+                    noteId={id}
+                    attachments={attachments}
+                    onUpload={companyFiles.uploadAttachments}
+                    onUpdateMeta={companyFiles.updateAttachmentMeta}
+                    onDelete={companyFiles.deleteAttachment}
+                    emptyDetail="사업자등록증, 통장 사본, 회사 서류 같은 업체 자료를 업로드해 두면 다시 다운로드할 수 있습니다."
+                  />
+                </div>
+              )}
             </article>
           );
         })}
@@ -1185,13 +1213,15 @@ function SalesFileManager({
   attachments,
   onUpload,
   onUpdateMeta,
-  onDelete
+  onDelete,
+  emptyDetail = "이 영업 건에 보낸 견적서, 자료, 메일 캡처 이미지를 업로드해 두면 다시 다운로드할 수 있습니다."
 }: {
   noteId: string;
   attachments: AnyRecord[];
   onUpload: (noteId: string, files: File[], meta: { category: string; sentDate: string; memo: string }) => Promise<void>;
   onUpdateMeta: (noteId: string, attachmentKey: string, values: { category: string; sentDate: string; memo: string }) => Promise<void>;
   onDelete: (noteId: string, attachmentKey: string) => Promise<void>;
+  emptyDetail?: string;
 }) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [category, setCategory] = useState(FILE_CATEGORY_OPTIONS[0]);
@@ -1267,7 +1297,7 @@ function SalesFileManager({
         {!attachments.length && (
           <div className="empty-inline">
             <strong>첨부자료 없음</strong>
-            <span>이 영업 건에 보낸 견적서, 자료, 메일 캡처 이미지를 업로드해 두면 다시 다운로드할 수 있습니다.</span>
+            <span>{emptyDetail}</span>
           </div>
         )}
       </div>
@@ -1350,21 +1380,157 @@ function AttachmentMetaEditor({
   );
 }
 
+function createAttachmentHandlers({
+  data,
+  onPersist,
+  collectionKey,
+  ownerType,
+  reasonLabel
+}: {
+  data: WorkNoteData;
+  onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
+  collectionKey: AttachmentCollectionKey;
+  ownerType: AttachmentOwnerType;
+  reasonLabel: string;
+}) {
+  const updateRecordAttachments = (
+    recordKey: string,
+    updater: (attachments: AnyRecord[]) => AnyRecord[],
+    reason: string
+  ) => {
+    onPersist((current) => {
+      const now = new Date().toISOString();
+      const records = current[collectionKey] as AnyRecord[];
+      return {
+        ...current,
+        [collectionKey]: records.map((item, itemIndex) =>
+          recordId(item, itemIndex) === recordKey
+            ? {
+                ...item,
+                attachments: updater(asArray(item.attachments)),
+                updatedAt: now
+              }
+            : item
+        )
+      } as WorkNoteData;
+    }, reason);
+  };
+
+  const uploadAttachments = async (
+    recordKey: string,
+    files: File[],
+    meta: { category: string; sentDate: string; memo: string }
+  ) => {
+    if (!files.length) {
+      alert("업로드할 파일을 선택해 주세요.");
+      return;
+    }
+
+    const uploadedAt = new Date().toISOString();
+    const records = files.map((file) => {
+      const id = createId("file_");
+      const attachmentMeta: AttachmentRecord = {
+        id,
+        ownerType,
+        ownerId: recordKey,
+        fileName: file.name,
+        name: file.name,
+        fileType: file.type || "application/octet-stream",
+        fileSize: file.size,
+        category: meta.category,
+        sentDate: meta.sentDate,
+        memo: meta.memo,
+        uploadedAt
+      };
+      return { meta: attachmentMeta, record: { ...attachmentMeta, blob: file } };
+    });
+
+    try {
+      await Promise.all(records.map(({ record }) => putAttachmentRecord(record)));
+      updateRecordAttachments(recordKey, (attachments) => [...attachments, ...records.map(({ meta }) => meta)], `${reasonLabel} 업로드`);
+    } catch (error) {
+      alert(`파일을 저장하지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const updateAttachmentMeta = async (
+    recordKey: string,
+    attachmentKey: string,
+    values: { category: string; sentDate: string; memo: string }
+  ) => {
+    let updatedAttachment: AnyRecord | null = null;
+    updateRecordAttachments(
+      recordKey,
+      (attachments) =>
+        attachments.map((attachment, attachmentIndex) => {
+          if (recordId(attachment, attachmentIndex) !== attachmentKey) return attachment;
+          updatedAttachment = { ...attachment, ...values };
+          return updatedAttachment;
+        }),
+      `${reasonLabel} 정보 수정`
+    );
+
+    const attachmentId = updatedAttachment ? firstText(updatedAttachment, ["id"]) : "";
+    if (!attachmentId) return;
+    try {
+      const stored = await getAttachmentRecord(attachmentId);
+      if (stored?.blob) {
+        await putAttachmentRecord({ ...stored, ...updatedAttachment, blob: stored.blob });
+      }
+    } catch {
+      // Metadata has already been saved. Full ZIP import can restore the original blob if needed.
+    }
+  };
+
+  const deleteAttachment = async (recordKey: string, attachmentKey: string) => {
+    if (!confirm("이 파일을 파일함에서 삭제할까요? 원본 파일도 이 브라우저 저장소에서 삭제됩니다.")) return;
+    const records = data[collectionKey] as AnyRecord[];
+    const targetRecord = records.find((item, itemIndex) => recordId(item, itemIndex) === recordKey);
+    const targetAttachment = asArray(targetRecord?.attachments).find((attachment, attachmentIndex) => recordId(attachment, attachmentIndex) === attachmentKey);
+    const attachmentId = targetAttachment ? firstText(targetAttachment, ["id"]) : "";
+
+    try {
+      if (attachmentId) await deleteAttachmentRecord(attachmentId);
+      updateRecordAttachments(
+        recordKey,
+        (attachments) => attachments.filter((attachment, attachmentIndex) => recordId(attachment, attachmentIndex) !== attachmentKey),
+        `${reasonLabel} 삭제`
+      );
+    } catch (error) {
+      alert(`파일을 삭제하지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  return { uploadAttachments, updateAttachmentMeta, deleteAttachment };
+}
+
 function GenericWorkPortal({
   title,
   records,
   query,
   type,
-  data
+  data,
+  onPersist
 }: {
   title: string;
   records: AnyRecord[];
   query: string;
   type: "settlement" | "output" | "other";
   data: WorkNoteData;
+  onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
 }) {
-  const filtered = records.filter((record) => matchesRecord(record, query));
-  const counts = getWorkModeCounts(filtered);
+  const [filePanel, setFilePanel] = useState<string | null>(null);
+  const fileHandlers = createAttachmentHandlers({
+    data,
+    onPersist,
+    collectionKey: workAttachmentCollectionKey(type),
+    ownerType: type,
+    reasonLabel: `${title} 파일`
+  });
+  const filtered = records
+    .map((record, originalIndex) => ({ record, originalIndex, id: recordId(record, originalIndex) }))
+    .filter(({ record }) => matchesRecord(record, query));
+  const counts = getWorkModeCounts(filtered.map(({ record }) => record));
   return (
     <section className="panel">
       <div className="section-title-row">
@@ -1379,10 +1545,11 @@ function GenericWorkPortal({
         </div>
       </div>
       <div className="task-list">
-        {filtered.map((record, index) => {
+        {filtered.map(({ record, id }) => {
+          const attachments = asArray(record.attachments);
           const linkedSales = getLinkedSalesForWork(record, data.notes);
           return (
-            <article className={`task-card ${type}`} key={recordId(record, index)}>
+            <article className={`task-card ${type}`} key={id}>
               <div className="card-heading">
                 <div>
                   <strong>{workTitle(record, type)}</strong>
@@ -1400,6 +1567,24 @@ function GenericWorkPortal({
                 </div>
               </div>
               <WorkTaskDetails record={record} type={type} linkedSales={linkedSales} />
+              <div className="card-actions">
+                <button type="button" onClick={() => setFilePanel(filePanel === id ? null : id)}>
+                  <FileText size={15} />
+                  파일 {attachments.length}
+                </button>
+              </div>
+              {filePanel === id && (
+                <div className="inline-file-panel">
+                  <SalesFileManager
+                    noteId={id}
+                    attachments={attachments}
+                    onUpload={fileHandlers.uploadAttachments}
+                    onUpdateMeta={fileHandlers.updateAttachmentMeta}
+                    onDelete={fileHandlers.deleteAttachment}
+                    emptyDetail={`${title} 업무에 필요한 관련 파일을 업로드해 두면 다시 다운로드할 수 있습니다.`}
+                  />
+                </div>
+              )}
             </article>
           );
         })}
@@ -2477,6 +2662,12 @@ function getWorkModeCounts(records: AnyRecord[]) {
     },
     { active: 0, hold: 0, closed: 0 }
   );
+}
+
+function workAttachmentCollectionKey(type: "settlement" | "output" | "other"): AttachmentCollectionKey {
+  if (type === "settlement") return "settlementTasks";
+  if (type === "output") return "outputTasks";
+  return "otherTasks";
 }
 
 function isClosed(status: string): boolean {
