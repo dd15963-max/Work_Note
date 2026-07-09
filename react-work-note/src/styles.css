@@ -506,6 +506,25 @@ h2 {
   grid-column: 1 / -1;
 }
 
+.selection-summary {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.selection-summary strong {
+  font-size: 14px;
+}
+
+.selection-summary span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .editor-subsection {
   margin-top: 16px;
 }

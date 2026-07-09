@@ -1202,6 +1202,11 @@ function SalesEditor({
     ? data.companies.find((company, index) => recordId(company, index) === firstText(draft, ["companyId"]))
     : null;
   const contacts = selectedCompany ? asArray(selectedCompany.contacts) : [];
+  const [companySearch, setCompanySearch] = useState("");
+  const companyOptions = useMemo(
+    () => data.companies.filter((company) => matchesText(company, companySearch)).slice(0, 80),
+    [data.companies, companySearch]
+  );
   const updateField = (key: string, value: string | boolean) => setDraft({ ...draft, [key]: value });
 
   const selectCompany = (value: string) => {
@@ -1247,6 +1252,15 @@ function SalesEditor({
       </div>
       <div className="form-grid">
         <label className="field">
+          <span>업체 검색</span>
+          <input
+            type="search"
+            value={companySearch}
+            onChange={(event) => setCompanySearch(event.target.value)}
+            placeholder="업체명, 담당자, 연락처, 이메일"
+          />
+        </label>
+        <label className="field">
           <span>업체 선택</span>
           <select
             value={draft.companyUnknown ? "__unknown" : firstText(draft, ["companyId"])}
@@ -1254,7 +1268,7 @@ function SalesEditor({
           >
             <option value="">직접 입력 / 연결 안 함</option>
             <option value="__unknown">미정</option>
-            {data.companies.map((company, index) => (
+            {companyOptions.map((company, index) => (
               <option key={recordId(company, index)} value={recordId(company, index)}>
                 {companyName(company) || "업체명 미입력"}
               </option>
@@ -1880,6 +1894,19 @@ function WorkEditor({
     ? data.companies.find((company, index) => recordId(company, index) === firstText(draft, ["companyId"]))
     : null;
   const contacts = selectedCompany ? asArray(selectedCompany.contacts) : [];
+  const selectedSales = firstText(draft, ["salesNoteId"])
+    ? data.notes.find((note, index) => recordId(note, index) === firstText(draft, ["salesNoteId"]))
+    : null;
+  const [companySearch, setCompanySearch] = useState("");
+  const [salesSearch, setSalesSearch] = useState("");
+  const companyOptions = useMemo(
+    () => data.companies.filter((company) => matchesText(company, companySearch)).slice(0, 80),
+    [data.companies, companySearch]
+  );
+  const salesOptions = useMemo(
+    () => data.notes.filter((note) => matchesText(note, salesSearch)).slice(0, 80),
+    [data.notes, salesSearch]
+  );
 
   const selectCompany = (value: string) => {
     if (value === "__unknown") {
@@ -1945,11 +1972,20 @@ function WorkEditor({
 
       <div className="form-grid">
         <label className="field">
+          <span>업체 검색</span>
+          <input
+            type="search"
+            value={companySearch}
+            onChange={(event) => setCompanySearch(event.target.value)}
+            placeholder="업체명, 담당자, 연락처, 이메일"
+          />
+        </label>
+        <label className="field">
           <span>관련 업체</span>
           <select value={draft.companyUnknown ? "__unknown" : firstText(draft, ["companyId"])} onChange={(event) => selectCompany(event.target.value)}>
             <option value="">직접 입력 / 연결 안 함</option>
             <option value="__unknown">미정</option>
-            {data.companies.map((company, index) => (
+            {companyOptions.map((company, index) => (
               <option key={recordId(company, index)} value={recordId(company, index)}>
                 {companyName(company) || "업체명 미입력"}
               </option>
@@ -1977,17 +2013,30 @@ function WorkEditor({
         {(type === "settlement" || type === "output") && (
           <>
             <label className="field wide-field">
+              <span>관련 영업건 검색</span>
+              <input
+                type="search"
+                value={salesSearch}
+                onChange={(event) => setSalesSearch(event.target.value)}
+                placeholder="업체, 담당자, 관심제품, 다음 액션"
+              />
+            </label>
+            <label className="field wide-field">
               <span>관련 영업건</span>
               <select value={draft.salesLinkUnknown ? "__unknown" : firstText(draft, ["salesNoteId"])} onChange={(event) => selectSales(event.target.value)}>
                 <option value="">연결 안 함</option>
                 <option value="__unknown">미정</option>
-                {data.notes.map((note, index) => (
+                {salesOptions.map((note, index) => (
                   <option key={recordId(note, index)} value={recordId(note, index)}>
                     {salesCustomer(note)} · {salesInterest(note) || firstText(note, ["nextAction"]) || "영업 메모"}
                   </option>
                 ))}
               </select>
             </label>
+            <div className="selection-summary wide-field">
+              <strong>{selectedSales ? salesCustomer(selectedSales) : (draft.salesLinkUnknown ? "영업건 미정" : "영업건 연결 안 함")}</strong>
+              <span>{selectedSales ? joinParts([salesInterest(selectedSales), firstText(selectedSales, ["nextAction"])], " · ") : "검색 후 관련 영업건을 선택할 수 있습니다."}</span>
+            </div>
           </>
         )}
 
