@@ -1115,6 +1115,50 @@ h2 {
   padding-top: 12px;
 }
 
+.work-schedule-editor {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.work-schedule-editor h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.schedule-tool-grid,
+.payment-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.schedule-tool-grid .check-field {
+  min-height: 38px;
+}
+
+.compact-actions {
+  margin-top: -4px;
+  justify-content: flex-start;
+}
+
+.payment-row-list {
+  display: grid;
+  gap: 8px;
+}
+
+.payment-row {
+  grid-template-columns: 76px 150px minmax(130px, 0.9fr) 110px minmax(180px, 1.2fr) minmax(120px, 0.8fr) auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 10px;
+}
+
 .task-list {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -1403,7 +1447,9 @@ h2 {
   }
 
   .file-upload-fields,
-  .attachment-editor-grid {
+  .attachment-editor-grid,
+  .schedule-tool-grid,
+  .payment-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1545,7 +1591,9 @@ h2 {
   }
 
   .file-upload-fields,
-  .attachment-editor-grid {
+  .attachment-editor-grid,
+  .schedule-tool-grid,
+  .payment-row {
     grid-template-columns: 1fr;
   }
 

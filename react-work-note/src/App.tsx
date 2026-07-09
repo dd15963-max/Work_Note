@@ -94,6 +94,9 @@ const FILE_CATEGORY_OPTIONS = [
   "계약/발주",
   "기타 파일"
 ];
+const WORK_STATUS_OPTIONS = ["대기", "진행 중", "확인 필요", "보류", "완료"];
+const SETTLEMENT_STATUS_OPTIONS = ["예정", "선금 예정", "선금 완료", "차감 진행 중", "확인 필요", "보류", "완료"];
+const SETTLEMENT_PAYMENT_OPTIONS = ["분할 결제", "선금 결제"];
 
 const portals: Array<{ id: PortalId; label: string; icon: typeof CalendarDays }> = [
   { id: "schedule", label: "일정", icon: CalendarDays },
@@ -1520,6 +1523,7 @@ function GenericWorkPortal({
   onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
 }) {
   const [filePanel, setFilePanel] = useState<string | null>(null);
+  const [editingRecord, setEditingRecord] = useState<AnyRecord | null>(null);
   const fileHandlers = createAttachmentHandlers({
     data,
     onPersist,
@@ -1531,6 +1535,58 @@ function GenericWorkPortal({
     .map((record, originalIndex) => ({ record, originalIndex, id: recordId(record, originalIndex) }))
     .filter(({ record }) => matchesRecord(record, query));
   const counts = getWorkModeCounts(filtered.map(({ record }) => record));
+
+  const saveWorkRecord = (draft: AnyRecord) => {
+    const normalized = normalizeWorkDraft(draft, type, data);
+    if (!isWorkDraftValid(normalized, type)) {
+      alert(type === "other" ? "업무명 또는 메모를 입력해 주세요." : "관련 업체, 업무 내용, 메모 중 하나는 입력해 주세요.");
+      return;
+    }
+    if (!isValidDateRange(firstText(normalized, ["startDate"]), firstText(normalized, ["endDate"]))) {
+      alert("기한 종료일은 시작일보다 빠를 수 없습니다.");
+      return;
+    }
+
+    const collectionKey = workAttachmentCollectionKey(type);
+    onPersist((current) => {
+      const now = new Date().toISOString();
+      const items = current[collectionKey] as AnyRecord[];
+      const previous = items.find((item, itemIndex) => recordId(item, itemIndex) === normalized.id);
+      const record = {
+        ...previous,
+        ...normalized,
+        attachments: previous ? asArray(previous.attachments) : asArray(draft.attachments),
+        history: previous ? asArray(previous.history) : [],
+        createdAt: firstText(previous || {}, ["createdAt"]) || now,
+        updatedAt: now
+      };
+      const exists = items.some((item, itemIndex) => recordId(item, itemIndex) === normalized.id);
+      return {
+        ...current,
+        [collectionKey]: exists
+          ? items.map((item, itemIndex) => (recordId(item, itemIndex) === normalized.id ? record : item))
+          : [record, ...items]
+      } as WorkNoteData;
+    }, `${title} 업무 ${firstText(draft, ["id"]) ? "수정" : "등록"}`);
+    setEditingRecord(null);
+  };
+
+  const deleteWorkRecord = async (record: AnyRecord, id: string) => {
+    if (!confirm(`${workTitle(record, type)} 업무를 삭제할까요? 첨부 원본 파일도 이 브라우저 저장소에서 삭제됩니다.`)) return;
+    try {
+      await Promise.all(asArray(record.attachments).map((attachment) => deleteAttachmentRecord(firstText(attachment, ["id"]))));
+    } catch (error) {
+      if (!confirm(`첨부 파일 원본을 모두 삭제하지 못했습니다.\n${error instanceof Error ? error.message : String(error)}\n\n업무 목록에서만 삭제할까요?`)) return;
+    }
+    const collectionKey = workAttachmentCollectionKey(type);
+    onPersist((current) => ({
+      ...current,
+      [collectionKey]: (current[collectionKey] as AnyRecord[]).filter((item, itemIndex) => recordId(item, itemIndex) !== id)
+    } as WorkNoteData), `${title} 업무 삭제`);
+    if (filePanel === id) setFilePanel(null);
+    if (firstText(editingRecord || {}, ["id"]) === id) setEditingRecord(null);
+  };
+
   return (
     <section className="panel">
       <div className="section-title-row">
@@ -1538,14 +1594,31 @@ function GenericWorkPortal({
           <p className="eyebrow">{title.toUpperCase()}</p>
           <h2>{title} 업무</h2>
         </div>
-        <div className="mini-counts" aria-label={`${title} 업무 현황`}>
-          <span>진행 {counts.active}</span>
-          <span>보류 {counts.hold}</span>
-          <span>완료 {counts.closed}</span>
+        <div className="toolbar-cluster">
+          <div className="mini-counts" aria-label={`${title} 업무 현황`}>
+            <span>진행 {counts.active}</span>
+            <span>보류 {counts.hold}</span>
+            <span>완료 {counts.closed}</span>
+          </div>
+          <button type="button" onClick={() => setEditingRecord(createBlankWorkTask(type))}>
+            <Plus size={16} />
+            새 업무
+          </button>
         </div>
       </div>
+      {editingRecord && (
+        <WorkEditor
+          draft={editingRecord}
+          setDraft={setEditingRecord}
+          type={type}
+          title={title}
+          data={data}
+          onSave={saveWorkRecord}
+          onCancel={() => setEditingRecord(null)}
+        />
+      )}
       <div className="task-list">
-        {filtered.map(({ record, id }) => {
+        {filtered.map(({ record, originalIndex, id }) => {
           const attachments = asArray(record.attachments);
           const linkedSales = getLinkedSalesForWork(record, data.notes);
           return (
@@ -1572,6 +1645,14 @@ function GenericWorkPortal({
                   <FileText size={15} />
                   파일 {attachments.length}
                 </button>
+                <button type="button" onClick={() => setEditingRecord(prepareWorkDraft(record, originalIndex, type))}>
+                  <Pencil size={15} />
+                  수정
+                </button>
+                <button type="button" className="danger-button" onClick={() => deleteWorkRecord(record, id)}>
+                  <Trash2 size={15} />
+                  삭제
+                </button>
               </div>
               {filePanel === id && (
                 <div className="inline-file-panel">
@@ -1591,6 +1672,308 @@ function GenericWorkPortal({
         {!filtered.length && <EmptyState title={`${title} 업무 없음`} detail="검색 조건에 맞는 업무가 없습니다." />}
       </div>
     </section>
+  );
+}
+
+function WorkEditor({
+  draft,
+  setDraft,
+  type,
+  title,
+  data,
+  onSave,
+  onCancel
+}: {
+  draft: AnyRecord;
+  setDraft: (draft: AnyRecord) => void;
+  type: "settlement" | "output" | "other";
+  title: string;
+  data: WorkNoteData;
+  onSave: (draft: AnyRecord) => void;
+  onCancel: () => void;
+}) {
+  const updateField = (key: string, value: string | boolean | AnyRecord[]) => setDraft({ ...draft, [key]: value });
+  const selectedCompany = firstText(draft, ["companyId"])
+    ? data.companies.find((company, index) => recordId(company, index) === firstText(draft, ["companyId"]))
+    : null;
+  const contacts = selectedCompany ? asArray(selectedCompany.contacts) : [];
+
+  const selectCompany = (value: string) => {
+    if (value === "__unknown") {
+      setDraft({ ...draft, companyId: "", contactId: "", companyUnknown: true, company: "", contactName: "", contactPhone: "", contactEmail: "" });
+      return;
+    }
+    const company = data.companies.find((item, index) => recordId(item, index) === value) || null;
+    const primaryContact = company ? asArray(company.contacts).find((contact) => Boolean(contact.isPrimary)) || asArray(company.contacts)[0] : null;
+    setDraft({
+      ...draft,
+      companyId: value,
+      contactId: primaryContact ? recordId(primaryContact, 0) : "",
+      companyUnknown: false,
+      company: company ? companyName(company) : firstText(draft, ["company"]),
+      contactName: primaryContact ? firstText(primaryContact, ["name", "contactName"]) : firstText(draft, ["contactName"]),
+      contactPhone: primaryContact ? firstText(primaryContact, ["phone", "contactPhone"]) : firstText(draft, ["contactPhone"]),
+      contactEmail: primaryContact ? firstText(primaryContact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])
+    });
+  };
+
+  const selectContact = (value: string) => {
+    const contact = contacts.find((item, index) => recordId(item, index) === value) || null;
+    setDraft({
+      ...draft,
+      contactId: value,
+      contactName: contact ? firstText(contact, ["name", "contactName"]) : firstText(draft, ["contactName"]),
+      contactPhone: contact ? firstText(contact, ["phone", "contactPhone"]) : firstText(draft, ["contactPhone"]),
+      contactEmail: contact ? firstText(contact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])
+    });
+  };
+
+  const selectSales = (value: string) => {
+    if (value === "__unknown") {
+      setDraft({ ...draft, salesNoteId: "", salesLinkUnknown: true });
+      return;
+    }
+    const note = data.notes.find((item, index) => recordId(item, index) === value) || null;
+    setDraft({
+      ...draft,
+      salesNoteId: value,
+      salesLinkUnknown: false,
+      companyId: note && !note.companyUnknown ? firstText(note, ["companyId"]) : firstText(draft, ["companyId"]),
+      contactId: note && !note.companyUnknown ? firstText(note, ["contactId"]) : firstText(draft, ["contactId"]),
+      companyUnknown: note ? Boolean(note.companyUnknown) : Boolean(draft.companyUnknown),
+      company: note ? salesCustomer(note) : firstText(draft, ["company"]),
+      contactName: note ? firstText(note, ["contactName", "managerName"]) : firstText(draft, ["contactName"]),
+      contactPhone: note ? firstText(note, ["contactPhone", "phone", "contact", "mobile"]) : firstText(draft, ["contactPhone"]),
+      contactEmail: note ? firstText(note, ["contactEmail", "email"]) : firstText(draft, ["contactEmail"])
+    });
+  };
+
+  return (
+    <section className="editor-panel">
+      <div className="section-title-row">
+        <div>
+          <p className="eyebrow">{type.toUpperCase()}</p>
+          <h2>{firstText(draft, ["id"]) ? `${title} 업무 수정` : `${title} 업무 등록`}</h2>
+        </div>
+        <button type="button" onClick={onCancel} aria-label={`${title} 업무 편집 닫기`}>
+          <X size={17} />
+        </button>
+      </div>
+
+      <div className="form-grid">
+        <label className="field">
+          <span>관련 업체</span>
+          <select value={draft.companyUnknown ? "__unknown" : firstText(draft, ["companyId"])} onChange={(event) => selectCompany(event.target.value)}>
+            <option value="">직접 입력 / 연결 안 함</option>
+            <option value="__unknown">미정</option>
+            {data.companies.map((company, index) => (
+              <option key={recordId(company, index)} value={recordId(company, index)}>
+                {companyName(company) || "업체명 미입력"}
+              </option>
+            ))}
+          </select>
+        </label>
+        <TextField label="업체명" value={firstText(draft, ["company"])} onChange={(value) => updateField("company", value)} placeholder="업체명 또는 미정" />
+        {contacts.length > 0 && (
+          <label className="field">
+            <span>담당자 선택</span>
+            <select value={firstText(draft, ["contactId"])} onChange={(event) => selectContact(event.target.value)}>
+              <option value="">직접 입력</option>
+              {contacts.map((contact, index) => (
+                <option key={recordId(contact, index)} value={recordId(contact, index)}>
+                  {companyContactSummary(contact) || "담당자"}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <TextField label={type === "output" ? "담당자(요청자)" : "담당자"} value={firstText(draft, ["contactName"])} onChange={(value) => updateField("contactName", value)} placeholder="담당자명" />
+        <TextField label="담당자 연락처" value={firstText(draft, ["contactPhone"])} onChange={(value) => updateField("contactPhone", value)} placeholder="010-0000-0000" />
+        <TextField label="담당자 이메일" value={firstText(draft, ["contactEmail"])} onChange={(value) => updateField("contactEmail", value)} placeholder="name@example.com" />
+
+        {(type === "settlement" || type === "output") && (
+          <>
+            <label className="field wide-field">
+              <span>관련 영업건</span>
+              <select value={draft.salesLinkUnknown ? "__unknown" : firstText(draft, ["salesNoteId"])} onChange={(event) => selectSales(event.target.value)}>
+                <option value="">연결 안 함</option>
+                <option value="__unknown">미정</option>
+                {data.notes.map((note, index) => (
+                  <option key={recordId(note, index)} value={recordId(note, index)}>
+                    {salesCustomer(note)} · {salesInterest(note) || firstText(note, ["nextAction"]) || "영업 메모"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
+
+        {type === "settlement" && (
+          <SettlementFields draft={draft} updateField={updateField} />
+        )}
+
+        {type === "output" && (
+          <>
+            <TextField label="기한 시작" type="date" value={firstText(draft, ["startDate"])} onChange={(value) => updateField("startDate", value)} />
+            <TextField label="기한 종료" type="date" value={firstText(draft, ["endDate"])} onChange={(value) => updateField("endDate", value)} />
+            <CheckField label="주말 포함" checked={Boolean(draft.includeWeekends)} onChange={(checked) => updateField("includeWeekends", checked)} />
+            <SelectField label="진행 상태" value={firstText(draft, ["status"]) || "대기"} onChange={(value) => updateField("status", value)} options={WORK_STATUS_OPTIONS} />
+            <SelectField label="중요도" value={firstText(draft, ["priority"]) || "보통"} onChange={(value) => updateField("priority", value)} options={PRIORITY_OPTIONS} />
+            <TextField label="출력 종류" value={firstText(draft, ["outputType"])} onChange={(value) => updateField("outputType", value)} placeholder="예: 샘플 출력, BMT, 제작물" />
+          </>
+        )}
+
+        {type === "other" && (
+          <>
+            <TextField label="업무명" value={firstText(draft, ["title"])} onChange={(value) => updateField("title", value)} placeholder="예: 사내 요청사항 확인" />
+            <TextField label="구분" value={firstText(draft, ["category"])} onChange={(value) => updateField("category", value)} placeholder="예: 내부, 구매, 행정" />
+            <TextField label="담당/요청자" value={firstText(draft, ["owner"])} onChange={(value) => updateField("owner", value)} placeholder="담당자 또는 요청자" />
+            <TextField label="기한 시작" type="date" value={firstText(draft, ["startDate"])} onChange={(value) => updateField("startDate", value)} />
+            <TextField label="기한 종료" type="date" value={firstText(draft, ["endDate"])} onChange={(value) => updateField("endDate", value)} />
+            <CheckField label="주말 포함" checked={Boolean(draft.includeWeekends)} onChange={(checked) => updateField("includeWeekends", checked)} />
+            <SelectField label="진행 상태" value={firstText(draft, ["status"]) || "대기"} onChange={(value) => updateField("status", value)} options={WORK_STATUS_OPTIONS} />
+            <SelectField label="중요도" value={firstText(draft, ["priority"]) || "보통"} onChange={(value) => updateField("priority", value)} options={PRIORITY_OPTIONS} />
+          </>
+        )}
+
+        <TextAreaField label="업무 메모" value={firstText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="업무 조건, 주의사항, 진행 내용" wide />
+      </div>
+      <div className="form-actions">
+        <button type="button" className="icon-text-button primary" onClick={() => onSave(draft)}>
+          저장
+        </button>
+        <button type="button" className="icon-text-button" onClick={onCancel}>
+          취소
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function SettlementFields({
+  draft,
+  updateField
+}: {
+  draft: AnyRecord;
+  updateField: (key: string, value: string | boolean | AnyRecord[]) => void;
+}) {
+  const schedule = asArray(draft.paymentSchedule);
+  const [scheduleStart, setScheduleStart] = useState(firstText(draft, ["nextActionDate"]) || toDateKey(new Date()));
+  const [scheduleInterval, setScheduleInterval] = useState("14");
+  const [scheduleCount, setScheduleCount] = useState("");
+  const [scheduleAmount, setScheduleAmount] = useState("");
+  const [scheduleAmountVatIncluded, setScheduleAmountVatIncluded] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const isAdvance = firstText(draft, ["paymentType"]).includes("선금");
+
+  const setSchedule = (rows: AnyRecord[]) => updateField("paymentSchedule", rows);
+  const updateRow = (index: number, key: string, value: string | boolean) => {
+    setSchedule(schedule.map((row, rowIndex) => (rowIndex === index ? { ...row, [key]: value } : row)));
+  };
+  const addRow = () => {
+    setSchedule([...schedule, { id: createId("pay_"), round: String(schedule.length + 1), dueDate: toDateKey(new Date()), amount: "", amountVatIncluded: false, status: "예정", item: "" }]);
+  };
+  const removeRow = (index: number) => setSchedule(schedule.filter((_, rowIndex) => rowIndex !== index));
+  const generateRows = () => {
+    const count = Math.max(0, Number(scheduleCount) || 0);
+    const interval = Math.max(1, Number(scheduleInterval) || 14);
+    const start = parseDate(scheduleStart || toDateKey(new Date()));
+    if (!count) {
+      alert("예정 회차를 입력해 주세요.");
+      return;
+    }
+    const rows = Array.from({ length: count }, (_, index) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + interval * index);
+      return {
+        id: createId("pay_"),
+        round: String(index + 1),
+        dueDate: toDateKey(date),
+        amount: normalizeAmountString(scheduleAmount),
+        amountVatIncluded: scheduleAmountVatIncluded,
+        status: "예정",
+        item: ""
+      };
+    });
+    setSchedule(rows);
+  };
+  const parsePasteRows = () => {
+    const rows = pasteText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line, index) => {
+        const parts = line.split(/\t|,|\s{2,}/).map(clean).filter(Boolean);
+        return {
+          id: createId("pay_"),
+          round: parts[0]?.replace(/회차/g, "") || String(index + 1),
+          dueDate: parseDateKey(parts[1] || "") || "",
+          amount: normalizeAmountString(parts[2] || ""),
+          amountVatIncluded: false,
+          status: parts[3] || "예정",
+          item: parts.slice(4).join(" ")
+        };
+      });
+    if (!rows.length) {
+      alert("붙여넣은 일정이 없습니다.");
+      return;
+    }
+    setSchedule(rows);
+    setPasteText("");
+  };
+
+  return (
+    <>
+      <SelectField label="결제 유형" value={firstText(draft, ["paymentType"]) || "분할 결제"} onChange={(value) => updateField("paymentType", value)} options={SETTLEMENT_PAYMENT_OPTIONS} />
+      <SelectField label="진행 상태" value={firstText(draft, ["status"]) || "예정"} onChange={(value) => updateField("status", value)} options={SETTLEMENT_STATUS_OPTIONS} />
+      <TextField label={isAdvance ? "선금/예치금" : "총 관리 금액"} value={firstText(draft, ["totalAmount", "advanceAmount"])} onChange={(value) => updateField(isAdvance ? "advanceAmount" : "totalAmount", value)} placeholder="예: 10000000" />
+      <CheckField label={`${isAdvance ? "선금" : "총액"} VAT 포함`} checked={Boolean(isAdvance ? draft.advanceAmountVatIncluded : draft.totalAmountVatIncluded)} onChange={(checked) => updateField(isAdvance ? "advanceAmountVatIncluded" : "totalAmountVatIncluded", checked)} />
+      <TextField label={isAdvance ? "차감 완료액" : "회차 입금 완료액"} value={firstText(draft, [isAdvance ? "deductedAmount" : "receivedAmount"])} onChange={(value) => updateField(isAdvance ? "deductedAmount" : "receivedAmount", value)} placeholder="예: 5000000" />
+      <CheckField label={`${isAdvance ? "차감" : "입금"} VAT 포함`} checked={Boolean(isAdvance ? draft.deductedAmountVatIncluded : draft.receivedAmountVatIncluded)} onChange={(checked) => updateField(isAdvance ? "deductedAmountVatIncluded" : "receivedAmountVatIncluded", checked)} />
+      {!isAdvance && <TextField label="기타 차감 금액" value={firstText(draft, ["deductedAmount"])} onChange={(value) => updateField("deductedAmount", value)} placeholder="예: 1000000" />}
+      {!isAdvance && <CheckField label="기타 차감 VAT 포함" checked={Boolean(draft.deductedAmountVatIncluded)} onChange={(checked) => updateField("deductedAmountVatIncluded", checked)} />}
+      <TextField label="현재 회차 / 총 회차" value={firstText(draft, ["installmentProgress"])} onChange={(value) => updateField("installmentProgress", value)} placeholder="예: 8/25" />
+      <TextField label="다음 처리일" type="date" value={firstText(draft, ["nextActionDate"])} onChange={(value) => updateField("nextActionDate", value)} />
+      <TextField label="다음 처리" value={firstText(draft, ["nextAction"])} onChange={(value) => updateField("nextAction", value)} placeholder="예: 9회차 청구" />
+      <TextAreaField label="회차/차감 계획" value={firstText(draft, ["plan"])} onChange={(value) => updateField("plan", value)} placeholder="정산 조건, 남은 금액 처리 계획" wide />
+
+      <section className="work-schedule-editor wide-field">
+        <div className="section-title-row">
+          <div>
+            <p className="eyebrow">PAYMENT TABLE</p>
+            <h3>{isAdvance ? "차감 목록" : "회차별 결제 일정"}</h3>
+          </div>
+          <span className="count-label">{schedule.length}건</span>
+        </div>
+        <div className="schedule-tool-grid">
+          <TextField label="시작일" type="date" value={scheduleStart} onChange={setScheduleStart} />
+          <TextField label="간격(일)" type="number" value={scheduleInterval} onChange={setScheduleInterval} />
+          <TextField label="예정 회차" type="number" value={scheduleCount} onChange={setScheduleCount} />
+          <TextField label="회차별 금액" value={scheduleAmount} onChange={setScheduleAmount} />
+          <CheckField label="회차 금액 VAT 포함" checked={scheduleAmountVatIncluded} onChange={setScheduleAmountVatIncluded} />
+          <button type="button" className="icon-text-button" onClick={generateRows}>일정 자동 생성</button>
+          <button type="button" className="icon-text-button" onClick={addRow}>회차 추가</button>
+        </div>
+        <TextAreaField label="엑셀 일정 붙여넣기" value={pasteText} onChange={setPasteText} placeholder="예: 1회차	2026-07-08	1980000	예정	품목" wide />
+        <div className="form-actions compact-actions">
+          <button type="button" className="icon-text-button" onClick={parsePasteRows}>붙여넣은 일정 불러오기</button>
+        </div>
+        <div className="payment-row-list">
+          {schedule.map((row, index) => (
+            <div className="payment-row" key={recordId(row, index)}>
+              <TextField label="회차" value={firstText(row, ["round"])} onChange={(value) => updateRow(index, "round", value)} />
+              <TextField label="예정일" type="date" value={firstText(row, ["dueDate"])} onChange={(value) => updateRow(index, "dueDate", value)} />
+              <TextField label="금액" value={firstText(row, ["amount"])} onChange={(value) => updateRow(index, "amount", value)} />
+              <CheckField label="VAT 포함" checked={Boolean(row.amountVatIncluded)} onChange={(checked) => updateRow(index, "amountVatIncluded", checked)} />
+              <TextField label={isAdvance ? "차감 품목" : "품목/메모"} value={firstText(row, ["item"])} onChange={(value) => updateRow(index, "item", value)} />
+              <TextField label="상태" value={firstText(row, ["status"])} onChange={(value) => updateRow(index, "status", value)} />
+              <button type="button" className="danger-button" onClick={() => removeRow(index)}>삭제</button>
+            </div>
+          ))}
+          {!schedule.length && <div className="empty-inline"><strong>일정 없음</strong><span>자동 생성, 회차 추가, 엑셀 붙여넣기로 일정을 만들 수 있습니다.</span></div>}
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -2408,6 +2791,175 @@ function normalizeAccountDraft(draft: AnyRecord): AnyRecord {
   };
 }
 
+function createBlankWorkTask(type: "settlement" | "output" | "other"): AnyRecord {
+  const today = toDateKey(new Date());
+  const common = {
+    id: "",
+    companyId: "",
+    contactId: "",
+    companyUnknown: false,
+    company: "",
+    contactName: "",
+    contactPhone: "",
+    contactEmail: "",
+    startDate: today,
+    endDate: today,
+    includeWeekends: false,
+    status: "대기",
+    priority: "보통",
+    memo: "",
+    attachments: []
+  };
+  if (type === "settlement") {
+    return {
+      ...common,
+      status: "예정",
+      salesNoteId: "",
+      salesLinkUnknown: false,
+      paymentType: "분할 결제",
+      totalAmount: "",
+      totalAmountVatIncluded: false,
+      advanceAmount: "",
+      advanceAmountVatIncluded: false,
+      receivedAmount: "",
+      receivedAmountVatIncluded: false,
+      deductedAmount: "",
+      deductedAmountVatIncluded: false,
+      installmentProgress: "",
+      nextActionDate: today,
+      nextAction: "",
+      paymentSchedule: [],
+      plan: ""
+    };
+  }
+  if (type === "output") {
+    return {
+      ...common,
+      salesNoteId: "",
+      salesLinkUnknown: false,
+      outputType: ""
+    };
+  }
+  return {
+    ...common,
+    title: "",
+    category: "",
+    owner: ""
+  };
+}
+
+function prepareWorkDraft(record: AnyRecord, index: number, type: "settlement" | "output" | "other"): AnyRecord {
+  const blank = createBlankWorkTask(type);
+  return {
+    ...blank,
+    ...record,
+    id: recordId(record, index),
+    company: companyName(record) === "고객 미정" ? "" : companyName(record),
+    contactName: firstText(record, ["contactName", "requester", "assignee", "owner", "managerName"]),
+    contactPhone: firstText(record, ["contactPhone", "phone", "mobile"]),
+    contactEmail: firstText(record, ["contactEmail", "email"]),
+    startDate: firstText(record, ["startDate", "dueStartDate"]),
+    endDate: firstText(record, ["endDate", "dueEndDate", "deadline", "dueDate"]),
+    status: firstText(record, ["status", "progressStatus"]) || firstText(blank, ["status"]),
+    priority: firstText(record, ["priority", "importance"]) || "보통",
+    memo: firstText(record, ["memo", "description", "note"]),
+    paymentSchedule: asArray(record.paymentSchedule)
+  };
+}
+
+function normalizeWorkDraft(draft: AnyRecord, type: "settlement" | "output" | "other", data: WorkNoteData): AnyRecord {
+  const company = firstText(draft, ["companyId"])
+    ? data.companies.find((item, index) => recordId(item, index) === firstText(draft, ["companyId"]))
+    : null;
+  const contact = company && firstText(draft, ["contactId"])
+    ? asArray(company.contacts).find((item, index) => recordId(item, index) === firstText(draft, ["contactId"]))
+    : null;
+  const companyUnknown = Boolean(draft.companyUnknown);
+  const common = {
+    id: firstText(draft, ["id"]) || createId(`${type}_`),
+    companyId: companyUnknown ? "" : firstText(draft, ["companyId"]),
+    contactId: companyUnknown ? "" : firstText(draft, ["contactId"]),
+    companyUnknown,
+    company: companyUnknown ? "" : (company ? companyName(company) : firstText(draft, ["company"])),
+    contactName: companyUnknown ? "" : (contact ? firstText(contact, ["name", "contactName"]) : firstText(draft, ["contactName"])),
+    contactPhone: companyUnknown ? "" : (contact ? firstText(contact, ["phone", "contactPhone"]) : firstText(draft, ["contactPhone"])),
+    contactEmail: companyUnknown ? "" : (contact ? firstText(contact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])),
+    startDate: firstText(draft, ["startDate"]),
+    endDate: firstText(draft, ["endDate"]),
+    includeWeekends: Boolean(draft.includeWeekends),
+    memo: firstText(draft, ["memo"])
+  };
+
+  if (type === "settlement") {
+    const paymentType = SETTLEMENT_PAYMENT_OPTIONS.includes(firstText(draft, ["paymentType"])) ? firstText(draft, ["paymentType"]) : "분할 결제";
+    const isAdvance = paymentType.includes("선금");
+    return {
+      ...common,
+      salesNoteId: Boolean(draft.salesLinkUnknown) ? "" : firstText(draft, ["salesNoteId"]),
+      salesLinkUnknown: Boolean(draft.salesLinkUnknown),
+      paymentType,
+      status: SETTLEMENT_STATUS_OPTIONS.includes(firstText(draft, ["status"])) ? firstText(draft, ["status"]) : "예정",
+      totalAmount: isAdvance ? "" : normalizeAmountString(firstText(draft, ["totalAmount", "advanceAmount"])),
+      totalAmountVatIncluded: Boolean(draft.totalAmountVatIncluded),
+      advanceAmount: isAdvance ? normalizeAmountString(firstText(draft, ["advanceAmount", "totalAmount"])) : "",
+      advanceAmountVatIncluded: Boolean(draft.advanceAmountVatIncluded),
+      receivedAmount: isAdvance ? "" : normalizeAmountString(firstText(draft, ["receivedAmount"])),
+      receivedAmountVatIncluded: Boolean(draft.receivedAmountVatIncluded),
+      deductedAmount: normalizeAmountString(firstText(draft, ["deductedAmount"])),
+      deductedAmountVatIncluded: Boolean(draft.deductedAmountVatIncluded),
+      installmentProgress: firstText(draft, ["installmentProgress"]),
+      nextActionDate: firstText(draft, ["nextActionDate"]),
+      nextAction: firstText(draft, ["nextAction"]),
+      paymentSchedule: normalizePaymentSchedule(asArray(draft.paymentSchedule)),
+      plan: firstText(draft, ["plan"])
+    };
+  }
+
+  if (type === "output") {
+    return {
+      ...common,
+      salesNoteId: Boolean(draft.salesLinkUnknown) ? "" : firstText(draft, ["salesNoteId"]),
+      salesLinkUnknown: Boolean(draft.salesLinkUnknown),
+      status: WORK_STATUS_OPTIONS.includes(firstText(draft, ["status"])) ? firstText(draft, ["status"]) : "대기",
+      priority: PRIORITY_OPTIONS.includes(firstText(draft, ["priority"])) ? firstText(draft, ["priority"]) : "보통",
+      outputType: firstText(draft, ["outputType"])
+    };
+  }
+
+  return {
+    ...common,
+    title: firstText(draft, ["title"]),
+    category: firstText(draft, ["category"]),
+    owner: firstText(draft, ["owner"]),
+    status: WORK_STATUS_OPTIONS.includes(firstText(draft, ["status"])) ? firstText(draft, ["status"]) : "대기",
+    priority: PRIORITY_OPTIONS.includes(firstText(draft, ["priority"])) ? firstText(draft, ["priority"]) : "보통"
+  };
+}
+
+function normalizePaymentSchedule(rows: AnyRecord[]): AnyRecord[] {
+  return rows
+    .map((row, index) => ({
+      id: firstText(row, ["id"]) || createId("pay_"),
+      round: firstText(row, ["round"]) || String(index + 1),
+      dueDate: parseDateKey(firstText(row, ["dueDate"])) || firstText(row, ["dueDate"]),
+      amount: normalizeAmountString(firstText(row, ["amount"])),
+      amountVatIncluded: Boolean(row.amountVatIncluded),
+      status: firstText(row, ["status"]) || "예정",
+      item: firstText(row, ["item", "memo", "description"])
+    }))
+    .filter((row) => ["dueDate", "amount", "status", "item"].some((key) => firstText(row, [key])));
+}
+
+function isWorkDraftValid(record: AnyRecord, type: "settlement" | "output" | "other"): boolean {
+  if (type === "settlement") {
+    return Boolean(companyName(record) || record.companyUnknown || firstText(record, ["paymentType", "totalAmount", "advanceAmount", "nextAction", "memo"]));
+  }
+  if (type === "output") {
+    return Boolean(companyName(record) || record.companyUnknown || firstText(record, ["outputType", "memo"]));
+  }
+  return Boolean(firstText(record, ["title", "memo"]));
+}
+
 function countLinkedCompanyRecords(data: WorkNoteData, companyId: string): number {
   return [data.notes, data.settlementTasks, data.outputTasks, data.otherTasks]
     .flat()
@@ -2913,6 +3465,13 @@ function deadlineText(record: AnyRecord): string {
   const end = formatOptionalDate(firstText(record, ["dueEndDate", "deadline", "dueDate", "endDate"]));
   if (start && end && start !== end) return `${start} ~ ${end}`;
   return end || start || "미정";
+}
+
+function isValidDateRange(startDate: string, endDate: string): boolean {
+  const start = parseDateKey(startDate);
+  const end = parseDateKey(endDate);
+  if (!start || !end) return true;
+  return start <= end;
 }
 
 function compareDate(a: string, b: string): number {
