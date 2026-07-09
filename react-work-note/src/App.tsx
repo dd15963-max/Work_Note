@@ -21,6 +21,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type PortalId = "schedule" | "company" | "sales" | "settlement" | "output" | "other" | "account";
 type CalendarMode = "month" | "week";
+type SalesPanelMode = "detail" | "company" | "files";
 type AnyRecord = Record<string, unknown>;
 
 type WorkNoteData = {
@@ -412,10 +413,15 @@ function CompanyPortal({ data, query }: { data: WorkNoteData; query: string }) {
 }
 
 function SalesPortal({ data, query }: { data: WorkNoteData; query: string }) {
-  const [expandedSalesId, setExpandedSalesId] = useState("");
+  const [salesPanel, setSalesPanel] = useState<{ id: string; mode: SalesPanelMode } | null>(null);
   const notes = data.notes
     .filter((note) => matchesRecord(note, query))
     .sort((a, b) => priorityScore(b) - priorityScore(a) || compareDate(firstText(b, ["updatedAt"]), firstText(a, ["updatedAt"])));
+
+  const toggleSalesPanel = (id: string, mode: SalesPanelMode) => {
+    setSalesPanel((current) => (current?.id === id && current.mode === mode ? null : { id, mode }));
+  };
+
   return (
     <section className="panel">
       <div className="section-title-row">
@@ -434,11 +440,14 @@ function SalesPortal({ data, query }: { data: WorkNoteData; query: string }) {
           <span>현황</span>
           <span>다음 액션</span>
           <span>일정</span>
-          <span>세부</span>
+          <span>관리</span>
         </div>
         {notes.map((note, index) => {
           const id = recordId(note, index);
-          const expanded = expandedSalesId === id;
+          const activeMode = salesPanel?.id === id ? salesPanel.mode : null;
+          const expanded = Boolean(activeMode);
+          const linkedCompany = getLinkedCompanyForSales(note, data.companies);
+          const attachments = asArray(note.attachments);
           return (
             <div className="sales-row-group" key={id}>
               <article className={`table-row sales-grid ${expanded ? "is-expanded" : ""}`}>
@@ -481,18 +490,34 @@ function SalesPortal({ data, query }: { data: WorkNoteData; query: string }) {
                   )}
                   <InfoLine label="최근연락" value={formatOptionalDate(firstText(note, ["lastContactDate"])) || "-"} />
                 </div>
-                <div className="sales-detail-actions">
+                <div className="sales-management-actions">
                   <button
                     type="button"
-                    onClick={() => setExpandedSalesId(expanded ? "" : id)}
-                    aria-expanded={expanded}
+                    onClick={() => toggleSalesPanel(id, "company")}
+                    aria-expanded={activeMode === "company"}
+                    disabled={!linkedCompany && !salesCustomer(note)}
                   >
-                    {expanded ? "접기" : "보기"}
+                    업체
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleSalesPanel(id, "files")}
+                    aria-expanded={activeMode === "files"}
+                  >
+                    파일 {attachments.length}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleSalesPanel(id, "detail")}
+                    aria-expanded={activeMode === "detail"}
+                  >
+                    {activeMode === "detail" ? "접기" : "상세"}
+                  </button>
+                  <a href={LEGACY_APP_PATH} title="기존 앱에서 수정/삭제" target="_blank" rel="noreferrer">기존 앱</a>
                   <small>{formatDateTime(firstText(note, ["updatedAt"]))}</small>
                 </div>
               </article>
-              {expanded && <SalesDetailPanel note={note} />}
+              {expanded && <SalesDetailPanel note={note} company={linkedCompany} mode={activeMode || "detail"} />}
             </div>
           );
         })}
@@ -502,31 +527,72 @@ function SalesPortal({ data, query }: { data: WorkNoteData; query: string }) {
   );
 }
 
-function SalesDetailPanel({ note }: { note: AnyRecord }) {
+function SalesDetailPanel({ note, company, mode }: { note: AnyRecord; company: AnyRecord | null; mode: SalesPanelMode }) {
   const attachments = asArray(note.attachments);
+  const contacts = company ? asArray(company.contacts) : [];
   return (
     <div className="sales-detail-panel">
-      <div className="sales-detail-grid">
-        <section>
-          <p className="eyebrow">MEMO</p>
-          <p className="detail-text">{firstText(note, ["memo", "description", "note"]) || "상세 메모가 없습니다."}</p>
-        </section>
-        <section>
-          <p className="eyebrow">AMOUNT</p>
-          <InfoLine label="예상매출" value={hasAmountValue(firstText(note, ["expectedRevenueAmount"])) ? formatMoneyWithVat(firstText(note, ["expectedRevenueAmount"]), note.expectedRevenueVatIncluded) : "-"} />
-          <InfoLine label="매출" value={formatRevenueForDisplay(note)} />
-        </section>
-        <section>
-          <p className="eyebrow">FILES</p>
-          <div className="attachment-name-list">
-            {attachments.slice(0, 6).map((attachment, index) => (
-              <span key={recordId(attachment, index)}>{firstText(attachment, ["fileName", "name"]) || "첨부자료"}</span>
-            ))}
-            {!attachments.length && <span>첨부자료 없음</span>}
-            {attachments.length > 6 && <span>외 {attachments.length - 6}개</span>}
-          </div>
-        </section>
-      </div>
+      {mode === "detail" && (
+        <div className="sales-detail-grid">
+          <section>
+            <p className="eyebrow">MEMO</p>
+            <p className="detail-text">{firstText(note, ["memo", "description", "note"]) || "상세 메모가 없습니다."}</p>
+          </section>
+          <section>
+            <p className="eyebrow">AMOUNT</p>
+            <InfoLine label="예상매출" value={hasAmountValue(firstText(note, ["expectedRevenueAmount"])) ? formatMoneyWithVat(firstText(note, ["expectedRevenueAmount"]), note.expectedRevenueVatIncluded) : "-"} />
+            <InfoLine label="매출" value={formatRevenueForDisplay(note)} />
+            <InfoLine label="견적" value={firstText(note, ["quoteStatus"]) || "미입력"} />
+            <InfoLine label="구매" value={firstText(note, ["purchasePossibility"]) || "미입력"} />
+          </section>
+          <section>
+            <p className="eyebrow">SCHEDULE</p>
+            <InfoLine label="다음" value={formatNextContact(note)} />
+            <InfoLine label="미팅" value={formatOptionalDate(firstText(note, ["meetingDate"])) || "-"} />
+            <InfoLine label="최근" value={formatOptionalDate(firstText(note, ["lastContactDate"])) || "-"} />
+          </section>
+        </div>
+      )}
+
+      {mode === "company" && (
+        <div className="sales-detail-grid">
+          <section>
+            <p className="eyebrow">COMPANY</p>
+            <h3>{company ? companyName(company) : salesCustomer(note)}</h3>
+            <InfoLine label="대표" value={company ? firstText(company, ["representativeName", "ceoName", "owner"]) : ""} />
+            <InfoLine label="연락처" value={company ? firstText(company, ["phone", "mainPhone", "contact"]) : firstText(note, ["contactPhone", "phone"])} />
+            <InfoLine label="이메일" value={company ? firstText(company, ["email", "mainEmail"]) : firstText(note, ["contactEmail", "email"])} />
+          </section>
+          <section className="wide-detail-section">
+            <p className="eyebrow">CONTACTS</p>
+            <div className="contact-chip-list">
+              {contacts.slice(0, 8).map((contact, index) => (
+                <span key={recordId(contact, index)}>
+                  {[firstText(contact, ["name", "contactName"]), firstText(contact, ["phone", "contactPhone"]), firstText(contact, ["email", "contactEmail"])].filter(Boolean).join(" · ") || "담당자"}
+                </span>
+              ))}
+              {!contacts.length && <span>등록된 담당자 정보가 없습니다.</span>}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {mode === "files" && (
+        <div className="sales-detail-grid">
+          <section className="wide-detail-section">
+            <p className="eyebrow">FILES</p>
+            <div className="attachment-detail-list">
+              {attachments.map((attachment, index) => (
+                <article key={recordId(attachment, index)}>
+                  <strong>{firstText(attachment, ["fileName", "name"]) || "첨부자료"}</strong>
+                  <span>{[firstText(attachment, ["category"]), formatOptionalDate(firstText(attachment, ["sentDate"])), firstText(attachment, ["memo"])].filter(Boolean).join(" · ") || "파일 정보 없음"}</span>
+                </article>
+              ))}
+              {!attachments.length && <article><strong>첨부자료 없음</strong><span>기존 앱 파일함에서 첨부자료를 추가할 수 있습니다.</span></article>}
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -812,6 +878,21 @@ function recordId(record: AnyRecord, index: number): string {
 
 function companyName(record: AnyRecord): string {
   return firstText(record, ["company", "companyName", "name", "clientName", "relatedCompany", "customerName"]);
+}
+
+function getLinkedCompanyForSales(note: AnyRecord, companies: AnyRecord[]): AnyRecord | null {
+  const linkedId = firstText(note, ["companyId", "salesCompanyId", "relatedCompanyId"]);
+  if (linkedId) {
+    const byId = companies.find((company, index) => recordId(company, index) === linkedId || firstText(company, ["id"]) === linkedId);
+    if (byId) return byId;
+  }
+
+  const name = salesCustomer(note).toLowerCase();
+  if (!name || name === "고객 미정") {
+    return null;
+  }
+
+  return companies.find((company) => companyName(company).toLowerCase() === name) || null;
 }
 
 function salesCustomer(note: AnyRecord): string {
