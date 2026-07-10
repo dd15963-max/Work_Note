@@ -2352,3 +2352,96 @@ h2 {
     width: calc(100% - 24px);
   }
 }
+.company-history-block {
+  margin-top: 10px;
+  border-top: 1px dashed var(--line);
+  padding-top: 9px;
+}
+
+.company-history-block summary {
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.company-history-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.company-history-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-left: 4px solid #98a2b3;
+  border-radius: 8px;
+  background: #fff;
+  padding: 9px 10px;
+}
+
+.company-history-item.blue {
+  border-left-color: var(--primary);
+}
+
+.company-history-item.green {
+  border-left-color: var(--green);
+}
+
+.company-history-item.orange {
+  border-left-color: var(--orange);
+}
+
+.company-history-item.red {
+  border-left-color: var(--red);
+}
+
+.company-history-item strong,
+.company-history-item span,
+.company-history-item small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.company-history-item strong {
+  font-size: 13px;
+}
+
+.company-history-item span,
+.company-history-list p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.company-history-item > div:last-child {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+}
+
+.company-history-item small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .company-history-item {
+    grid-template-columns: 1fr;
+  }
+
+  .company-history-item > div:last-child {
+    justify-items: start;
+  }
+
+  .company-history-item small {
+    text-align: left;
+  }
+}

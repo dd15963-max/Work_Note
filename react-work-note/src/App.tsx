@@ -66,6 +66,14 @@ type ScheduleItem = {
   priority: string;
 };
 
+type CompanyHistoryItem = {
+  id: string;
+  kind: string;
+  title: string;
+  detail: string;
+  date: string;
+  tone: "neutral" | "blue" | "green" | "orange" | "red";
+};
 type AttachmentRecord = AnyRecord & {
   id: string;
   blob?: Blob;
@@ -883,6 +891,7 @@ function CompanyPortal({
           const primaryContact = contacts[visibleContactIndex] || null;
           const extraContacts = contacts.filter((_, contactIndex) => contactIndex !== visibleContactIndex);
           const attachments = asArray(company.attachments);
+          const historyItems = collectCompanyHistoryItems(data, company, originalIndex);
           return (
             <article className="company-card" key={id}>
               <div className="card-heading">
@@ -909,6 +918,24 @@ function CompanyPortal({
               )}
               <AttachmentPreview record={company} />
               {firstText(company, ["memo"]) && <p className="muted-preview">{firstText(company, ["memo"])}</p>}
+              <details className="company-history-block">
+                <summary>히스토리 {historyItems.length}건</summary>
+                <div className="company-history-list">
+                  {historyItems.slice(0, 12).map((item) => (
+                    <article key={item.id} className={`company-history-item ${item.tone}`}>
+                      <div>
+                        <strong>{item.title}</strong>
+                        <span>{item.detail}</span>
+                      </div>
+                      <div>
+                        <Badge tone={item.tone}>{item.kind}</Badge>
+                        <small>{formatDateTime(item.date)}</small>
+                      </div>
+                    </article>
+                  ))}
+                  {!historyItems.length && <p>연결된 업무 이력이 없습니다.</p>}
+                </div>
+              </details>
               <div className="card-actions">
                 <button type="button" onClick={() => setCompanyFilePanel(companyFilePanel === id ? null : id)}>
                   <FileText size={15} />
@@ -5192,6 +5219,49 @@ function createId(prefix: string): string {
   return `${prefix}${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function collectCompanyHistoryItems(data: WorkNoteData, company: AnyRecord, companyIndex: number): CompanyHistoryItem[] {
+  const companyId = recordId(company, companyIndex);
+  const items: CompanyHistoryItem[] = [];
+  const add = (
+    kind: string,
+    tone: CompanyHistoryItem["tone"],
+    type: string,
+    records: AnyRecord[],
+    title: (record: AnyRecord) => string,
+    detail: (record: AnyRecord) => string,
+    status: (record: AnyRecord) => string
+  ) => {
+    records.forEach((record, index) => {
+      if (!isRecordLinkedToCompany(record, company, companyId, kind === "장비" || kind === "소재")) return;
+      const date = firstText(record, ["updatedAt", "createdAt"]);
+      items.push({
+        id: `${type}-${recordId(record, index)}`,
+        kind,
+        tone,
+        title: title(record) || `${kind} 업무`,
+        detail: joinParts([status(record), detail(record)], " · ") || "상세 정보 없음",
+        date,
+      });
+    });
+  };
+
+  add("장비", "blue", "sales", data.notes, (record) => salesInterest(record) || firstText(record, ["nextAction"]) || "장비 영업건", (record) => joinParts([firstText(record, ["quoteStatus"]), firstText(record, ["purchasePossibility"]), formatMoneyWithVat(firstText(record, ["expectedRevenueAmount"]), record.expectedRevenueVatIncluded)], " / "), salesStatus);
+  add("소재", "green", "material", data.materialSalesNotes, (record) => materialSalesItemsSummary(record) || firstText(record, ["revenueType"]) || "소재 영업건", (record) => joinParts([materialSalesQuoteStatus(record), formatMoney(firstText(record, ["revenueAmount", "expectedRevenueAmount"]))], " / "), materialSalesStatus);
+  add("정산", "orange", "settlement", data.settlementTasks, (record) => workTitle(record, "settlement"), (record) => joinParts([firstText(record, ["paymentType"]), settlementRemainingText(record)], " / "), (record) => firstText(record, ["status", "progressStatus"]));
+  add("출력", "blue", "output", data.outputTasks, (record) => firstText(record, ["outputType"]) || workTitle(record, "output"), deadlineText, (record) => firstText(record, ["status", "progressStatus"]));
+  add("기타", "neutral", "other", data.otherTasks, (record) => workTitle(record, "other"), deadlineText, (record) => firstText(record, ["status", "progressStatus"]));
+
+  return items.sort((a, b) => compareDate(a.date, b.date) * -1 || a.kind.localeCompare(b.kind, "ko"));
+}
+
+function isRecordLinkedToCompany(record: AnyRecord, company: AnyRecord, companyId: string, salesLike = false): boolean {
+  const linkedId = firstText(record, ["companyId", "relatedCompanyId", "salesCompanyId"]);
+  if (linkedId && linkedId === companyId) return true;
+  const targetName = normalizeMergeText(companyName(company));
+  if (!targetName) return false;
+  const recordName = normalizeMergeText(salesLike ? salesCustomer(record) : companyName(record));
+  return Boolean(recordName && recordName !== normalizeMergeText("고객 미정") && recordName === targetName);
+}
 function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
   const items: ScheduleItem[] = [];
 
@@ -5199,8 +5269,8 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
     const company = salesCustomer(note);
     const status = firstText(note, ["status", "progressStatus"]);
     const priority = firstText(note, ["priority", "importance"]);
-    addScheduleItem(items, note, index, firstText(note, ["nextContactDate"]), `[영업] ${company} 연락`, firstText(note, ["nextAction", "memo"]), "sales", status, priority);
-    addScheduleItem(items, note, index, firstText(note, ["meetingDate"]), `[영업] ${company} 미팅`, firstText(note, ["nextAction", "memo"]), "sales", status, priority);
+    addScheduleItem(items, note, index, firstText(note, ["nextContactDate"]), "[영업] 연락", joinParts([company, firstText(note, ["nextAction", "memo"])], " · "), "sales", status, priority);
+    addScheduleItem(items, note, index, firstText(note, ["meetingDate"]), "[영업] 미팅", joinParts([company, firstText(note, ["nextAction", "memo"])], " · "), "sales", status, priority);
   });
 
   data.settlementTasks.forEach((task, index) => {
@@ -5237,7 +5307,7 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
 
   data.outputTasks.forEach((task, index) => {
     if (isClosed(firstText(task, ["status", "progressStatus"]))) return;
-    addWorkDateRangeItems(items, task, index, "output", `[출력] ${workTitle(task, "output")}`, firstText(task, ["memo", "description"]));
+    addWorkDateRangeItems(items, task, index, "output", `[출력] ${firstText(task, ["outputType"]) || workTitle(task, "output")}`, firstText(task, ["memo", "description"]));
   });
 
   data.otherTasks.forEach((task, index) => {
@@ -5288,14 +5358,13 @@ function addWorkDateRangeItems(
   const status = firstText(record, ["status", "progressStatus"]);
   const priority = firstText(record, ["priority", "importance"]);
   if (!startKey || !endKey || endKey < startKey) {
-    addScheduleItem(target, record, index, endKey || startKey, `${titlePrefix} 기한`, detail, type, status, priority);
+    addScheduleItem(target, record, index, endKey || startKey, titlePrefix, detail, type, status, priority);
     return;
   }
 
   const days = getDateRangeKeys(startKey, endKey, Boolean(record.includeWeekends));
   days.forEach((date, dayIndex) => {
-    const rangeLabel = days.length > 1 ? `${dayIndex + 1}/${days.length}` : "기한";
-    addScheduleItem(target, record, index, date, `${titlePrefix} ${rangeLabel}`, detail || deadlineText(record), type, status, priority, `range-${dayIndex}`);
+    addScheduleItem(target, record, index, date, titlePrefix, detail || deadlineText(record), type, status, priority, `range-${dayIndex}`);
   });
 }
 
