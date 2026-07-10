@@ -982,7 +982,7 @@ function CompanyEditor({
         <TextField label="대표 연락처" value={firstText(draft, ["mainPhone"])} onChange={(value) => updateField("mainPhone", value)} placeholder="010-0000-0000" />
         <TextField label="대표 이메일" value={firstText(draft, ["mainEmail"])} onChange={(value) => updateField("mainEmail", value)} placeholder="company@example.com" />
         <TextField label="주소" value={firstText(draft, ["address"])} onChange={(value) => updateField("address", value)} placeholder="주소" wide />
-        <TextAreaField label="메모" value={firstText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="업체 관련 메모" wide />
+        <TextAreaField label="메모" value={rawText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="업체 관련 메모" wide />
       </div>
       <div className="editor-subsection">
         <div className="section-title-row">
@@ -1616,8 +1616,8 @@ function SalesEditor({
         />
         <TextField label="미팅 일정" type="date" value={firstText(draft, ["meetingDate"])} onChange={(value) => updateField("meetingDate", value)} />
         <TextField label="최근 연락" type="date" value={firstText(draft, ["lastContactDate"])} onChange={(value) => updateField("lastContactDate", value)} />
-        <TextAreaField label="다음 액션" value={firstText(draft, ["nextAction"])} onChange={(value) => updateField("nextAction", value)} placeholder="다음에 할 일" wide />
-        <TextAreaField label="상세 메모" value={firstText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="상세 내용" wide />
+        <TextAreaField label="다음 액션" value={rawText(draft, ["nextAction"])} onChange={(value) => updateField("nextAction", value)} placeholder="다음에 할 일" wide />
+        <TextAreaField label="상세 메모" value={rawText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="상세 내용" wide />
       </div>
       <div className="form-actions">
         <button type="button" className="icon-text-button primary" onClick={() => onSave(draft)}>
@@ -2412,7 +2412,7 @@ function WorkEditor({
           </>
         )}
 
-        <TextAreaField label="업무 메모" value={firstText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="업무 조건, 주의사항, 진행 내용" wide />
+        <TextAreaField label="업무 메모" value={rawText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="업무 조건, 주의사항, 진행 내용" wide />
       </div>
       <div className="form-actions">
         <button type="button" className="icon-text-button primary" onClick={() => onSave(draft)}>
@@ -2531,7 +2531,7 @@ function SettlementFields({
       <TextField label="현재 회차 / 총 회차" value={firstText(draft, ["installmentProgress"])} onChange={(value) => updateField("installmentProgress", value)} placeholder="예: 8/25" />
       <TextField label="다음 처리일" type="date" value={firstText(draft, ["nextActionDate"])} onChange={(value) => updateField("nextActionDate", value)} />
       <TextField label="다음 처리" value={firstText(draft, ["nextAction"])} onChange={(value) => updateField("nextAction", value)} placeholder="예: 9회차 청구" />
-      <TextAreaField label="회차/차감 계획" value={firstText(draft, ["plan"])} onChange={(value) => updateField("plan", value)} placeholder="정산 조건, 남은 금액 처리 계획" wide />
+      <TextAreaField label="회차/차감 계획" value={rawText(draft, ["plan"])} onChange={(value) => updateField("plan", value)} placeholder="정산 조건, 남은 금액 처리 계획" wide />
 
       <section className="work-schedule-editor wide-field">
         <div className="section-title-row">
@@ -2956,7 +2956,7 @@ function AccountEditor({
         <TextField label="담당자/소유자" value={firstText(draft, ["owner"])} onChange={(value) => updateField("owner", value)} placeholder="계정 만든 사람" />
         <TextField label="생성일" type="date" value={firstText(draft, ["accountCreatedDate"])} onChange={(value) => updateField("accountCreatedDate", value)} />
         <TextField label="비밀번호 변경일" type="date" value={firstText(draft, ["passwordChangedDate"])} onChange={(value) => updateField("passwordChangedDate", value)} />
-        <TextAreaField label="메모" value={firstText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="계정 관련 메모" wide />
+        <TextAreaField label="메모" value={rawText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="계정 관련 메모" wide />
       </div>
       <div className="form-actions">
         <button type="button" className="icon-text-button primary" onClick={() => onSave(draft)}>
@@ -4699,6 +4699,14 @@ function firstText(record: AnyRecord, keys: string[]): string {
   for (const key of keys) {
     const value = clean(record[key]);
     if (value) return value;
+  }
+  return "";
+}
+
+function rawText(record: AnyRecord, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key];
+    if (value !== null && value !== undefined) return String(value);
   }
   return "";
 }
