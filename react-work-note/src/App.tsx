@@ -1325,8 +1325,7 @@ function SalesPortal({
           type="button"
           className="icon-text-button sort-direction-button"
           onClick={() => setSalesSortDirection((current) => (current === "desc" ? "asc" : "desc"))}
-          disabled={salesSortKey === "priority"}
-          title={salesSortKey === "priority" ? "중요도순은 같은 중요도 안에서 최신 수정순으로 고정됩니다." : salesSortDirection === "desc" ? "내림차순" : "오름차순"}
+          title={salesSortKey === "priority" ? (salesSortDirection === "desc" ? "중요도 높은 순" : "중요도 낮은 순") : salesSortDirection === "desc" ? "내림차순" : "오름차순"}
         >
           {salesSortDirection === "desc" ? <ArrowDown size={17} /> : <ArrowUp size={17} />}
         </button>
@@ -4809,7 +4808,8 @@ function getListModeCounts(records: AnyRecord[]): Record<ListMode, number> {
 
 function compareSalesNotes(a: AnyRecord, b: AnyRecord, sortKey: SalesSortKey, direction: SortDirection): number {
   if (sortKey === "priority") {
-    return priorityScore(b) - priorityScore(a) || compareUpdatedAt(a, b, "desc");
+    const result = priorityScore(b) - priorityScore(a);
+    return (direction === "desc" ? result : -result) || compareUpdatedAt(a, b, "desc");
   }
   if (sortKey === "updated") {
     return compareUpdatedAt(a, b, direction);
