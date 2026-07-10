@@ -54,6 +54,8 @@ type ScheduleItem = {
   title: string;
   detail: string;
   type: "sales" | "settlement" | "output" | "other";
+  portal: Extract<PortalId, "sales" | "settlement" | "output" | "other">;
+  recordKey: string;
   status: string;
   priority: string;
 };
@@ -118,6 +120,7 @@ export function App() {
   const [query, setQuery] = useState("");
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("month");
   const [calendarCursor, setCalendarCursor] = useState(() => startOfDay(new Date()));
+  const [focusTarget, setFocusTarget] = useState<{ portal: PortalId; id: string } | null>(null);
   const [data, setData] = useState<WorkNoteData>(() => loadWorkNoteData());
   const [saveMessage, setSaveMessage] = useState("");
 
@@ -156,6 +159,11 @@ export function App() {
   );
 
   const refreshData = () => setData(loadWorkNoteData());
+  const openScheduleItem = (item: ScheduleItem) => {
+    setQuery("");
+    setFocusTarget({ portal: item.portal, id: item.recordKey });
+    setActivePortal(item.portal);
+  };
   const persistData = (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => {
     try {
       const current = loadWorkNoteData();
@@ -266,13 +274,14 @@ export function App() {
             setCalendarCursor={setCalendarCursor}
             calendarMode={calendarMode}
             setCalendarMode={setCalendarMode}
+            onOpenItem={openScheduleItem}
           />
         )}
         {activePortal === "company" && <CompanyPortal data={data} query={query} onPersist={persistData} />}
-        {activePortal === "sales" && <SalesPortal data={data} query={query} onPersist={persistData} />}
-        {activePortal === "settlement" && <GenericWorkPortal title="정산" records={data.settlementTasks} query={query} type="settlement" data={data} onPersist={persistData} />}
-        {activePortal === "output" && <GenericWorkPortal title="출력" records={data.outputTasks} query={query} type="output" data={data} onPersist={persistData} />}
-        {activePortal === "other" && <GenericWorkPortal title="기타" records={data.otherTasks} query={query} type="other" data={data} onPersist={persistData} />}
+        {activePortal === "sales" && <SalesPortal data={data} query={query} onPersist={persistData} focusTarget={focusTarget} />}
+        {activePortal === "settlement" && <GenericWorkPortal title="정산" records={data.settlementTasks} query={query} type="settlement" data={data} onPersist={persistData} focusTarget={focusTarget} />}
+        {activePortal === "output" && <GenericWorkPortal title="출력" records={data.outputTasks} query={query} type="output" data={data} onPersist={persistData} focusTarget={focusTarget} />}
+        {activePortal === "other" && <GenericWorkPortal title="기타" records={data.otherTasks} query={query} type="other" data={data} onPersist={persistData} focusTarget={focusTarget} />}
         {activePortal === "account" && <AccountPortal data={data} query={query} onPersist={persistData} />}
       </main>
     </div>
@@ -299,6 +308,24 @@ function PortalButton({
       <Icon size={17} />
       {portal.label}
     </button>
+  );
+}
+
+function EditorDrawer({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="editor-drawer-backdrop" onMouseDown={onClose}>
+      <div className="editor-drawer" onMouseDown={(event) => event.stopPropagation()}>
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -558,7 +585,8 @@ function SchedulePortal({
   calendarCursor,
   setCalendarCursor,
   calendarMode,
-  setCalendarMode
+  setCalendarMode,
+  onOpenItem
 }: {
   counts: Record<string, number>;
   items: ScheduleItem[];
@@ -567,6 +595,7 @@ function SchedulePortal({
   setCalendarCursor: (date: Date) => void;
   calendarMode: CalendarMode;
   setCalendarMode: (mode: CalendarMode) => void;
+  onOpenItem: (item: ScheduleItem) => void;
 }) {
   return (
     <div className="schedule-layout">
@@ -611,7 +640,7 @@ function SchedulePortal({
               </div>
             </div>
           </div>
-          <CalendarGrid cursor={calendarCursor} mode={calendarMode} items={items} />
+          <CalendarGrid cursor={calendarCursor} mode={calendarMode} items={items} onOpenItem={onOpenItem} />
         </div>
       </section>
       <aside className="today-panel panel">
@@ -624,7 +653,7 @@ function SchedulePortal({
         </div>
         <div className="today-list">
           {todayItems.map((item) => (
-            <ScheduleListItem item={item} key={item.id} />
+            <ScheduleListItem item={item} key={item.id} onOpenItem={onOpenItem} />
           ))}
           {!todayItems.length && <EmptyState title="오늘 일정 없음" detail="오늘 날짜에 연결된 업무가 없습니다." />}
         </div>
@@ -633,7 +662,7 @@ function SchedulePortal({
   );
 }
 
-function CalendarGrid({ cursor, mode, items }: { cursor: Date; mode: CalendarMode; items: ScheduleItem[] }) {
+function CalendarGrid({ cursor, mode, items, onOpenItem }: { cursor: Date; mode: CalendarMode; items: ScheduleItem[]; onOpenItem: (item: ScheduleItem) => void }) {
   const days = mode === "month" ? getCalendarMonthDays(cursor) : getCalendarWeekDays(cursor);
   const itemsByDate = groupByDate(items);
   return (
@@ -652,9 +681,9 @@ function CalendarGrid({ cursor, mode, items }: { cursor: Date; mode: CalendarMod
             <strong>{day.getDate()}</strong>
             <div className="calendar-items">
               {dayItems.slice(0, mode === "week" ? 8 : 3).map((item) => (
-                <span className={`calendar-chip ${item.type}`} key={item.id} title={`${item.title} ${item.detail}`}>
+                <button type="button" className={`calendar-chip ${item.type}`} key={item.id} title={`${item.title} ${item.detail}`} onClick={() => onOpenItem(item)}>
                   {item.title}
-                </span>
+                </button>
               ))}
               {dayItems.length > (mode === "week" ? 8 : 3) && <small>+{dayItems.length - (mode === "week" ? 8 : 3)}</small>}
             </div>
@@ -665,9 +694,9 @@ function CalendarGrid({ cursor, mode, items }: { cursor: Date; mode: CalendarMod
   );
 }
 
-function ScheduleListItem({ item }: { item: ScheduleItem }) {
+function ScheduleListItem({ item, onOpenItem }: { item: ScheduleItem; onOpenItem: (item: ScheduleItem) => void }) {
   return (
-    <article className={`schedule-list-item ${item.type}`}>
+    <button type="button" className={`schedule-list-item ${item.type}`} onClick={() => onOpenItem(item)}>
       <div>
         <strong>{item.title}</strong>
         <p>{item.detail || "상세 내용 없음"}</p>
@@ -676,7 +705,7 @@ function ScheduleListItem({ item }: { item: ScheduleItem }) {
         <span>{formatDateForDisplay(item.date)}</span>
         {item.status && <small>{item.status}</small>}
       </div>
-    </article>
+    </button>
   );
 }
 
@@ -775,12 +804,14 @@ function CompanyPortal({
         </div>
       </div>
       {editingCompany && (
-        <CompanyEditor
-          draft={editingCompany}
-          setDraft={setEditingCompany}
-          onSave={saveCompany}
-          onCancel={() => setEditingCompany(null)}
-        />
+        <EditorDrawer onClose={() => setEditingCompany(null)}>
+          <CompanyEditor
+            draft={editingCompany}
+            setDraft={setEditingCompany}
+            onSave={saveCompany}
+            onCancel={() => setEditingCompany(null)}
+          />
+        </EditorDrawer>
       )}
       <div className="card-grid">
         {companies.map(({ company, originalIndex, id }) => {
@@ -953,17 +984,27 @@ function CompanyEditor({
 function SalesPortal({
   data,
   query,
-  onPersist
+  onPersist,
+  focusTarget
 }: {
   data: WorkNoteData;
   query: string;
   onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
+  focusTarget: { portal: PortalId; id: string } | null;
 }) {
   const [salesPanel, setSalesPanel] = useState<{ id: string; mode: SalesPanelMode } | null>(null);
   const [editingNote, setEditingNote] = useState<AnyRecord | null>(null);
   const notes = data.notes
     .filter((note) => matchesRecord(note, query))
     .sort((a, b) => priorityScore(b) - priorityScore(a) || compareDate(firstText(b, ["updatedAt"]), firstText(a, ["updatedAt"])));
+
+  useEffect(() => {
+    if (focusTarget?.portal !== "sales") return;
+    const exists = notes.some((note, index) => recordId(note, index) === focusTarget.id);
+    if (!exists) return;
+    setSalesPanel((current) => (current?.id === focusTarget.id && current.mode === "detail" ? current : { id: focusTarget.id, mode: "detail" }));
+    scrollRecordIntoView(focusTarget.id);
+  }, [focusTarget, notes]);
 
   const toggleSalesPanel = (id: string, mode: SalesPanelMode) => {
     setSalesPanel((current) => (current?.id === id && current.mode === mode ? null : { id, mode }));
@@ -1155,13 +1196,15 @@ function SalesPortal({
         </div>
       </div>
       {editingNote && (
-        <SalesEditor
-          draft={editingNote}
-          setDraft={setEditingNote}
-          data={data}
-          onSave={saveNote}
-          onCancel={() => setEditingNote(null)}
-        />
+        <EditorDrawer onClose={() => setEditingNote(null)}>
+          <SalesEditor
+            draft={editingNote}
+            setDraft={setEditingNote}
+            data={data}
+            onSave={saveNote}
+            onCancel={() => setEditingNote(null)}
+          />
+        </EditorDrawer>
       )}
       <div className="responsive-table">
         <div className="table-header sales-grid">
@@ -1181,7 +1224,7 @@ function SalesPortal({
           const linkedCompany = getLinkedCompanyForSales(note, data.companies);
           const attachments = asArray(note.attachments);
           return (
-            <div className="sales-row-group" key={id}>
+            <div className={`sales-row-group ${focusTarget?.portal === "sales" && focusTarget.id === id ? "is-focus-target" : ""}`} key={id} data-record-id={id}>
               <article
                 className={`table-row sales-grid clickable-row ${expanded ? "is-expanded" : ""}`}
                 role="button"
@@ -1851,7 +1894,8 @@ function GenericWorkPortal({
   query,
   type,
   data,
-  onPersist
+  onPersist,
+  focusTarget
 }: {
   title: string;
   records: AnyRecord[];
@@ -1859,6 +1903,7 @@ function GenericWorkPortal({
   type: "settlement" | "output" | "other";
   data: WorkNoteData;
   onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
+  focusTarget: { portal: PortalId; id: string } | null;
 }) {
   const [filePanel, setFilePanel] = useState<string | null>(null);
   const [editingRecord, setEditingRecord] = useState<AnyRecord | null>(null);
@@ -1873,6 +1918,13 @@ function GenericWorkPortal({
     .map((record, originalIndex) => ({ record, originalIndex, id: recordId(record, originalIndex) }))
     .filter(({ record }) => matchesRecord(record, query));
   const counts = getWorkModeCounts(filtered.map(({ record }) => record));
+
+  useEffect(() => {
+    if (focusTarget?.portal !== type) return;
+    const exists = filtered.some(({ id }) => id === focusTarget.id);
+    if (!exists) return;
+    scrollRecordIntoView(focusTarget.id);
+  }, [focusTarget, filtered, type]);
 
   const saveWorkRecord = (draft: AnyRecord) => {
     const normalized = normalizeWorkDraft(draft, type, data);
@@ -1945,22 +1997,24 @@ function GenericWorkPortal({
         </div>
       </div>
       {editingRecord && (
-        <WorkEditor
-          draft={editingRecord}
-          setDraft={setEditingRecord}
-          type={type}
-          title={title}
-          data={data}
-          onSave={saveWorkRecord}
-          onCancel={() => setEditingRecord(null)}
-        />
+        <EditorDrawer onClose={() => setEditingRecord(null)}>
+          <WorkEditor
+            draft={editingRecord}
+            setDraft={setEditingRecord}
+            type={type}
+            title={title}
+            data={data}
+            onSave={saveWorkRecord}
+            onCancel={() => setEditingRecord(null)}
+          />
+        </EditorDrawer>
       )}
       <div className="task-list">
         {filtered.map(({ record, originalIndex, id }) => {
           const attachments = asArray(record.attachments);
           const linkedSales = getLinkedSalesForWork(record, data.notes);
           return (
-            <article className={`task-card ${type}`} key={id}>
+            <article className={`task-card ${type} ${focusTarget?.portal === type && focusTarget.id === id ? "is-focus-target" : ""}`} key={id} data-record-id={id}>
               <div className="card-heading">
                 <div>
                   <strong>{workTitle(record, type)}</strong>
@@ -2687,12 +2741,14 @@ function AccountPortal({
         </div>
       </div>
       {editingAccount && (
-        <AccountEditor
-          draft={editingAccount}
-          setDraft={setEditingAccount}
-          onSave={saveAccount}
-          onCancel={() => setEditingAccount(null)}
-        />
+        <EditorDrawer onClose={() => setEditingAccount(null)}>
+          <AccountEditor
+            draft={editingAccount}
+            setDraft={setEditingAccount}
+            onSave={saveAccount}
+            onCancel={() => setEditingAccount(null)}
+          />
+        </EditorDrawer>
       )}
       <div className="account-grid">
         {filtered.map((account, index) => {
@@ -4437,6 +4493,8 @@ function addScheduleItem(
     title,
     detail,
     type,
+    portal: type,
+    recordKey: recordId(record, index),
     status,
     priority
   });
@@ -4464,6 +4522,13 @@ function addWorkDateRangeItems(
     const rangeLabel = days.length > 1 ? `${dayIndex + 1}/${days.length}` : "기한";
     addScheduleItem(target, record, index, date, `${titlePrefix} ${rangeLabel}`, detail || deadlineText(record), type, status, priority, `range-${dayIndex}`);
   });
+}
+
+function scrollRecordIntoView(id: string) {
+  window.setTimeout(() => {
+    const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id.replace(/["\\]/g, "\\$&");
+    document.querySelector(`[data-record-id="${escaped}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, 80);
 }
 
 function collectGlobalResults(data: WorkNoteData, query: string) {
