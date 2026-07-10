@@ -120,7 +120,7 @@ export function App() {
   const [query, setQuery] = useState("");
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("month");
   const [calendarCursor, setCalendarCursor] = useState(() => startOfDay(new Date()));
-  const [focusTarget, setFocusTarget] = useState<{ portal: PortalId; id: string } | null>(null);
+  const [focusTarget, setFocusTarget] = useState<{ portal: PortalId; id: string; nonce: number } | null>(null);
   const [data, setData] = useState<WorkNoteData>(() => loadWorkNoteData());
   const [saveMessage, setSaveMessage] = useState("");
 
@@ -161,7 +161,7 @@ export function App() {
   const refreshData = () => setData(loadWorkNoteData());
   const openScheduleItem = (item: ScheduleItem) => {
     setQuery("");
-    setFocusTarget({ portal: item.portal, id: item.recordKey });
+    setFocusTarget({ portal: item.portal, id: item.recordKey, nonce: Date.now() });
     setActivePortal(item.portal);
   };
   const persistData = (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => {
@@ -990,18 +990,26 @@ function SalesPortal({
   data: WorkNoteData;
   query: string;
   onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
-  focusTarget: { portal: PortalId; id: string } | null;
+  focusTarget: { portal: PortalId; id: string; nonce?: number } | null;
 }) {
   const [salesPanel, setSalesPanel] = useState<{ id: string; mode: SalesPanelMode } | null>(null);
   const [editingNote, setEditingNote] = useState<AnyRecord | null>(null);
-  const notes = data.notes
-    .filter((note) => matchesRecord(note, query))
-    .sort((a, b) => priorityScore(b) - priorityScore(a) || compareDate(firstText(b, ["updatedAt"]), firstText(a, ["updatedAt"])));
+  const handledFocusTargetRef = useRef("");
+  const notes = useMemo(
+    () =>
+      data.notes
+        .filter((note) => matchesRecord(note, query))
+        .sort((a, b) => priorityScore(b) - priorityScore(a) || compareDate(firstText(b, ["updatedAt"]), firstText(a, ["updatedAt"]))),
+    [data.notes, query]
+  );
 
   useEffect(() => {
     if (focusTarget?.portal !== "sales") return;
+    const focusKey = `${focusTarget.portal}:${focusTarget.id}:${focusTarget.nonce ?? ""}`;
+    if (handledFocusTargetRef.current === focusKey) return;
     const exists = notes.some((note, index) => recordId(note, index) === focusTarget.id);
     if (!exists) return;
+    handledFocusTargetRef.current = focusKey;
     setSalesPanel((current) => (current?.id === focusTarget.id && current.mode === "detail" ? current : { id: focusTarget.id, mode: "detail" }));
     scrollRecordIntoView(focusTarget.id);
   }, [focusTarget, notes]);
@@ -1903,7 +1911,7 @@ function GenericWorkPortal({
   type: "settlement" | "output" | "other";
   data: WorkNoteData;
   onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
-  focusTarget: { portal: PortalId; id: string } | null;
+  focusTarget: { portal: PortalId; id: string; nonce?: number } | null;
 }) {
   const [filePanel, setFilePanel] = useState<string | null>(null);
   const [editingRecord, setEditingRecord] = useState<AnyRecord | null>(null);
