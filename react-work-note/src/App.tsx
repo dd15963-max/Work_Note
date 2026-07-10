@@ -212,28 +212,7 @@ export function App() {
             일정, 영업, 정산, 출력, 업체와 계정을 한 곳에서 관리하는 업무 메모장입니다.
           </p>
         </div>
-        <div className="header-actions">
-          <StatusBadge data={data} />
-          <BackupCenter data={data} setData={setData} setSaveMessage={setSaveMessage} />
-          <button className="icon-text-button" type="button" onClick={refreshData}>
-            <RefreshCw size={17} />
-            새로고침
-          </button>
-          <a className="icon-text-button" href={LEGACY_APP_PATH}>
-            이전 버전
-            <ExternalLink size={16} />
-          </a>
-        </div>
       </header>
-
-      <section className="safety-strip" aria-label="데이터 안전 안내">
-        <ShieldCheck size={18} />
-        <span>안전 저장 모드</span>
-        <small>
-          이 브라우저에 저장된 업무 데이터를 사용합니다. 교체/병합 불러오기 전에는 자동 스냅샷을 남기고, 전체 ZIP 백업으로 첨부 원본까지 보관할 수 있습니다.
-          {saveMessage && <b> {saveMessage}</b>}
-        </small>
-      </section>
 
       <nav className="portal-nav" aria-label="업무 포탈">
         <div className="portal-nav-group schedule-group">
@@ -309,6 +288,33 @@ export function App() {
         {activePortal === "other" && <GenericWorkPortal title="기타" records={data.otherTasks} query={query} type="other" data={data} onPersist={persistData} focusTarget={focusTarget} />}
         {activePortal === "account" && <AccountPortal data={data} query={query} onPersist={persistData} />}
       </main>
+
+      <footer className="utility-footer" aria-label="보조 기능">
+        <section className="utility-panel">
+          <div className="utility-safety">
+            <ShieldCheck size={16} />
+            <div>
+              <strong>안전 저장 모드</strong>
+              <small>
+                이 브라우저에 저장된 업무 데이터를 사용합니다. 교체/병합 불러오기 전에는 자동 스냅샷을 남기고, 전체 ZIP 백업으로 첨부 원본까지 보관할 수 있습니다.
+                {saveMessage && <b> {saveMessage}</b>}
+              </small>
+            </div>
+          </div>
+          <div className="utility-actions">
+            <StatusBadge data={data} />
+            <BackupCenter data={data} setData={setData} setSaveMessage={setSaveMessage} />
+            <button className="icon-text-button subtle" type="button" onClick={refreshData}>
+              <RefreshCw size={16} />
+              새로고침
+            </button>
+            <a className="icon-text-button subtle" href={LEGACY_APP_PATH}>
+              이전 버전
+              <ExternalLink size={15} />
+            </a>
+          </div>
+        </section>
+      </footer>
     </div>
   );
 }
