@@ -38,7 +38,7 @@ type SalesSortKey = "priority" | "updated" | "nextContact" | "company";
 type SortDirection = "asc" | "desc";
 type AnyRecord = Record<string, unknown>;
 type AttachmentCollectionKey = "companies" | "notes" | "settlementTasks" | "outputTasks" | "otherTasks";
-type AttachmentOwnerType = "company" | "sales" | "settlement" | "output" | "other";
+type AttachmentOwnerType = "company" | "sales" | "materialSales" | "settlement" | "output" | "other";
 
 type WorkNoteData = {
   version: string;
@@ -82,11 +82,11 @@ const ATTACHMENT_STORE_NAME = "files";
 const ATTACHMENT_DB_VERSION = 1;
 let zipCrcTable: Uint32Array | null = null;
 const SALES_STATUS_OPTIONS = ["신규 문의", "1차 대응 완료", "미팅 예정", "샘플/BMT 진행", "검토 중", "수주 가능성 높음", "보류", "완료", "실패/종료"];
-const SALES_ITEM_CATEGORY_OPTIONS = ["장비", "소재", "타사 장비", "타사 소재", "기타"];
+const SALES_ITEM_CATEGORY_OPTIONS = ["장비", "타사 장비", "기타"];
 const PRIORITY_OPTIONS = ["긴급", "높음", "보통", "낮음"];
 const PURCHASE_POSSIBILITY_OPTIONS = ["미정", "낮음", "보통", "높음"];
 const QUOTE_STATUS_OPTIONS = ["미진행", "발송 완료", "진행 중", "불필요"];
-const REVENUE_TYPE_OPTIONS = ["장비 매출", "소재 매출", "타사 장비", "타사 소재", "기타"];
+const REVENUE_TYPE_OPTIONS = ["장비 매출", "타사 장비", "기타"];
 
 const FILE_CATEGORY_OPTIONS = [
   "견적서",
@@ -133,6 +133,7 @@ const SALES_LIST_MODE_OPTIONS: Array<{ id: ListMode; label: string }> = [
 const MATERIAL_SALES_STATUS_OPTIONS = ["신규 문의", "1차 대응 완료", "검토 중", "납품 완료", "입금 확인 완료"];
 const MATERIAL_QUOTE_STATUS_OPTIONS = ["견적 전", "견적 완료", "견적 불필요"];
 const MATERIAL_REVENUE_TYPE_OPTIONS = ["소재/소모품", "출력서비스", "타사 상품", "기타"];
+const LEGACY_MATERIAL_SALES_CATEGORIES = ["소재", "타사 소재"];
 const SALES_SORT_OPTIONS: Array<{ id: SalesSortKey; label: string }> = [
   { id: "priority", label: "중요도순" },
   { id: "updated", label: "최종 수정일" },
@@ -3468,7 +3469,7 @@ function loadWorkNoteData(): WorkNoteData {
       return base;
     }
     const parsed = JSON.parse(stored) as AnyRecord;
-    return {
+    return migrateLegacyMaterialSalesNotes({
       ...base,
       version: firstText(parsed, ["version"]) || "unknown",
       updatedAt: firstText(parsed, ["updatedAt"]),
@@ -3479,7 +3480,7 @@ function loadWorkNoteData(): WorkNoteData {
       outputTasks: asArray(parsed.outputTasks),
       otherTasks: asArray(parsed.otherTasks),
       accounts: asArray(parsed.accounts)
-    };
+    });
   } catch (error) {
     return {
       ...base,
@@ -3488,6 +3489,100 @@ function loadWorkNoteData(): WorkNoteData {
   }
 }
 
+function migrateLegacyMaterialSalesNotes(data: WorkNoteData): WorkNoteData {
+  const materialSalesNotes = [...asArray(data.materialSalesNotes)];
+  const existingKeys = new Set(
+    materialSalesNotes
+      .map((record, index) => firstText(record, ["id"]) || createMergeKey("materialSales", record, index))
+      .filter(Boolean)
+  );
+  const notes: AnyRecord[] = [];
+  let movedCount = 0;
+
+  asArray(data.notes).forEach((note, index) => {
+    if (!isLegacyMaterialSalesNote(note)) {
+      notes.push(note);
+      return;
+    }
+
+    const converted = convertLegacyMaterialSalesNote(note, index);
+    const convertedId = firstText(converted, ["id"]);
+    const convertedKey = createMergeKey("materialSales", converted, materialSalesNotes.length + movedCount);
+    if (!existingKeys.has(convertedId) && !existingKeys.has(convertedKey)) {
+      materialSalesNotes.push(converted);
+      existingKeys.add(convertedId);
+      existingKeys.add(convertedKey);
+      movedCount += 1;
+    }
+  });
+
+  if (!movedCount && notes.length === asArray(data.notes).length) return data;
+  return {
+    ...data,
+    notes,
+    materialSalesNotes
+  };
+}
+
+function isLegacyMaterialSalesNote(note: AnyRecord): boolean {
+  return LEGACY_MATERIAL_SALES_CATEGORIES.includes(salesCategory(note));
+}
+
+function convertLegacyMaterialSalesNote(note: AnyRecord, index: number): AnyRecord {
+  const sourceId = recordId(note, index);
+  const category = salesCategory(note);
+  const itemName = salesInterest(note) || firstText(note, ["nextAction", "action"]) || "이전 소재 영업 품목";
+  const expectedRevenueAmount = normalizeAmountString(firstText(note, ["expectedRevenueAmount"])) || normalizeAmountString(firstText(note, ["revenueAmount"]));
+  const revenueAmount = normalizeAmountString(firstText(note, ["revenueAmount"]));
+  const nextAction = firstText(note, ["nextAction", "action"]);
+  const purchasePossibility = firstText(note, ["purchasePossibility"]);
+  const memo = joinParts(
+    [
+      rawText(note, ["memo", "description", "note"]),
+      nextAction ? `이전 다음 액션: ${nextAction}` : "",
+      purchasePossibility ? `구매 가능성: ${purchasePossibility}` : "",
+      category ? `이전 구분: ${category}` : ""
+    ],
+    "\n"
+  );
+
+  return {
+    ...note,
+    id: firstText(note, ["materialSalesId"]) || `material_${sourceId}`,
+    sourceSalesNoteId: sourceId,
+    items: normalizeMaterialSalesItems([
+      {
+        id: `item_${sourceId}`,
+        name: itemName,
+        price: revenueAmount || expectedRevenueAmount,
+        quantity: "1",
+        memo: joinParts([firstText(note, ["quoteStatus"]), purchasePossibility], " / ")
+      }
+    ]),
+    status: mapLegacySalesStatusToMaterialStatus(salesStatus(note)),
+    quoteStatus: mapLegacyQuoteStatusToMaterialQuoteStatus(firstText(note, ["quoteStatus"])),
+    expectedRevenueAmount,
+    revenueAmount,
+    revenueType: category === "타사 소재" ? "타사 상품" : "소재/소모품",
+    memo,
+    updatedAt: firstText(note, ["updatedAt"]) || new Date().toISOString()
+  };
+}
+
+function mapLegacySalesStatusToMaterialStatus(status: string): string {
+  const text = clean(status);
+  if (text === "완료") return "입금 확인 완료";
+  if (text === "1차 대응 완료") return "1차 대응 완료";
+  if (text.includes("검토") || text.includes("샘플") || text.includes("BMT") || text.includes("미팅") || text.includes("수주")) return "검토 중";
+  return "신규 문의";
+}
+
+function mapLegacyQuoteStatusToMaterialQuoteStatus(status: string): string {
+  const text = clean(status);
+  if (text.includes("불필요")) return "견적 불필요";
+  if (text.includes("완료") || text.includes("발송")) return "견적 완료";
+  return "견적 전";
+}
 function saveWorkNoteData(data: WorkNoteData, reason: string): WorkNoteData {
   const now = new Date().toISOString();
   const existing = safeParseStoredData();
@@ -3655,6 +3750,7 @@ function collectAttachmentMetadata(data: WorkNoteData): Array<{ id: string; owne
 function attachmentOwnerTitle(type: AttachmentOwnerType, owner: AnyRecord): string {
   if (type === "company") return companyName(owner) || "업체";
   if (type === "sales") return salesCustomer(owner);
+  if (type === "materialSales") return salesCustomer(owner);
   if (type === "settlement") return workTitle(owner, "settlement");
   if (type === "output") return workTitle(owner, "output");
   return workTitle(owner, "other");
@@ -3904,6 +4000,7 @@ async function createFullBackupZipBlob(data: WorkNoteData): Promise<{ blob: Blob
     missingFileOriginals: missingCount,
     companies: backupState.companies,
     notes: backupState.notes,
+    materialSalesNotes: backupState.materialSalesNotes,
     settlementTasks: backupState.settlementTasks,
     outputTasks: backupState.outputTasks,
     otherTasks: backupState.otherTasks,
@@ -3920,17 +4017,18 @@ async function createFullBackupZipBlob(data: WorkNoteData): Promise<{ blob: Blob
   };
 }
 
-function getAttachmentOwnerGroups(data: Pick<WorkNoteData, "companies" | "notes" | "settlementTasks" | "outputTasks" | "otherTasks">): Array<{ type: AttachmentOwnerType; items: AnyRecord[] }> {
+function getAttachmentOwnerGroups(data: Pick<WorkNoteData, "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks">): Array<{ type: AttachmentOwnerType; items: AnyRecord[] }> {
   return [
     { type: "company", items: asArray(data.companies) },
     { type: "sales", items: asArray(data.notes) },
+    { type: "materialSales", items: asArray(data.materialSalesNotes) },
     { type: "settlement", items: asArray(data.settlementTasks) },
     { type: "output", items: asArray(data.outputTasks) },
     { type: "other", items: asArray(data.otherTasks) }
   ];
 }
 
-function collectAttachmentIdsFromData(data: Pick<WorkNoteData, "companies" | "notes" | "settlementTasks" | "outputTasks" | "otherTasks">): Set<string> {
+function collectAttachmentIdsFromData(data: Pick<WorkNoteData, "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks">): Set<string> {
   const ids = new Set<string>();
   getAttachmentOwnerGroups(data).forEach((ownerGroup) => {
     ownerGroup.items.forEach((owner) => {
@@ -4149,7 +4247,7 @@ function extractBackupData(parsed: AnyRecord): AnyRecord {
 }
 
 function normalizeBackupToWorkNote(backupData: AnyRecord): WorkNoteData {
-  return {
+  return migrateLegacyMaterialSalesNotes({
     version: firstText(backupData, ["version"]) || "react-work-note-v1",
     updatedAt: firstText(backupData, ["updatedAt", "backupCreatedAt"]) || new Date().toISOString(),
     companies: asArray(backupData.companies),
@@ -4160,11 +4258,11 @@ function normalizeBackupToWorkNote(backupData: AnyRecord): WorkNoteData {
     otherTasks: asArray(backupData.otherTasks),
     accounts: asArray(backupData.accounts),
     loadedAt: new Date().toISOString()
-  };
+  });
 }
 
 function collectZipAttachmentRecords(
-  backupData: Pick<WorkNoteData, "companies" | "notes" | "settlementTasks" | "outputTasks" | "otherTasks">,
+  backupData: Pick<WorkNoteData, "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks">,
   zipEntries: Map<string, { path: string; data: Uint8Array }>
 ): { records: AttachmentRecord[]; missingCount: number } {
   const records: AttachmentRecord[] = [];
@@ -4200,7 +4298,7 @@ function collectZipAttachmentRecords(
 
 async function restoreZipAttachmentRecords(
   files: { records: AttachmentRecord[]; missingCount: number },
-  targetData: Pick<WorkNoteData, "companies" | "notes" | "settlementTasks" | "outputTasks" | "otherTasks">
+  targetData: Pick<WorkNoteData, "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks">
 ): Promise<void> {
   const targetIds = collectAttachmentIdsFromData(targetData);
   for (const record of files.records) {
