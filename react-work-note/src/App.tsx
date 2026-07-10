@@ -33,7 +33,7 @@ import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 type PortalId = "schedule" | "company" | "sales" | "settlement" | "output" | "other" | "account";
 type CalendarMode = "month" | "week";
 type SalesPanelMode = "detail" | "company" | "files";
-type ListMode = "all" | "active" | "hold" | "closed";
+type ListMode = "all" | "active" | "hold" | "closed" | "failed";
 type SalesSortKey = "priority" | "updated" | "nextContact" | "company";
 type SortDirection = "asc" | "desc";
 type AnyRecord = Record<string, unknown>;
@@ -45,6 +45,7 @@ type WorkNoteData = {
   updatedAt: string;
   companies: AnyRecord[];
   notes: AnyRecord[];
+  materialSalesNotes: AnyRecord[];
   settlementTasks: AnyRecord[];
   outputTasks: AnyRecord[];
   otherTasks: AnyRecord[];
@@ -119,12 +120,19 @@ const portals: Array<{ id: PortalId; label: string; icon: typeof CalendarDays }>
 
 const completedWords = ["완료", "종료", "실패", "취소"];
 const highPriorityWords = ["긴급", "높음", "중요"];
-const LIST_MODE_OPTIONS: Array<{ id: ListMode; label: string }> = [
+const DEFAULT_LIST_MODE_OPTIONS: Array<{ id: ListMode; label: string }> = [
   { id: "all", label: "전체" },
   { id: "active", label: "진행" },
   { id: "hold", label: "보류" },
   { id: "closed", label: "완료" }
 ];
+const SALES_LIST_MODE_OPTIONS: Array<{ id: ListMode; label: string }> = [
+  ...DEFAULT_LIST_MODE_OPTIONS,
+  { id: "failed", label: "실패/종료" }
+];
+const MATERIAL_SALES_STATUS_OPTIONS = ["신규 문의", "1차 대응 완료", "검토 중", "납품 완료", "입금 확인 완료"];
+const MATERIAL_QUOTE_STATUS_OPTIONS = ["견적 전", "견적 완료", "견적 불필요"];
+const MATERIAL_REVENUE_TYPE_OPTIONS = ["소재/소모품", "출력서비스", "타사 상품", "기타"];
 const SALES_SORT_OPTIONS: Array<{ id: SalesSortKey; label: string }> = [
   { id: "priority", label: "중요도순" },
   { id: "updated", label: "최종 수정일" },
@@ -164,7 +172,7 @@ export function App() {
   const counts = useMemo(
     () => ({
       companies: data.companies.length,
-      sales: data.notes.length,
+      sales: data.notes.length + asArray(data.materialSalesNotes).length,
       settlement: data.settlementTasks.length,
       output: data.outputTasks.length,
       other: data.otherTasks.length,
@@ -331,15 +339,17 @@ function PortalButton({
 function MemoListControls({
   mode,
   onModeChange,
-  counts
+  counts,
+  options = DEFAULT_LIST_MODE_OPTIONS
 }: {
   mode: ListMode;
   onModeChange: (mode: ListMode) => void;
   counts: Record<ListMode, number>;
+  options?: Array<{ id: ListMode; label: string }>;
 }) {
   return (
     <div className="memo-list-controls segmented" aria-label="메모 보기">
-      {LIST_MODE_OPTIONS.map((option) => (
+      {options.map((option) => (
         <button
           key={option.id}
           type="button"
@@ -826,6 +836,7 @@ function CompanyPortal({
       ...current,
       companies: current.companies.filter((item, itemIndex) => recordId(item, itemIndex) !== id),
       notes: clearCompanyLinks(current.notes, id, name),
+      materialSalesNotes: clearCompanyLinks(current.materialSalesNotes, id, name),
       settlementTasks: clearCompanyLinks(current.settlementTasks, id, name),
       outputTasks: clearCompanyLinks(current.outputTasks, id, name),
       otherTasks: clearCompanyLinks(current.otherTasks, id, name)
@@ -1036,6 +1047,7 @@ function SalesPortal({
   onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
   focusTarget: { portal: PortalId; id: string; nonce?: number } | null;
 }) {
+  const [salesSection, setSalesSection] = useState<"equipment" | "material">("equipment");
   const [salesPanel, setSalesPanel] = useState<{ id: string; mode: SalesPanelMode } | null>(null);
   const [editingNote, setEditingNote] = useState<AnyRecord | null>(null);
   const [salesMode, setSalesMode] = useState<ListMode>("all");
@@ -1076,6 +1088,7 @@ function SalesPortal({
     const focusedNote = searchedNotes.find((note, index) => recordId(note, index) === focusTarget.id);
     if (!focusedNote) return;
     handledFocusTargetRef.current = focusKey;
+    setSalesSection("equipment");
     setSalesStatusFilter("all");
     setSalesCategoryFilter("all");
     setSalesPriorityFilter("all");
@@ -1262,17 +1275,34 @@ function SalesPortal({
       <div className="section-title-row">
         <div>
           <p className="eyebrow">SALES</p>
-          <h2>영업 메모</h2>
+          <h2>영업 관리</h2>
         </div>
         <div className="toolbar-cluster">
-          <span className="count-label">{notes.length}/{filteredNotes.length}건</span>
-          <button type="button" onClick={() => setEditingNote(createBlankSalesNote())}>
-            <Plus size={16} />
-            새 메모
-          </button>
+          {salesSection === "equipment" && <span className="count-label">{notes.length}/{filteredNotes.length}건</span>}
+          {salesSection === "equipment" && (
+            <button type="button" onClick={() => setEditingNote(createBlankSalesNote())}>
+              <Plus size={16} />
+              새 장비 영업
+            </button>
+          )}
         </div>
       </div>
-      {editingNote && (
+      <div className="sales-section-tabs segmented" aria-label="영업건 구분">
+        <button
+          type="button"
+          className={salesSection === "equipment" ? "is-active" : ""}
+          onClick={() => setSalesSection("equipment")}
+        >
+          장비 영업건
+        </button>
+        <button
+          type="button"
+          className={salesSection === "material" ? "is-active" : ""}
+          onClick={() => setSalesSection("material")}
+        >
+          소재/소모품 및 기타
+        </button>
+      </div>      {editingNote && (
         <EditorDrawer onClose={() => setEditingNote(null)}>
           <SalesEditor
             draft={editingNote}
@@ -1283,7 +1313,9 @@ function SalesPortal({
           />
         </EditorDrawer>
       )}
-      <MemoListControls mode={salesMode} onModeChange={setSalesMode} counts={salesCounts} />
+      {salesSection === "equipment" && (
+        <>
+      <MemoListControls mode={salesMode} onModeChange={setSalesMode} counts={salesCounts} options={SALES_LIST_MODE_OPTIONS} />
       <div className="list-toolbar">
         <label className="compact-field">
           <span>진행상태</span>
@@ -1465,6 +1497,297 @@ function SalesPortal({
           );
         })}
         {!notes.length && <EmptyState title="영업 메모 없음" detail="검색 조건에 맞는 영업 메모가 없습니다." />}
+      </div>
+        </>
+      )}
+      {salesSection === "material" && (
+        <MaterialSalesSection data={data} query={query} onPersist={onPersist} />
+      )}
+    </section>
+  );
+}
+
+function MaterialSalesSection({
+  data,
+  query,
+  onPersist
+}: {
+  data: WorkNoteData;
+  query: string;
+  onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
+}) {
+  const [editingRecord, setEditingRecord] = useState<AnyRecord | null>(null);
+  const [mode, setMode] = useState<ListMode>("all");
+  const searched = useMemo(
+    () => asArray(data.materialSalesNotes).filter((record) => matchesRecord(record, query)),
+    [data.materialSalesNotes, query]
+  );
+  const counts = useMemo(() => getMaterialSalesModeCounts(searched), [searched]);
+  const records = useMemo(
+    () => searched.filter((record) => matchesMaterialSalesMode(record, mode)).sort((a, b) => compareUpdatedAt(a, b, "desc")),
+    [searched, mode]
+  );
+
+  const saveRecord = (draft: AnyRecord) => {
+    const normalized = normalizeMaterialSalesDraft(draft, data.companies);
+    if (!normalized.company && !normalized.companyUnknown && !asArray(normalized.items).length) {
+      alert("업체 또는 판매 품목을 입력해 주세요.");
+      return;
+    }
+
+    onPersist((current) => {
+      const now = new Date().toISOString();
+      const previous = asArray(current.materialSalesNotes).find((record, index) => recordId(record, index) === normalized.id);
+      const record = {
+        ...previous,
+        ...normalized,
+        createdAt: firstText(previous || {}, ["createdAt"]) || now,
+        updatedAt: now
+      };
+      const exists = asArray(current.materialSalesNotes).some((item, index) => recordId(item, index) === normalized.id);
+      return {
+        ...current,
+        materialSalesNotes: exists
+          ? asArray(current.materialSalesNotes).map((item, index) => (recordId(item, index) === normalized.id ? record : item))
+          : [record, ...asArray(current.materialSalesNotes)]
+      };
+    }, firstText(draft, ["id"]) ? "소재/소모품 영업건 수정" : "소재/소모품 영업건 등록");
+    setEditingRecord(null);
+  };
+
+  const deleteRecord = (record: AnyRecord, index: number) => {
+    const id = recordId(record, index);
+    if (!confirm(`${salesCustomer(record)} 소재/소모품 영업건을 삭제할까요?`)) return;
+    onPersist((current) => ({
+      ...current,
+      materialSalesNotes: asArray(current.materialSalesNotes).filter((item, itemIndex) => recordId(item, itemIndex) !== id)
+    }), "소재/소모품 영업건 삭제");
+  };
+
+  const updateQuickField = (id: string, key: string, value: string) => {
+    onPersist((current) => {
+      const now = new Date().toISOString();
+      return {
+        ...current,
+        materialSalesNotes: asArray(current.materialSalesNotes).map((item, itemIndex) =>
+          recordId(item, itemIndex) === id ? { ...item, [key]: value, updatedAt: now } : item
+        )
+      };
+    }, "소재/소모품 영업건 빠른 수정");
+  };
+
+  return (
+    <div className="material-sales-section">
+      <div className="section-title-row compact-section-title">
+        <div>
+          <p className="eyebrow">MATERIAL / OTHER SALES</p>
+          <h3>소재/소모품 및 기타 영업건</h3>
+        </div>
+        <div className="toolbar-cluster">
+          <span className="count-label">{records.length}/{searched.length}건</span>
+          <button type="button" onClick={() => setEditingRecord(createBlankMaterialSalesNote())}>
+            <Plus size={16} />
+            새 영업건
+          </button>
+        </div>
+      </div>
+      {editingRecord && (
+        <EditorDrawer onClose={() => setEditingRecord(null)}>
+          <MaterialSalesEditor
+            draft={editingRecord}
+            setDraft={setEditingRecord}
+            data={data}
+            onSave={saveRecord}
+            onCancel={() => setEditingRecord(null)}
+          />
+        </EditorDrawer>
+      )}
+      <MemoListControls mode={mode} onModeChange={setMode} counts={counts} />
+      <div className="material-sales-list">
+        {records.map((record, index) => {
+          const id = recordId(record, index);
+          const items = asArray(record.items);
+          return (
+            <article className="task-card material-sales-card" key={id} data-record-id={id}>
+              <div className="card-heading">
+                <div>
+                  <strong>{salesCustomer(record)}</strong>
+                  <small>{contactBundle(record) || "담당자 정보 미입력"}</small>
+                </div>
+                <div className="badge-stack inline-select-stack">
+                  <select value={materialSalesStatus(record)} onChange={(event) => updateQuickField(id, "status", event.target.value)}>
+                    {MATERIAL_SALES_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
+                  </select>
+                  <select value={materialSalesQuoteStatus(record)} onChange={(event) => updateQuickField(id, "quoteStatus", event.target.value)}>
+                    {MATERIAL_QUOTE_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="material-sales-summary">
+                <InfoLine label="판매품목" value={materialSalesItemsSummary(record) || "품목 없음"} />
+                <InfoLine label="예상매출" value={formatMoney(firstText(record, ["expectedRevenueAmount"])) || formatMoney(String(calculateMaterialSalesTotal(items)))} />
+                <InfoLine label="종합매출" value={formatMoney(firstText(record, ["revenueAmount"])) || "-"} />
+                <InfoLine label="매출구분" value={firstText(record, ["revenueType"]) || "-"} />
+                <InfoLine label="메모" value={firstText(record, ["memo"])} />
+              </div>
+              <div className="card-actions">
+                <button type="button" onClick={() => setEditingRecord(prepareMaterialSalesDraft(record, index))}>
+                  <Pencil size={15} />
+                  수정
+                </button>
+                <button type="button" className="danger-button" onClick={() => deleteRecord(record, index)}>
+                  <Trash2 size={15} />
+                  삭제
+                </button>
+                <small>{formatDateTime(firstText(record, ["updatedAt"]))}</small>
+              </div>
+            </article>
+          );
+        })}
+        {!records.length && <EmptyState title="소재/소모품 영업건 없음" detail="검색 조건에 맞는 영업건이 없습니다." />}
+      </div>
+    </div>
+  );
+}
+
+function MaterialSalesEditor({
+  draft,
+  setDraft,
+  data,
+  onSave,
+  onCancel
+}: {
+  draft: AnyRecord;
+  setDraft: (draft: AnyRecord) => void;
+  data: WorkNoteData;
+  onSave: (draft: AnyRecord) => void;
+  onCancel: () => void;
+}) {
+  const selectedCompany = firstText(draft, ["companyId"])
+    ? data.companies.find((company, index) => recordId(company, index) === firstText(draft, ["companyId"]))
+    : null;
+  const contacts = selectedCompany ? asArray(selectedCompany.contacts) : [];
+  const [companySearch, setCompanySearch] = useState("");
+  const companyOptions = useMemo(
+    () => data.companies.filter((company) => matchesText(company, companySearch)).slice(0, 80),
+    [data.companies, companySearch]
+  );
+  const items = asArray(draft.items);
+  const calculatedTotal = calculateMaterialSalesTotal(items);
+  const updateField = (key: string, value: string | boolean | AnyRecord[]) => setDraft({ ...draft, [key]: value });
+
+  const selectCompany = (value: string) => {
+    if (value === "__unknown") {
+      setDraft({ ...draft, companyId: "", contactId: "", companyUnknown: true, company: "", contactName: "", contactPhone: "", contactEmail: "" });
+      return;
+    }
+    const company = data.companies.find((item, index) => recordId(item, index) === value) || null;
+    const primaryContact = company ? asArray(company.contacts).find((contact) => Boolean(contact.isPrimary)) || asArray(company.contacts)[0] : null;
+    setDraft({
+      ...draft,
+      companyId: value,
+      contactId: primaryContact ? recordId(primaryContact, 0) : "",
+      companyUnknown: false,
+      company: company ? companyName(company) : firstText(draft, ["company"]),
+      contactName: primaryContact ? firstText(primaryContact, ["name", "contactName"]) : firstText(draft, ["contactName"]),
+      contactPhone: primaryContact ? firstText(primaryContact, ["phone", "contactPhone"]) : firstText(draft, ["contactPhone"]),
+      contactEmail: primaryContact ? firstText(primaryContact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])
+    });
+  };
+
+  const selectContact = (value: string) => {
+    const contact = contacts.find((item, index) => recordId(item, index) === value) || null;
+    setDraft({
+      ...draft,
+      contactId: value,
+      contactName: contact ? firstText(contact, ["name", "contactName"]) : firstText(draft, ["contactName"]),
+      contactPhone: contact ? firstText(contact, ["phone", "contactPhone"]) : firstText(draft, ["contactPhone"]),
+      contactEmail: contact ? firstText(contact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])
+    });
+  };
+
+  const updateItem = (index: number, key: string, value: string) => {
+    updateField("items", items.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item));
+  };
+  const addItem = () => updateField("items", [...items, createBlankMaterialSalesItem()]);
+  const removeItem = (index: number) => updateField("items", items.filter((_, itemIndex) => itemIndex !== index));
+
+  return (
+    <section className="editor-panel">
+      <div className="section-title-row">
+        <div>
+          <p className="eyebrow">MATERIAL / OTHER SALES</p>
+          <h2>{firstText(draft, ["id"]) ? "소재/소모품 영업건 수정" : "소재/소모품 영업건 등록"}</h2>
+        </div>
+        <button type="button" onClick={onCancel} aria-label="소재/소모품 영업건 편집 닫기">
+          <X size={17} />
+        </button>
+      </div>
+      <div className="form-grid">
+        <label className="field">
+          <span>업체 검색</span>
+          <input type="search" value={companySearch} onChange={(event) => setCompanySearch(event.target.value)} placeholder="업체명, 담당자, 연락처, 이메일" />
+        </label>
+        <label className="field">
+          <span>업체 선택</span>
+          <select value={draft.companyUnknown ? "__unknown" : firstText(draft, ["companyId"])} onChange={(event) => selectCompany(event.target.value)}>
+            <option value="">직접 입력 / 연결 안 함</option>
+            <option value="__unknown">미정</option>
+            {companyOptions.map((company, index) => (
+              <option key={recordId(company, index)} value={recordId(company, index)}>{companyName(company) || "업체명 미입력"}</option>
+            ))}
+          </select>
+        </label>
+        <div className="selection-summary wide-field">
+          <strong>{selectedCompany ? companyName(selectedCompany) : (draft.companyUnknown ? "업체 미정" : "직접 입력")}</strong>
+          <span>{[firstText(draft, ["contactName"]), firstText(draft, ["contactPhone"]), firstText(draft, ["contactEmail"])].filter(Boolean).join(" · ") || "담당자 정보 없음"}</span>
+        </div>
+        <TextField label="고객/업체명" value={firstText(draft, ["company"])} onChange={(value) => updateField("company", value)} placeholder="업체명 또는 고객명" />
+        {contacts.length > 0 && (
+          <label className="field">
+            <span>담당자 선택</span>
+            <select value={firstText(draft, ["contactId"])} onChange={(event) => selectContact(event.target.value)}>
+              <option value="">직접 입력</option>
+              {contacts.map((contact, index) => (
+                <option key={recordId(contact, index)} value={recordId(contact, index)}>{companyContactSummary(contact) || "담당자"}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        <TextField label="담당자" value={firstText(draft, ["contactName"])} onChange={(value) => updateField("contactName", value)} placeholder="담당자명" />
+        <TextField label="연락처" value={firstText(draft, ["contactPhone"])} onChange={(value) => updateField("contactPhone", value)} placeholder="010-0000-0000" />
+        <TextField label="이메일" value={firstText(draft, ["contactEmail"])} onChange={(value) => updateField("contactEmail", value)} placeholder="name@example.com" />
+        <SelectField label="진행 상태" value={materialSalesStatus(draft)} onChange={(value) => updateField("status", value)} options={MATERIAL_SALES_STATUS_OPTIONS} />
+        <SelectField label="견적 여부" value={materialSalesQuoteStatus(draft)} onChange={(value) => updateField("quoteStatus", value)} options={MATERIAL_QUOTE_STATUS_OPTIONS} />
+        <SelectField label="매출 구분" value={firstText(draft, ["revenueType"]) || MATERIAL_REVENUE_TYPE_OPTIONS[0]} onChange={(value) => updateField("revenueType", value)} options={MATERIAL_REVENUE_TYPE_OPTIONS} />
+        <TextField label="예상 매출" value={firstText(draft, ["expectedRevenueAmount"])} onChange={(value) => updateField("expectedRevenueAmount", value)} placeholder={String(calculatedTotal || "")} />
+        <TextField label="종합 매출" value={firstText(draft, ["revenueAmount"])} onChange={(value) => updateField("revenueAmount", value)} placeholder={String(calculatedTotal || "")} />
+        <div className="material-total-tools wide-field">
+          <strong>품목 합계 {formatMoney(String(calculatedTotal))}</strong>
+          <button type="button" onClick={() => updateField("expectedRevenueAmount", String(calculatedTotal || ""))}>예상 매출에 적용</button>
+          <button type="button" onClick={() => updateField("revenueAmount", String(calculatedTotal || ""))}>종합 매출에 적용</button>
+        </div>
+        <section className="material-items-editor wide-field">
+          <div className="section-title-row compact-section-title">
+            <h3>판매 품목</h3>
+            <button type="button" onClick={addItem}><Plus size={15} /> 품목 추가</button>
+          </div>
+          {items.map((item, index) => (
+            <div className="material-item-row" key={firstText(item, ["id"]) || index}>
+              <TextField label="품목명" value={firstText(item, ["name"])} onChange={(value) => updateItem(index, "name", value)} placeholder="예: 레진, 필름, 소모품" />
+              <TextField label="가격" value={firstText(item, ["price"])} onChange={(value) => updateItem(index, "price", value)} placeholder="예: 100000" />
+              <TextField label="수량" value={firstText(item, ["quantity"])} onChange={(value) => updateItem(index, "quantity", value)} placeholder="예: 2" />
+              <TextField label="품목별 메모" value={rawText(item, ["memo"])} onChange={(value) => updateItem(index, "memo", value)} placeholder="품목 조건, 비고" />
+              <button type="button" className="danger-button" onClick={() => removeItem(index)}>삭제</button>
+            </div>
+          ))}
+          {!items.length && <EmptyState title="판매 품목 없음" detail="품목 추가를 눌러 판매 품목을 등록해 주세요." />}
+        </section>
+        <TextAreaField label="상세 메모" value={rawText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="상세 내용" wide />
+      </div>
+      <div className="form-actions">
+        <button type="button" className="icon-text-button primary" onClick={() => onSave(draft)}>저장</button>
+        <button type="button" className="icon-text-button" onClick={onCancel}>취소</button>
       </div>
     </section>
   );
@@ -3125,6 +3448,7 @@ function loadWorkNoteData(): WorkNoteData {
     updatedAt: "",
     companies: [],
     notes: [],
+    materialSalesNotes: [],
     settlementTasks: [],
     outputTasks: [],
     otherTasks: [],
@@ -3144,6 +3468,7 @@ function loadWorkNoteData(): WorkNoteData {
       updatedAt: firstText(parsed, ["updatedAt"]),
       companies: asArray(parsed.companies),
       notes: asArray(parsed.notes),
+      materialSalesNotes: asArray(parsed.materialSalesNotes),
       settlementTasks: asArray(parsed.settlementTasks),
       outputTasks: asArray(parsed.outputTasks),
       otherTasks: asArray(parsed.otherTasks),
@@ -3166,6 +3491,7 @@ function saveWorkNoteData(data: WorkNoteData, reason: string): WorkNoteData {
     updatedAt: now,
     companies: asArray(data.companies),
     notes: asArray(data.notes),
+    materialSalesNotes: asArray(data.materialSalesNotes),
     settlementTasks: asArray(data.settlementTasks),
     outputTasks: asArray(data.outputTasks),
     otherTasks: asArray(data.otherTasks),
@@ -3210,7 +3536,7 @@ function createReactAutoSnapshot(reason: string) {
 }
 
 function validateWorkNotePayload(payload: AnyRecord) {
-  const arrayKeys = ["companies", "notes", "settlementTasks", "outputTasks", "otherTasks", "accounts"];
+  const arrayKeys = ["companies", "notes", "materialSalesNotes", "settlementTasks", "outputTasks", "otherTasks", "accounts"];
   const invalidKey = arrayKeys.find((key) => !Array.isArray(payload[key]));
   if (invalidKey) {
     throw new Error(`${invalidKey} 데이터 형식이 올바르지 않습니다.`);
@@ -3224,6 +3550,7 @@ function createEmptyWorkNoteData(): WorkNoteData {
     updatedAt: now,
     companies: [],
     notes: [],
+    materialSalesNotes: [],
     settlementTasks: [],
     outputTasks: [],
     otherTasks: [],
@@ -3246,6 +3573,7 @@ function createBackupPayload(data: WorkNoteData, reason: string, options: AnyRec
     missingFileOriginals: Number(options.missingFileOriginals) || 0,
     companies: Array.isArray(options.companies) ? options.companies : state.companies,
     notes: Array.isArray(options.notes) ? options.notes : state.notes,
+    materialSalesNotes: Array.isArray(options.materialSalesNotes) ? options.materialSalesNotes : state.materialSalesNotes,
     settlementTasks: Array.isArray(options.settlementTasks) ? options.settlementTasks : state.settlementTasks,
     outputTasks: Array.isArray(options.outputTasks) ? options.outputTasks : state.outputTasks,
     otherTasks: Array.isArray(options.otherTasks) ? options.otherTasks : state.otherTasks,
@@ -3253,10 +3581,11 @@ function createBackupPayload(data: WorkNoteData, reason: string, options: AnyRec
   };
 }
 
-function cloneBackupState(data: WorkNoteData): Pick<WorkNoteData, "companies" | "notes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts"> {
+function cloneBackupState(data: WorkNoteData): Pick<WorkNoteData, "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts"> {
   return {
     companies: JSON.parse(JSON.stringify(asArray(data.companies))),
     notes: JSON.parse(JSON.stringify(asArray(data.notes))),
+    materialSalesNotes: JSON.parse(JSON.stringify(asArray(data.materialSalesNotes))),
     settlementTasks: JSON.parse(JSON.stringify(asArray(data.settlementTasks))),
     outputTasks: JSON.parse(JSON.stringify(asArray(data.outputTasks))),
     otherTasks: JSON.parse(JSON.stringify(asArray(data.otherTasks))),
@@ -3325,10 +3654,11 @@ function attachmentOwnerTitle(type: AttachmentOwnerType, owner: AnyRecord): stri
   return workTitle(owner, "other");
 }
 
-function getBackupRecordCounts(data: Pick<WorkNoteData, "companies" | "notes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts">): Record<string, number> {
+function getBackupRecordCounts(data: Pick<WorkNoteData, "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts">): Record<string, number> {
   return {
     companies: asArray(data.companies).length,
     notes: asArray(data.notes).length,
+    materialSalesNotes: asArray(data.materialSalesNotes).length,
     settlementTasks: asArray(data.settlementTasks).length,
     outputTasks: asArray(data.outputTasks).length,
     otherTasks: asArray(data.otherTasks).length,
@@ -3408,6 +3738,28 @@ function downloadWorkNoteCsv(data: WorkNoteData) {
     ]);
   });
 
+  asArray(data.materialSalesNotes).forEach((record) => {
+    addRow([
+      "소재/기타 영업",
+      salesCustomer(record),
+      firstText(record, ["contactName", "managerName"]),
+      firstText(record, ["contactPhone", "phone", "contact", "mobile"]),
+      firstText(record, ["contactEmail", "email"]),
+      materialSalesStatus(record),
+      "",
+      "",
+      "",
+      joinParts([
+        formatMoney(firstText(record, ["expectedRevenueAmount"])),
+        formatMoney(firstText(record, ["revenueAmount"])),
+        firstText(record, ["revenueType"])
+      ], " / "),
+      joinParts([materialSalesQuoteStatus(record), materialSalesItemsSummary(record)], " / "),
+      "",
+      firstText(record, ["updatedAt"]),
+      summarizeForCsv(firstText(record, ["memo", "description", "note"]))
+    ]);
+  });
   asArray(data.settlementTasks).forEach((record) => {
     addRow([
       "정산",
@@ -3796,6 +4148,7 @@ function normalizeBackupToWorkNote(backupData: AnyRecord): WorkNoteData {
     updatedAt: firstText(backupData, ["updatedAt", "backupCreatedAt"]) || new Date().toISOString(),
     companies: asArray(backupData.companies),
     notes: asArray(backupData.notes),
+    materialSalesNotes: asArray(backupData.materialSalesNotes),
     settlementTasks: asArray(backupData.settlementTasks),
     outputTasks: asArray(backupData.outputTasks),
     otherTasks: asArray(backupData.otherTasks),
@@ -3859,6 +4212,7 @@ function mergeBackupData(current: WorkNoteData, incomingRaw: AnyRecord): WorkNot
     updatedAt: new Date().toISOString(),
     companies: mergeRecordList("company", current.companies, incoming.companies),
     notes: [],
+    materialSalesNotes: [],
     settlementTasks: [],
     outputTasks: [],
     otherTasks: [],
@@ -3868,11 +4222,13 @@ function mergeBackupData(current: WorkNoteData, incomingRaw: AnyRecord): WorkNot
 
   const companyIdMap = createIdMap(current.companies, incoming.companies, next.companies, "company");
   remapCompanyLinks(incoming.notes, companyIdMap);
+  remapCompanyLinks(incoming.materialSalesNotes, companyIdMap);
   remapCompanyLinks(incoming.settlementTasks, companyIdMap);
   remapCompanyLinks(incoming.outputTasks, companyIdMap);
   remapCompanyLinks(incoming.otherTasks, companyIdMap);
 
   next.notes = mergeRecordList("sales", current.notes, incoming.notes);
+  next.materialSalesNotes = mergeRecordList("materialSales", current.materialSalesNotes, incoming.materialSalesNotes);
   const salesIdMap = createIdMap(current.notes, incoming.notes, next.notes, "sales");
   remapSalesLinks(incoming.settlementTasks, salesIdMap);
   remapSalesLinks(incoming.outputTasks, salesIdMap);
@@ -3954,6 +4310,9 @@ function createMergeKey(type: string, item: AnyRecord, index: number): string {
   }
   if (type === "sales") {
     return normalizeMergeText([firstText(item, ["companyId"]), salesCustomer(item), firstText(item, ["contactName"]), salesInterest(item)].join("|"));
+  }
+  if (type === "materialSales") {
+    return normalizeMergeText([firstText(item, ["companyId"]), salesCustomer(item), firstText(item, ["contactName"]), materialSalesItemsSummary(item)].join("|"));
   }
   return normalizeMergeText([firstText(item, ["companyId"]), companyName(item), firstText(item, ["title", "outputType", "paymentType"]), firstText(item, ["startDate", "nextActionDate", "endDate"])].join("|")) || `${type}-${index}`;
 }
@@ -4131,6 +4490,146 @@ function normalizeSalesDraft(draft: AnyRecord, companies: AnyRecord[]): AnyRecor
   };
 }
 
+function createBlankMaterialSalesItem(): AnyRecord {
+  return {
+    id: createId("item_"),
+    name: "",
+    price: "",
+    quantity: "1",
+    memo: ""
+  };
+}
+
+function createBlankMaterialSalesNote(): AnyRecord {
+  return {
+    id: "",
+    companyId: "",
+    contactId: "",
+    companyUnknown: false,
+    company: "",
+    contactName: "",
+    contactPhone: "",
+    contactEmail: "",
+    items: [createBlankMaterialSalesItem()],
+    status: MATERIAL_SALES_STATUS_OPTIONS[0],
+    quoteStatus: MATERIAL_QUOTE_STATUS_OPTIONS[0],
+    expectedRevenueAmount: "",
+    revenueAmount: "",
+    revenueType: MATERIAL_REVENUE_TYPE_OPTIONS[0],
+    memo: ""
+  };
+}
+
+function prepareMaterialSalesDraft(record: AnyRecord, index: number): AnyRecord {
+  return {
+    ...createBlankMaterialSalesNote(),
+    ...record,
+    id: recordId(record, index),
+    company: salesCustomer(record) === "고객 미정" ? "" : salesCustomer(record),
+    contactName: firstText(record, ["contactName", "managerName"]),
+    contactPhone: firstText(record, ["contactPhone", "phone", "contact", "mobile"]),
+    contactEmail: firstText(record, ["contactEmail", "email"]),
+    items: normalizeMaterialSalesItems(asArray(record.items)),
+    status: materialSalesStatus(record),
+    quoteStatus: materialSalesQuoteStatus(record),
+    expectedRevenueAmount: firstText(record, ["expectedRevenueAmount"]),
+    revenueAmount: firstText(record, ["revenueAmount"]),
+    revenueType: firstText(record, ["revenueType"]) || MATERIAL_REVENUE_TYPE_OPTIONS[0],
+    memo: rawText(record, ["memo", "description", "note"])
+  };
+}
+
+function normalizeMaterialSalesDraft(draft: AnyRecord, companies: AnyRecord[]): AnyRecord {
+  const company = firstText(draft, ["companyId"])
+    ? companies.find((item, index) => recordId(item, index) === firstText(draft, ["companyId"]))
+    : null;
+  const contact = company && firstText(draft, ["contactId"])
+    ? asArray(company.contacts).find((item, index) => recordId(item, index) === firstText(draft, ["contactId"]))
+    : null;
+  const companyUnknown = Boolean(draft.companyUnknown);
+
+  return {
+    id: firstText(draft, ["id"]) || createId("material_sales_"),
+    companyId: companyUnknown ? "" : firstText(draft, ["companyId"]),
+    contactId: companyUnknown ? "" : firstText(draft, ["contactId"]),
+    companyUnknown,
+    company: companyUnknown ? "" : (company ? companyName(company) : firstText(draft, ["company"])),
+    contactName: companyUnknown ? "" : (contact ? firstText(contact, ["name", "contactName"]) : firstText(draft, ["contactName"])),
+    contactPhone: companyUnknown ? "" : (contact ? firstText(contact, ["phone", "contactPhone"]) : firstText(draft, ["contactPhone"])),
+    contactEmail: companyUnknown ? "" : (contact ? firstText(contact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])),
+    items: normalizeMaterialSalesItems(asArray(draft.items)),
+    status: MATERIAL_SALES_STATUS_OPTIONS.includes(firstText(draft, ["status"])) ? firstText(draft, ["status"]) : MATERIAL_SALES_STATUS_OPTIONS[0],
+    quoteStatus: MATERIAL_QUOTE_STATUS_OPTIONS.includes(firstText(draft, ["quoteStatus"])) ? firstText(draft, ["quoteStatus"]) : MATERIAL_QUOTE_STATUS_OPTIONS[0],
+    expectedRevenueAmount: normalizeAmountString(firstText(draft, ["expectedRevenueAmount"])),
+    revenueAmount: normalizeAmountString(firstText(draft, ["revenueAmount"])),
+    revenueType: MATERIAL_REVENUE_TYPE_OPTIONS.includes(firstText(draft, ["revenueType"])) ? firstText(draft, ["revenueType"]) : MATERIAL_REVENUE_TYPE_OPTIONS[0],
+    memo: rawText(draft, ["memo"])
+  };
+}
+
+function normalizeMaterialSalesItems(items: AnyRecord[]): AnyRecord[] {
+  const normalized = asArray(items)
+    .map((item) => ({
+      id: firstText(item, ["id"]) || createId("item_"),
+      name: firstText(item, ["name", "itemName"]),
+      price: normalizeAmountString(firstText(item, ["price", "amount"])),
+      quantity: firstText(item, ["quantity", "qty"]) || "1",
+      memo: rawText(item, ["memo", "note"])
+    }))
+    .filter((item) => firstText(item, ["name"]) || firstText(item, ["price"]) || firstText(item, ["memo"]));
+  return normalized.length ? normalized : [createBlankMaterialSalesItem()];
+}
+
+function calculateMaterialSalesTotal(items: AnyRecord[]): number {
+  return asArray(items).reduce((sum, item) => {
+    const price = parseAmountNumber(firstText(item, ["price"]));
+    const quantity = parseAmountNumber(firstText(item, ["quantity"])) ?? 1;
+    return sum + (price ?? 0) * quantity;
+  }, 0);
+}
+
+function materialSalesItemsSummary(record: AnyRecord): string {
+  return asArray(record.items)
+    .map((item) => {
+      const name = firstText(item, ["name"]);
+      const quantity = firstText(item, ["quantity"]);
+      const price = formatMoney(firstText(item, ["price"]));
+      return [name, quantity ? `${quantity}개` : "", price].filter(Boolean).join(" · ");
+    })
+    .filter(Boolean)
+    .join(" / ");
+}
+
+function materialSalesStatus(record: AnyRecord): string {
+  const status = firstText(record, ["status", "progressStatus"]);
+  return MATERIAL_SALES_STATUS_OPTIONS.includes(status) ? status : MATERIAL_SALES_STATUS_OPTIONS[0];
+}
+
+function materialSalesQuoteStatus(record: AnyRecord): string {
+  const status = firstText(record, ["quoteStatus"]);
+  return MATERIAL_QUOTE_STATUS_OPTIONS.includes(status) ? status : MATERIAL_QUOTE_STATUS_OPTIONS[0];
+}
+
+function getMaterialSalesMode(record: AnyRecord): ListMode {
+  return materialSalesStatus(record) === "입금 확인 완료" ? "closed" : "active";
+}
+
+function matchesMaterialSalesMode(record: AnyRecord, mode: ListMode): boolean {
+  if (mode === "all") return true;
+  if (mode === "hold" || mode === "failed") return false;
+  return getMaterialSalesMode(record) === mode;
+}
+
+function getMaterialSalesModeCounts(records: AnyRecord[]): Record<ListMode, number> {
+  return records.reduce<Record<ListMode, number>>(
+    (counts, record) => {
+      counts.all += 1;
+      counts[getMaterialSalesMode(record)] += 1;
+      return counts;
+    },
+    { all: 0, active: 0, hold: 0, closed: 0, failed: 0 }
+  );
+}
 function normalizeSalesStatus(value: string): string {
   if (value === "자료 발송" || value === "견적 진행") return "1차 대응 완료";
   return SALES_STATUS_OPTIONS.includes(value) ? value : SALES_STATUS_OPTIONS[0];
@@ -4482,7 +4981,7 @@ function isWorkDraftValid(record: AnyRecord, type: "settlement" | "output" | "ot
 }
 
 function countLinkedCompanyRecords(data: WorkNoteData, companyId: string): number {
-  return [data.notes, data.settlementTasks, data.outputTasks, data.otherTasks]
+  return [data.notes, data.materialSalesNotes, data.settlementTasks, data.outputTasks, data.otherTasks]
     .flat()
     .filter((record) => firstText(record, ["companyId"]) === companyId).length;
 }
@@ -4668,6 +5167,7 @@ function collectGlobalResults(data: WorkNoteData, query: string) {
   const groups: Array<{ portal: PortalId; records: AnyRecord[]; title: (record: AnyRecord) => string; meta: (record: AnyRecord) => string }> = [
     { portal: "company", records: data.companies, title: companyName, meta: (record) => firstText(record, ["status", "tradeStatus", "phone", "email"]) },
     { portal: "sales", records: data.notes, title: salesCustomer, meta: (record) => firstText(record, ["nextAction", "status", "product"]) },
+    { portal: "sales", records: data.materialSalesNotes, title: salesCustomer, meta: (record) => materialSalesItemsSummary(record) || materialSalesStatus(record) },
     { portal: "settlement", records: data.settlementTasks, title: (record) => workTitle(record, "settlement"), meta: deadlineText },
     { portal: "output", records: data.outputTasks, title: (record) => workTitle(record, "output"), meta: deadlineText },
     { portal: "other", records: data.otherTasks, title: (record) => workTitle(record, "other"), meta: deadlineText },
@@ -4791,6 +5291,7 @@ function matchesText(value: unknown, query: string): boolean {
 
 function getListMode(record: AnyRecord): ListMode {
   const status = firstText(record, ["status", "progressStatus"]);
+  if (isFailedListStatus(status)) return "failed";
   if (isClosedListStatus(status)) return "closed";
   if (status.includes("보류")) return "hold";
   return "active";
@@ -4801,8 +5302,12 @@ function matchesListMode(record: AnyRecord, mode: ListMode): boolean {
 }
 
 function isClosedListStatus(status: string): boolean {
+  return clean(status) === "완료";
+}
+
+function isFailedListStatus(status: string): boolean {
   const text = clean(status);
-  return text === "완료" || text === "실패" || text === "실패/종료" || text === "종료" || text === "취소";
+  return text === "실패" || text === "실패/종료" || text === "종료" || text === "취소";
 }
 
 function getListModeCounts(records: AnyRecord[]): Record<ListMode, number> {
@@ -4812,7 +5317,7 @@ function getListModeCounts(records: AnyRecord[]): Record<ListMode, number> {
       counts[getListMode(record)] += 1;
       return counts;
     },
-    { all: 0, active: 0, hold: 0, closed: 0 }
+    { all: 0, active: 0, hold: 0, closed: 0, failed: 0 }
   );
 }
 
