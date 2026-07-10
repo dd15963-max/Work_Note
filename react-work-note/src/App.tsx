@@ -1,5 +1,7 @@
 import {
   Archive,
+  ArrowDown,
+  ArrowUp,
   BriefcaseBusiness,
   Building2,
   CalendarDays,
@@ -31,6 +33,9 @@ import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 type PortalId = "schedule" | "company" | "sales" | "settlement" | "output" | "other" | "account";
 type CalendarMode = "month" | "week";
 type SalesPanelMode = "detail" | "company" | "files";
+type ListMode = "all" | "active" | "hold" | "closed";
+type SalesSortKey = "priority" | "updated" | "nextContact" | "company";
+type SortDirection = "asc" | "desc";
 type AnyRecord = Record<string, unknown>;
 type AttachmentCollectionKey = "companies" | "notes" | "settlementTasks" | "outputTasks" | "otherTasks";
 type AttachmentOwnerType = "company" | "sales" | "settlement" | "output" | "other";
@@ -114,6 +119,18 @@ const portals: Array<{ id: PortalId; label: string; icon: typeof CalendarDays }>
 
 const completedWords = ["완료", "종료", "실패", "취소"];
 const highPriorityWords = ["긴급", "높음", "중요"];
+const LIST_MODE_OPTIONS: Array<{ id: ListMode; label: string }> = [
+  { id: "all", label: "전체" },
+  { id: "active", label: "진행" },
+  { id: "hold", label: "보류" },
+  { id: "closed", label: "완료" }
+];
+const SALES_SORT_OPTIONS: Array<{ id: SalesSortKey; label: string }> = [
+  { id: "priority", label: "중요도순" },
+  { id: "updated", label: "최종 수정일" },
+  { id: "nextContact", label: "다음 연락일" },
+  { id: "company", label: "고객사명" }
+];
 
 export function App() {
   const [activePortal, setActivePortal] = useState<PortalId>("schedule");
@@ -308,6 +325,33 @@ function PortalButton({
       <Icon size={17} />
       {portal.label}
     </button>
+  );
+}
+
+function MemoListControls({
+  mode,
+  onModeChange,
+  counts
+}: {
+  mode: ListMode;
+  onModeChange: (mode: ListMode) => void;
+  counts: Record<ListMode, number>;
+}) {
+  return (
+    <div className="memo-list-controls segmented" aria-label="메모 보기">
+      {LIST_MODE_OPTIONS.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          className={mode === option.id ? "is-active" : ""}
+          aria-pressed={mode === option.id}
+          onClick={() => onModeChange(option.id)}
+        >
+          {option.label}
+          <span>{counts[option.id]}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -994,26 +1038,51 @@ function SalesPortal({
 }) {
   const [salesPanel, setSalesPanel] = useState<{ id: string; mode: SalesPanelMode } | null>(null);
   const [editingNote, setEditingNote] = useState<AnyRecord | null>(null);
+  const [salesMode, setSalesMode] = useState<ListMode>("all");
+  const [salesStatusFilter, setSalesStatusFilter] = useState("all");
+  const [salesCategoryFilter, setSalesCategoryFilter] = useState("all");
+  const [salesPriorityFilter, setSalesPriorityFilter] = useState("all");
+  const [salesSortKey, setSalesSortKey] = useState<SalesSortKey>("priority");
+  const [salesSortDirection, setSalesSortDirection] = useState<SortDirection>("desc");
   const handledFocusTargetRef = useRef("");
+  const searchedNotes = useMemo(
+    () => data.notes.filter((note) => matchesRecord(note, query)),
+    [data.notes, query]
+  );
+  const filteredNotes = useMemo(
+    () =>
+      searchedNotes.filter((note) => {
+        const matchesStatus = salesStatusFilter === "all" || salesStatus(note) === salesStatusFilter;
+        const matchesCategory = salesCategoryFilter === "all"
+          || (salesCategoryFilter === "uncategorized" ? !salesCategory(note) : salesCategory(note) === salesCategoryFilter);
+        const matchesPriority = salesPriorityFilter === "all" || salesPriority(note) === salesPriorityFilter;
+        return matchesStatus && matchesCategory && matchesPriority;
+      }),
+    [searchedNotes, salesStatusFilter, salesCategoryFilter, salesPriorityFilter]
+  );
+  const salesCounts = useMemo(() => getListModeCounts(filteredNotes), [filteredNotes]);
   const notes = useMemo(
     () =>
-      data.notes
-        .filter((note) => matchesRecord(note, query))
-        .sort((a, b) => priorityScore(b) - priorityScore(a) || compareDate(firstText(b, ["updatedAt"]), firstText(a, ["updatedAt"]))),
-    [data.notes, query]
+      filteredNotes
+        .filter((note) => matchesListMode(note, salesMode))
+        .sort((a, b) => compareSalesNotes(a, b, salesSortKey, salesSortDirection)),
+    [filteredNotes, salesMode, salesSortKey, salesSortDirection]
   );
 
   useEffect(() => {
     if (focusTarget?.portal !== "sales") return;
     const focusKey = `${focusTarget.portal}:${focusTarget.id}:${focusTarget.nonce ?? ""}`;
     if (handledFocusTargetRef.current === focusKey) return;
-    const exists = notes.some((note, index) => recordId(note, index) === focusTarget.id);
-    if (!exists) return;
+    const focusedNote = searchedNotes.find((note, index) => recordId(note, index) === focusTarget.id);
+    if (!focusedNote) return;
     handledFocusTargetRef.current = focusKey;
+    setSalesStatusFilter("all");
+    setSalesCategoryFilter("all");
+    setSalesPriorityFilter("all");
+    setSalesMode(getListMode(focusedNote));
     setSalesPanel((current) => (current?.id === focusTarget.id && current.mode === "detail" ? current : { id: focusTarget.id, mode: "detail" }));
-    scrollRecordIntoView(focusTarget.id);
-  }, [focusTarget, notes]);
-
+    window.setTimeout(() => scrollRecordIntoView(focusTarget.id), 0);
+  }, [focusTarget, searchedNotes]);
   const toggleSalesPanel = (id: string, mode: SalesPanelMode) => {
     setSalesPanel((current) => (current?.id === id && current.mode === mode ? null : { id, mode }));
   };
@@ -1196,7 +1265,7 @@ function SalesPortal({
           <h2>영업 메모</h2>
         </div>
         <div className="toolbar-cluster">
-          <span className="count-label">{notes.length}건</span>
+          <span className="count-label">{notes.length}/{filteredNotes.length}건</span>
           <button type="button" onClick={() => setEditingNote(createBlankSalesNote())}>
             <Plus size={16} />
             새 메모
@@ -1214,6 +1283,54 @@ function SalesPortal({
           />
         </EditorDrawer>
       )}
+      <MemoListControls mode={salesMode} onModeChange={setSalesMode} counts={salesCounts} />
+      <div className="list-toolbar">
+        <label className="compact-field">
+          <span>진행상태</span>
+          <select value={salesStatusFilter} onChange={(event) => setSalesStatusFilter(event.target.value)}>
+            <option value="all">전체</option>
+            {SALES_STATUS_OPTIONS.map((status) => (
+              <option key={status} value={status}>{status}</option>
+            ))}
+          </select>
+        </label>
+        <label className="compact-field">
+          <span>구분</span>
+          <select value={salesCategoryFilter} onChange={(event) => setSalesCategoryFilter(event.target.value)}>
+            <option value="all">전체</option>
+            <option value="uncategorized">미지정</option>
+            {SALES_ITEM_CATEGORY_OPTIONS.map((category) => (
+              <option key={category} value={category}>{category}</option>
+            ))}
+          </select>
+        </label>
+        <label className="compact-field">
+          <span>중요도</span>
+          <select value={salesPriorityFilter} onChange={(event) => setSalesPriorityFilter(event.target.value)}>
+            <option value="all">전체</option>
+            {PRIORITY_OPTIONS.map((priority) => (
+              <option key={priority} value={priority}>{priority}</option>
+            ))}
+          </select>
+        </label>
+        <label className="compact-field">
+          <span>정렬</span>
+          <select value={salesSortKey} onChange={(event) => setSalesSortKey(event.target.value as SalesSortKey)}>
+            {SALES_SORT_OPTIONS.map((option) => (
+              <option key={option.id} value={option.id}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="icon-text-button sort-direction-button"
+          onClick={() => setSalesSortDirection((current) => (current === "desc" ? "asc" : "desc"))}
+          disabled={salesSortKey === "priority"}
+          title={salesSortKey === "priority" ? "중요도순은 같은 중요도 안에서 최신 수정순으로 고정됩니다." : salesSortDirection === "desc" ? "내림차순" : "오름차순"}
+        >
+          {salesSortDirection === "desc" ? <ArrowDown size={17} /> : <ArrowUp size={17} />}
+        </button>
+      </div>
       <div className="responsive-table">
         <div className="table-header sales-grid">
           <span>고객/연락처</span>
@@ -1915,6 +2032,7 @@ function GenericWorkPortal({
 }) {
   const [filePanel, setFilePanel] = useState<string | null>(null);
   const [editingRecord, setEditingRecord] = useState<AnyRecord | null>(null);
+  const [workMode, setWorkMode] = useState<ListMode>("all");
   const fileHandlers = createAttachmentHandlers({
     data,
     onPersist,
@@ -1922,18 +2040,26 @@ function GenericWorkPortal({
     ownerType: type,
     reasonLabel: `${title} 파일`
   });
-  const filtered = records
-    .map((record, originalIndex) => ({ record, originalIndex, id: recordId(record, originalIndex) }))
-    .filter(({ record }) => matchesRecord(record, query));
-  const counts = getWorkModeCounts(filtered.map(({ record }) => record));
+  const searched = useMemo(
+    () =>
+      records
+        .map((record, originalIndex) => ({ record, originalIndex, id: recordId(record, originalIndex) }))
+        .filter(({ record }) => matchesRecord(record, query)),
+    [records, query]
+  );
+  const counts = useMemo(() => getListModeCounts(searched.map(({ record }) => record)), [searched]);
+  const filtered = useMemo(
+    () => searched.filter(({ record }) => matchesListMode(record, workMode)),
+    [searched, workMode]
+  );
 
   useEffect(() => {
     if (focusTarget?.portal !== type) return;
-    const exists = filtered.some(({ id }) => id === focusTarget.id);
-    if (!exists) return;
-    scrollRecordIntoView(focusTarget.id);
-  }, [focusTarget, filtered, type]);
-
+    const target = searched.find(({ id }) => id === focusTarget.id);
+    if (!target) return;
+    setWorkMode(getListMode(target.record));
+    window.setTimeout(() => scrollRecordIntoView(focusTarget.id), 0);
+  }, [focusTarget, searched, type]);
   const saveWorkRecord = (draft: AnyRecord) => {
     const normalized = normalizeWorkDraft(draft, type, data);
     if (!isWorkDraftValid(normalized, type)) {
@@ -1993,11 +2119,7 @@ function GenericWorkPortal({
           <h2>{title} 업무</h2>
         </div>
         <div className="toolbar-cluster">
-          <div className="mini-counts" aria-label={`${title} 업무 현황`}>
-            <span>진행 {counts.active}</span>
-            <span>보류 {counts.hold}</span>
-            <span>완료 {counts.closed}</span>
-          </div>
+          <span className="count-label">{filtered.length}/{searched.length}건</span>
           <button type="button" onClick={() => setEditingRecord(createBlankWorkTask(type))}>
             <Plus size={16} />
             새 업무
@@ -2017,6 +2139,7 @@ function GenericWorkPortal({
           />
         </EditorDrawer>
       )}
+      <MemoListControls mode={workMode} onModeChange={setWorkMode} counts={counts} />
       <div className="task-list">
         {filtered.map(({ record, originalIndex, id }) => {
           const attachments = asArray(record.attachments);
@@ -4657,6 +4780,69 @@ function matchesText(value: unknown, query: string): boolean {
   return JSON.stringify(value).toLowerCase().includes(query.trim().toLowerCase());
 }
 
+function getListMode(record: AnyRecord): ListMode {
+  const status = firstText(record, ["status", "progressStatus"]);
+  if (isClosedListStatus(status)) return "closed";
+  if (status.includes("보류")) return "hold";
+  return "active";
+}
+
+function matchesListMode(record: AnyRecord, mode: ListMode): boolean {
+  return mode === "all" || getListMode(record) === mode;
+}
+
+function isClosedListStatus(status: string): boolean {
+  const text = clean(status);
+  return text === "완료" || text === "실패" || text === "실패/종료" || text === "종료" || text === "취소";
+}
+
+function getListModeCounts(records: AnyRecord[]): Record<ListMode, number> {
+  return records.reduce<Record<ListMode, number>>(
+    (counts, record) => {
+      counts.all += 1;
+      counts[getListMode(record)] += 1;
+      return counts;
+    },
+    { all: 0, active: 0, hold: 0, closed: 0 }
+  );
+}
+
+function compareSalesNotes(a: AnyRecord, b: AnyRecord, sortKey: SalesSortKey, direction: SortDirection): number {
+  if (sortKey === "priority") {
+    return priorityScore(b) - priorityScore(a) || compareUpdatedAt(a, b, "desc");
+  }
+  if (sortKey === "updated") {
+    return compareUpdatedAt(a, b, direction);
+  }
+  if (sortKey === "nextContact") {
+    return compareNextContactDate(a, b, direction);
+  }
+  if (sortKey === "company") {
+    return compareTextValue(salesCustomer(a), salesCustomer(b), direction) || compareUpdatedAt(a, b, "desc");
+  }
+  return priorityScore(b) - priorityScore(a) || compareUpdatedAt(a, b, "desc");
+}
+
+function compareUpdatedAt(a: AnyRecord, b: AnyRecord, direction: SortDirection): number {
+  const result = compareDate(firstText(a, ["updatedAt"]), firstText(b, ["updatedAt"]));
+  return direction === "desc" ? -result : result;
+}
+
+function compareTextValue(a: string, b: string, direction: SortDirection): number {
+  const result = clean(a).localeCompare(clean(b), "ko");
+  return direction === "desc" ? -result : result;
+}
+
+function compareNextContactDate(a: AnyRecord, b: AnyRecord, direction: SortDirection): number {
+  const aDate = parseDateKey(firstText(a, ["nextContactDate"]));
+  const bDate = parseDateKey(firstText(b, ["nextContactDate"]));
+  const aMissing = !aDate;
+  const bMissing = !bDate;
+  if (aMissing !== bMissing) return aMissing ? 1 : -1;
+
+  const result = aDate.localeCompare(bDate);
+  return (direction === "desc" ? -result : result) || compareUpdatedAt(a, b, "desc");
+}
 function getWorkModeCounts(records: AnyRecord[]): { active: number; hold: number; closed: number } {
   return records.reduce<{ active: number; hold: number; closed: number }>(
     (counts, record) => {

@@ -813,6 +813,63 @@ h2 {
   color: #fff;
 }
 
+.memo-list-controls {
+  margin: 10px 0 10px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.memo-list-controls button {
+  gap: 6px;
+  min-width: 74px;
+}
+
+.memo-list-controls span {
+  color: inherit;
+  font-size: 12px;
+  opacity: 0.78;
+}
+
+.list-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 0 0 12px;
+  flex-wrap: wrap;
+}
+
+.compact-field {
+  display: grid;
+  gap: 5px;
+  min-width: 190px;
+}
+
+.compact-field span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.compact-field select {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  padding: 7px 10px;
+  font-weight: 800;
+}
+
+.sort-direction-button {
+  width: 42px;
+  padding: 8px;
+}
+
+.sort-direction-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
