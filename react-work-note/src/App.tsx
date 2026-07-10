@@ -3019,9 +3019,11 @@ function TextField({
 }) {
   return (
     <label className={`field ${wide ? "wide-field" : ""}`}>
-      <span>{label}</span>
+      <span className="field-title-row">
+        <span>{label}</span>
+        {option && <span className="field-option-row">{option}</span>}
+      </span>
       <input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} disabled={disabled} />
-      {option && <span className="field-option-row">{option}</span>}
     </label>
   );
 }

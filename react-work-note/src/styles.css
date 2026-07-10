@@ -583,11 +583,24 @@ h2 {
   box-shadow: none;
 }
 
-.field-option-row {
+.field-title-row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 10px;
   min-height: 18px;
+}
+
+.field-title-row > span:first-child {
+  min-width: 0;
+}
+
+.field-option-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .inline-check {
