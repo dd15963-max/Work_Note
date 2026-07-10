@@ -310,7 +310,7 @@ h2 {
   z-index: 10;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
   border-bottom: 1px solid var(--line);
   background: rgba(244, 247, 251, 0.94);
