@@ -2245,3 +2245,110 @@ h2 {
     width: min(360px, calc(100vw - 44px));
   }
 }
+.company-combobox {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(240px, 1.15fr) minmax(220px, .9fr) minmax(220px, .9fr);
+  gap: 10px;
+  align-items: end;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.company-combobox-search {
+  position: relative;
+}
+
+.combo-input-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px;
+  gap: 6px;
+}
+
+.combo-input-wrap button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.combo-input-wrap button:hover,
+.combo-input-wrap button:focus {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.combo-options {
+  position: absolute;
+  top: 70px;
+  left: 12px;
+  z-index: 70;
+  width: min(620px, calc(100% - 24px));
+  max-height: 310px;
+  overflow: auto;
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 8px;
+}
+
+.combo-options button {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  padding: 9px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.combo-options button:hover,
+.combo-options button:focus {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.combo-options strong,
+.combo-options span {
+  display: block;
+}
+
+.combo-options strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.combo-options span,
+.combo-options p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.company-combobox > .selection-summary {
+  min-height: 66px;
+  align-self: stretch;
+  margin: 0;
+}
+
+@media (max-width: 980px) {
+  .company-combobox {
+    grid-template-columns: 1fr;
+  }
+
+  .combo-options {
+    top: 78px;
+    width: calc(100% - 24px);
+  }
+}

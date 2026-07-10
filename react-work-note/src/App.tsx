@@ -1657,6 +1657,144 @@ function MaterialSalesSection({
   );
 }
 
+function CompanyCombobox({
+  draft,
+  setDraft,
+  companies,
+  companyLabel = "업체명",
+  contactLabel = "담당자 선택"
+}: {
+  draft: AnyRecord;
+  setDraft: (draft: AnyRecord) => void;
+  companies: AnyRecord[];
+  companyLabel?: string;
+  contactLabel?: string;
+}) {
+  const selectedCompany = firstText(draft, ["companyId"])
+    ? companies.find((company, index) => recordId(company, index) === firstText(draft, ["companyId"]))
+    : null;
+  const contacts = selectedCompany ? asArray(selectedCompany.contacts) : [];
+  const selectedName = selectedCompany ? companyName(selectedCompany) : firstText(draft, ["company"]);
+  const [query, setQuery] = useState(selectedName);
+  const [open, setOpen] = useState(false);
+  const options = useMemo(
+    () => companies.filter((company) => matchesText(company, query)).slice(0, 80),
+    [companies, query]
+  );
+
+  useEffect(() => {
+    if (!open) setQuery(selectedName);
+  }, [open, selectedName]);
+
+  const selectCompany = (value: string) => {
+    if (value === "__unknown") {
+      setDraft({ ...draft, companyId: "", contactId: "", companyUnknown: true, company: "", contactName: "", contactPhone: "", contactEmail: "" });
+      setQuery("업체 미정");
+      setOpen(false);
+      return;
+    }
+    if (!value) {
+      setDraft({ ...draft, companyId: "", contactId: "", companyUnknown: false, company: "", contactName: "", contactPhone: "", contactEmail: "" });
+      setQuery("");
+      setOpen(false);
+      return;
+    }
+    const company = companies.find((item, index) => recordId(item, index) === value) || null;
+    const primaryContact = company ? asArray(company.contacts).find((contact) => Boolean(contact.isPrimary)) || asArray(company.contacts)[0] : null;
+    setDraft({
+      ...draft,
+      companyId: value,
+      contactId: primaryContact ? recordId(primaryContact, 0) : "",
+      companyUnknown: false,
+      company: company ? companyName(company) : firstText(draft, ["company"]),
+      contactName: primaryContact ? firstText(primaryContact, ["name", "contactName"]) : firstText(draft, ["contactName"]),
+      contactPhone: primaryContact ? firstText(primaryContact, ["phone", "contactPhone"]) : firstText(draft, ["contactPhone"]),
+      contactEmail: primaryContact ? firstText(primaryContact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])
+    });
+    setQuery(company ? companyName(company) : "");
+    setOpen(false);
+  };
+
+  const selectContact = (value: string) => {
+    const contact = contacts.find((item, index) => recordId(item, index) === value) || null;
+    setDraft({
+      ...draft,
+      contactId: value,
+      contactName: contact ? firstText(contact, ["name", "contactName"]) : firstText(draft, ["contactName"]),
+      contactPhone: contact ? firstText(contact, ["phone", "contactPhone"]) : firstText(draft, ["contactPhone"]),
+      contactEmail: contact ? firstText(contact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])
+    });
+  };
+
+  return (
+    <div className="company-combobox wide-field" onBlur={() => window.setTimeout(() => setOpen(false), 120)}>
+      <label className="field company-combobox-search">
+        <span>업체 검색/선택</span>
+        <div className="combo-input-wrap">
+          <input
+            type="search"
+            value={query}
+            onFocus={() => setOpen(true)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setOpen(true);
+            }}
+            placeholder="업체명, 담당자, 연락처, 이메일 검색"
+          />
+          <button type="button" aria-label="업체 목록 열기" onMouseDown={(event) => event.preventDefault()} onClick={() => {
+              setOpen((current) => {
+                if (!current) setQuery("");
+                return !current;
+              });
+            }}>
+            ▾
+          </button>
+        </div>
+      </label>
+      {open && (
+        <div className="combo-options" role="listbox">
+          <button type="button" role="option" onMouseDown={(event) => event.preventDefault()} onClick={() => selectCompany("")}>
+            <strong>직접 입력 / 연결 안 함</strong>
+            <span>업체 목록과 연결하지 않고 직접 작성</span>
+          </button>
+          <button type="button" role="option" onMouseDown={(event) => event.preventDefault()} onClick={() => selectCompany("__unknown")}>
+            <strong>미정</strong>
+            <span>관련 업체를 아직 모르는 상태</span>
+          </button>
+          {options.map((company, index) => {
+            const id = recordId(company, index);
+            const primary = asArray(company.contacts).find((contact) => Boolean(contact.isPrimary)) || asArray(company.contacts)[0] || {};
+            return (
+              <button type="button" role="option" key={id} onMouseDown={(event) => event.preventDefault()} onClick={() => selectCompany(id)}>
+                <strong>{companyName(company) || "업체명 미입력"}</strong>
+                <span>{joinParts([firstText(primary, ["name", "contactName"]), firstText(primary, ["phone", "contactPhone"]), firstText(primary, ["email", "contactEmail"]), firstText(company, ["status", "tradeStatus"])], " · ") || "담당자 정보 없음"}</span>
+              </button>
+            );
+          })}
+          {!options.length && <p>검색 결과가 없습니다.</p>}
+        </div>
+      )}
+      <div className="selection-summary">
+        <strong>{selectedCompany ? companyName(selectedCompany) : (draft.companyUnknown ? "업체 미정" : "직접 입력")}</strong>
+        <span>{[firstText(draft, ["contactName"]), firstText(draft, ["contactPhone"]), firstText(draft, ["contactEmail"])].filter(Boolean).join(" · ") || "담당자 정보 없음"}</span>
+      </div>
+      <TextField label={companyLabel} value={firstText(draft, ["company"])} onChange={(value) => setDraft({ ...draft, company: value, companyUnknown: false })} placeholder="업체명 또는 고객명" />
+      {contacts.length > 0 && (
+        <label className="field">
+          <span>{contactLabel}</span>
+          <select value={firstText(draft, ["contactId"])} onChange={(event) => selectContact(event.target.value)}>
+            <option value="">직접 입력</option>
+            {contacts.map((contact, index) => (
+              <option key={recordId(contact, index)} value={recordId(contact, index)}>
+                {companyContactSummary(contact) || "담당자"}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+    </div>
+  );
+}
 function MaterialSalesEditor({
   draft,
   setDraft,
@@ -1731,36 +1869,13 @@ function MaterialSalesEditor({
         </button>
       </div>
       <div className="form-grid">
-        <label className="field">
-          <span>업체 검색</span>
-          <input type="search" value={companySearch} onChange={(event) => setCompanySearch(event.target.value)} placeholder="업체명, 담당자, 연락처, 이메일" />
-        </label>
-        <label className="field">
-          <span>업체 선택</span>
-          <select value={draft.companyUnknown ? "__unknown" : firstText(draft, ["companyId"])} onChange={(event) => selectCompany(event.target.value)}>
-            <option value="">직접 입력 / 연결 안 함</option>
-            <option value="__unknown">미정</option>
-            {companyOptions.map((company, index) => (
-              <option key={recordId(company, index)} value={recordId(company, index)}>{companyName(company) || "업체명 미입력"}</option>
-            ))}
-          </select>
-        </label>
-        <div className="selection-summary wide-field">
-          <strong>{selectedCompany ? companyName(selectedCompany) : (draft.companyUnknown ? "업체 미정" : "직접 입력")}</strong>
-          <span>{[firstText(draft, ["contactName"]), firstText(draft, ["contactPhone"]), firstText(draft, ["contactEmail"])].filter(Boolean).join(" · ") || "담당자 정보 없음"}</span>
-        </div>
-        <TextField label="고객/업체명" value={firstText(draft, ["company"])} onChange={(value) => updateField("company", value)} placeholder="업체명 또는 고객명" />
-        {contacts.length > 0 && (
-          <label className="field">
-            <span>담당자 선택</span>
-            <select value={firstText(draft, ["contactId"])} onChange={(event) => selectContact(event.target.value)}>
-              <option value="">직접 입력</option>
-              {contacts.map((contact, index) => (
-                <option key={recordId(contact, index)} value={recordId(contact, index)}>{companyContactSummary(contact) || "담당자"}</option>
-              ))}
-            </select>
-          </label>
-        )}
+        <CompanyCombobox
+          draft={draft}
+          setDraft={setDraft}
+          companies={data.companies}
+          companyLabel="고객/업체명"
+          contactLabel="담당자 선택"
+        />
         <TextField label="담당자" value={firstText(draft, ["contactName"])} onChange={(value) => updateField("contactName", value)} placeholder="담당자명" />
         <TextField label="연락처" value={firstText(draft, ["contactPhone"])} onChange={(value) => updateField("contactPhone", value)} placeholder="010-0000-0000" />
         <TextField label="이메일" value={firstText(draft, ["contactEmail"])} onChange={(value) => updateField("contactEmail", value)} placeholder="name@example.com" />
@@ -1866,52 +1981,13 @@ function SalesEditor({
         </button>
       </div>
       <div className="form-grid">
-        <label className="field">
-          <span>업체 검색</span>
-          <input
-            type="search"
-            value={companySearch}
-            onChange={(event) => setCompanySearch(event.target.value)}
-            placeholder="업체명, 담당자, 연락처, 이메일"
-          />
-        </label>
-        <label className="field">
-          <span>업체 선택</span>
-          <select
-            value={draft.companyUnknown ? "__unknown" : firstText(draft, ["companyId"])}
-            onChange={(event) => selectCompany(event.target.value)}
-          >
-            <option value="">직접 입력 / 연결 안 함</option>
-            <option value="__unknown">미정</option>
-            {companyOptions.map((company, index) => (
-              <option key={recordId(company, index)} value={recordId(company, index)}>
-                {companyName(company) || "업체명 미입력"}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="selection-summary wide-field">
-          <strong>{selectedCompany ? companyName(selectedCompany) : (draft.companyUnknown ? "업체 미정" : "직접 입력")}</strong>
-          <span>
-            {[firstText(draft, ["contactName"]), firstText(draft, ["contactPhone"]), firstText(draft, ["contactEmail"])]
-              .filter(Boolean)
-              .join(" · ") || "담당자 정보 없음"}
-          </span>
-        </div>
-        <TextField label="고객/업체명" value={firstText(draft, ["company"])} onChange={(value) => updateField("company", value)} placeholder="업체명 또는 고객명" />
-        {contacts.length > 0 && (
-          <label className="field">
-            <span>담당자 선택</span>
-            <select value={firstText(draft, ["contactId"])} onChange={(event) => selectContact(event.target.value)}>
-              <option value="">직접 입력</option>
-              {contacts.map((contact, index) => (
-                <option key={recordId(contact, index)} value={recordId(contact, index)}>
-                  {companyContactSummary(contact) || "담당자"}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        <CompanyCombobox
+          draft={draft}
+          setDraft={setDraft}
+          companies={data.companies}
+          companyLabel="고객/업체명"
+          contactLabel="담당자 선택"
+        />
         <TextField label="담당자" value={firstText(draft, ["contactName"])} onChange={(value) => updateField("contactName", value)} placeholder="담당자명" />
         <TextField label="연락처" value={firstText(draft, ["contactPhone"])} onChange={(value) => updateField("contactPhone", value)} placeholder="010-0000-0000" />
         <TextField label="이메일" value={firstText(draft, ["contactEmail"])} onChange={(value) => updateField("contactEmail", value)} placeholder="name@example.com" />
@@ -2627,49 +2703,13 @@ function WorkEditor({
       </div>
 
       <div className="form-grid">
-        <label className="field">
-          <span>업체 검색</span>
-          <input
-            type="search"
-            value={companySearch}
-            onChange={(event) => setCompanySearch(event.target.value)}
-            placeholder="업체명, 담당자, 연락처, 이메일"
-          />
-        </label>
-        <label className="field">
-          <span>관련 업체</span>
-          <select value={draft.companyUnknown ? "__unknown" : firstText(draft, ["companyId"])} onChange={(event) => selectCompany(event.target.value)}>
-            <option value="">직접 입력 / 연결 안 함</option>
-            <option value="__unknown">미정</option>
-            {companyOptions.map((company, index) => (
-              <option key={recordId(company, index)} value={recordId(company, index)}>
-                {companyName(company) || "업체명 미입력"}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="selection-summary wide-field">
-          <strong>{selectedCompany ? companyName(selectedCompany) : (draft.companyUnknown ? "업체 미정" : "직접 입력")}</strong>
-          <span>
-            {[firstText(draft, ["contactName"]), firstText(draft, ["contactPhone"]), firstText(draft, ["contactEmail"])]
-              .filter(Boolean)
-              .join(" · ") || "담당자 정보 없음"}
-          </span>
-        </div>
-        <TextField label="업체명" value={firstText(draft, ["company"])} onChange={(value) => updateField("company", value)} placeholder="업체명 또는 미정" />
-        {contacts.length > 0 && (
-          <label className="field">
-            <span>담당자 선택</span>
-            <select value={firstText(draft, ["contactId"])} onChange={(event) => selectContact(event.target.value)}>
-              <option value="">직접 입력</option>
-              {contacts.map((contact, index) => (
-                <option key={recordId(contact, index)} value={recordId(contact, index)}>
-                  {companyContactSummary(contact) || "담당자"}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        <CompanyCombobox
+          draft={draft}
+          setDraft={setDraft}
+          companies={data.companies}
+          companyLabel="업체명"
+          contactLabel="담당자 선택"
+        />
         <TextField label={type === "output" ? "담당자(요청자)" : "담당자"} value={firstText(draft, ["contactName"])} onChange={(value) => updateField("contactName", value)} placeholder="담당자명" />
         <TextField label="담당자 연락처" value={firstText(draft, ["contactPhone"])} onChange={(value) => updateField("contactPhone", value)} placeholder="010-0000-0000" />
         <TextField label="담당자 이메일" value={firstText(draft, ["contactEmail"])} onChange={(value) => updateField("contactEmail", value)} placeholder="name@example.com" />
