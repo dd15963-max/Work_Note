@@ -90,6 +90,10 @@ body.file-modal-open {
   overflow: hidden;
 }
 
+body.file-modal-open .file-preview-overlay {
+  z-index: 120;
+}
+
 @media (max-width: 900px) {
   .inline-file-panel,
   .sales-detail-panel.file-modal-panel {
