@@ -1,0 +1,115 @@
+.inline-file-panel,
+.sales-detail-panel.file-modal-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  border: 0;
+  padding: 24px;
+  background: rgba(16, 24, 40, 0.56);
+}
+
+.inline-file-panel > .sales-file-manager,
+.sales-detail-panel.file-modal-panel > .sales-detail-grid {
+  width: min(1180px, calc(100vw - 48px));
+  max-height: min(820px, calc(100dvh - 48px));
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 24px 70px rgba(16, 24, 40, 0.28);
+  padding: 18px;
+}
+
+.sales-detail-panel.file-modal-panel > .sales-detail-grid {
+  grid-template-columns: 1fr;
+}
+
+.sales-detail-panel.file-modal-panel .wide-detail-section {
+  grid-column: 1 / -1;
+}
+
+.file-modal-close {
+  position: absolute;
+  top: 26px;
+  right: 26px;
+  z-index: 2;
+  min-width: 38px;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(16, 24, 40, 0.16);
+}
+
+.file-modal-close:hover,
+.file-modal-close:focus-visible {
+  border-color: var(--primary);
+  color: var(--primary);
+  outline: 3px solid rgba(31, 111, 235, 0.14);
+}
+
+.inline-file-panel .sales-file-manager::before,
+.sales-detail-panel.file-modal-panel .wide-detail-section::before {
+  content: "파일함";
+  display: block;
+  margin: 0 48px 12px 0;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.inline-file-panel .sales-file-manager,
+.sales-detail-panel.file-modal-panel .sales-file-manager {
+  gap: 14px;
+}
+
+.inline-file-panel .file-upload-panel,
+.sales-detail-panel.file-modal-panel .file-upload-panel {
+  background: #f8fafc;
+}
+
+.inline-file-panel .attachment-editor-list,
+.sales-detail-panel.file-modal-panel .attachment-editor-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.inline-file-panel .empty-inline,
+.sales-detail-panel.file-modal-panel .empty-inline {
+  grid-column: 1 / -1;
+}
+
+body.file-modal-open {
+  overflow: hidden;
+}
+
+@media (max-width: 900px) {
+  .inline-file-panel,
+  .sales-detail-panel.file-modal-panel {
+    padding: 12px;
+  }
+
+  .inline-file-panel > .sales-file-manager,
+  .sales-detail-panel.file-modal-panel > .sales-detail-grid {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    padding: 14px;
+  }
+
+  .file-modal-close {
+    top: 14px;
+    right: 14px;
+  }
+
+  .inline-file-panel .attachment-editor-list,
+  .sales-detail-panel.file-modal-panel .attachment-editor-list {
+    grid-template-columns: 1fr;
+  }
+}
