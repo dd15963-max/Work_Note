@@ -73,6 +73,12 @@
     const status = firstText(row, ["status"]);
     return isAdvance ? status.includes("차감 완료") || status.includes("처리 완료") : status.includes("입금 완료") || status.includes("처리 완료");
   };
+  const setText = (element, value) => {
+    if (element && element.textContent !== value) element.textContent = value;
+  };
+  const setAttr = (element, name, value) => {
+    if (element && element.getAttribute(name) !== value) element.setAttribute(name, value);
+  };
   const addItem = (items, record, index, dateValue, title, detail, type, status, priority, suffix = "") => {
     const date = parseDateKey(dateValue);
     if (!date) return;
@@ -193,8 +199,8 @@
           Array.from(cell.querySelectorAll(".calendar-chip")).forEach((chip, chipIndex) => {
             const item = dateItems[chipIndex];
             if (!item) return;
-            chip.textContent = item.title;
-            chip.setAttribute("title", [item.title, item.detail].filter(Boolean).join(" "));
+            setText(chip, item.title);
+            setAttr(chip, "title", [item.title, item.detail].filter(Boolean).join(" "));
           });
         });
       }
@@ -203,10 +209,8 @@
       Array.from(document.querySelectorAll(".today-list .schedule-list-item")).forEach((button, index) => {
         const item = todayItems[index];
         if (!item) return;
-        const title = button.querySelector("strong");
-        const detail = button.querySelector("p");
-        if (title) title.textContent = item.title;
-        if (detail) detail.textContent = item.detail || "상세 내용 없음";
+        setText(button.querySelector("strong"), item.title);
+        setText(button.querySelector("p"), item.detail || "상세 내용 없음");
       });
     } finally {
       applying = false;
