@@ -1,64 +1,112 @@
 (() => {
-  const guarded = new WeakSet();
-  const EDITABLE_SELECTOR = [
-    "input",
+  const TEXT_EDIT_SELECTOR = [
     "textarea",
-    "select",
+    "input:not([type])",
+    "input[type='text']",
+    "input[type='search']",
+    "input[type='email']",
+    "input[type='url']",
+    "input[type='tel']",
+    "input[type='password']",
+    "input[type='number']",
     "[contenteditable='true']",
     "[contenteditable='']"
   ].join(",");
-  const guardedKeys = new Set([" ", "Spacebar", "Enter"]);
+  const trailingWhitespacePattern = /[\s\u00a0]$/;
+  const remembered = new WeakMap();
+  const scheduled = new WeakSet();
 
-  const isEditable = (element) => {
-    if (!(element instanceof Element)) return false;
-    const editable = element.closest(EDITABLE_SELECTOR);
-    if (!editable) return false;
-    if (editable.matches("input[type='button'], input[type='submit'], input[type='reset'], input[type='checkbox'], input[type='radio'], input[type='file']")) return false;
-    return true;
+  const isTextEditable = (element) => element instanceof Element && Boolean(element.closest(TEXT_EDIT_SELECTOR));
+
+  const editableTarget = (target) => {
+    if (!(target instanceof Element)) return null;
+    return target.closest(TEXT_EDIT_SELECTOR);
   };
 
-  const shouldGuard = (event) => {
-    if (!guardedKeys.has(event.key)) return false;
-    if (!isEditable(event.target)) return false;
-    return true;
+  const readValue = (element) => {
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) return element.value;
+    return element.textContent || "";
   };
 
-  const stopParentShortcuts = (event) => {
-    if (!shouldGuard(event)) return;
-    event.stopPropagation();
+  const writeValue = (element, value) => {
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+      element.value = value;
+      return;
+    }
+    element.textContent = value;
   };
 
-  const installGuard = (element) => {
-    if (!(element instanceof Element) || guarded.has(element)) return;
-    if (!element.matches(EDITABLE_SELECTOR)) return;
-    guarded.add(element);
-    element.addEventListener("keydown", stopParentShortcuts);
-    element.addEventListener("keypress", stopParentShortcuts);
-    element.addEventListener("keyup", stopParentShortcuts);
+  const selectionOf = (element) => {
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+      return {
+        start: element.selectionStart,
+        end: element.selectionEnd
+      };
+    }
+    return { start: null, end: null };
   };
 
-  const scan = (root = document) => {
-    if (root instanceof Element && root.matches(EDITABLE_SELECTOR)) installGuard(root);
-    root.querySelectorAll?.(EDITABLE_SELECTOR).forEach(installGuard);
+  const restoreSelection = (element, selection) => {
+    if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) return;
+    if (selection.start === null || selection.end === null) return;
+    try {
+      element.setSelectionRange(selection.start, selection.end);
+    } catch {
+      // Some input types do not allow selection ranges.
+    }
   };
 
-  const scheduleScan = (() => {
-    let scheduled = false;
-    return () => {
-      if (scheduled) return;
-      scheduled = true;
+  const shouldRestore = (current, raw) => {
+    if (!raw || raw === current) return false;
+    if (!trailingWhitespacePattern.test(raw)) return false;
+    if (raw.trimEnd() === current) return true;
+    if (raw.replace(/[\s\u00a0]+$/g, "") === current) return true;
+    return false;
+  };
+
+  const scheduleRestore = (element) => {
+    if (scheduled.has(element)) return;
+    scheduled.add(element);
+    window.requestAnimationFrame(() => {
       window.setTimeout(() => {
-        scheduled = false;
-        scan();
-      }, 30);
-    };
-  })();
+        scheduled.delete(element);
+        const data = remembered.get(element);
+        if (!data) return;
+        if (document.activeElement !== element) return;
+        const current = readValue(element);
+        if (!shouldRestore(current, data.value)) return;
+        writeValue(element, data.value);
+        restoreSelection(element, data.selection);
+      }, 0);
+    });
+  };
 
-  window.addEventListener("DOMContentLoaded", () => scan());
-  document.addEventListener("focusin", (event) => {
-    const editable = event.target instanceof Element ? event.target.closest(EDITABLE_SELECTOR) : null;
-    if (editable) installGuard(editable);
-  });
-  new MutationObserver(scheduleScan).observe(document.documentElement, { childList: true, subtree: true });
-  scan();
+  const remember = (element) => {
+    if (!isTextEditable(element)) return;
+    remembered.set(element, {
+      value: readValue(element),
+      selection: selectionOf(element)
+    });
+    scheduleRestore(element);
+  };
+
+  document.addEventListener("input", (event) => {
+    const target = editableTarget(event.target);
+    if (target) remember(target);
+  }, true);
+
+  document.addEventListener("keyup", (event) => {
+    const target = editableTarget(event.target);
+    if (!target) return;
+    if (event.key === " " || event.key === "Spacebar" || event.key === "Enter") remember(target);
+  }, true);
+
+  document.addEventListener("beforeinput", (event) => {
+    const target = editableTarget(event.target);
+    if (!target) return;
+    const data = event.data || "";
+    if (data === " " || data === "\n") {
+      window.setTimeout(() => remember(target), 0);
+    }
+  }, true);
 })();
