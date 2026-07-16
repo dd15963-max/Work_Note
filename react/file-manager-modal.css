@@ -13,7 +13,7 @@
 
 .inline-file-panel > .sales-file-manager,
 .sales-detail-panel.file-modal-panel > .sales-detail-grid {
-  width: min(1180px, calc(100vw - 48px));
+  width: min(1280px, calc(100vw - 48px));
   max-height: min(820px, calc(100dvh - 48px));
   overflow: auto;
   border: 1px solid var(--line);
@@ -78,7 +78,106 @@
 
 .inline-file-panel .attachment-editor-list,
 .sales-detail-panel.file-modal-panel .attachment-editor-list {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.inline-file-panel .attachment-editor-card,
+.sales-detail-panel.file-modal-panel .attachment-editor-card {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.82fr) minmax(0, 1.55fr);
+  gap: 12px;
+  align-items: center;
+  border-left: 4px solid var(--primary);
+  padding: 10px 12px;
+}
+
+.inline-file-panel .attachment-title-row,
+.sales-detail-panel.file-modal-panel .attachment-title-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.inline-file-panel .attachment-title-row > div,
+.sales-detail-panel.file-modal-panel .attachment-title-row > div {
+  min-width: 0;
+}
+
+.inline-file-panel .attachment-title-row strong,
+.sales-detail-panel.file-modal-panel .attachment-title-row strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inline-file-panel .attachment-title-row span,
+.sales-detail-panel.file-modal-panel .attachment-title-row span {
+  display: block;
+  margin-top: 3px;
+  white-space: nowrap;
+}
+
+.inline-file-panel .attachment-actions,
+.sales-detail-panel.file-modal-panel .attachment-actions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.inline-file-panel .attachment-actions button,
+.sales-detail-panel.file-modal-panel .attachment-actions button {
+  min-width: 36px;
+  min-height: 34px;
+  padding: 6px 9px;
+  white-space: nowrap;
+}
+
+.inline-file-panel .attachment-editor-grid,
+.sales-detail-panel.file-modal-panel .attachment-editor-grid {
+  display: grid;
+  grid-template-columns: 136px 146px minmax(220px, 1fr) 116px;
+  gap: 8px;
+  align-items: end;
+}
+
+.inline-file-panel .attachment-editor-grid .field,
+.sales-detail-panel.file-modal-panel .attachment-editor-grid .field {
+  gap: 4px;
+}
+
+.inline-file-panel .attachment-editor-grid .field span,
+.sales-detail-panel.file-modal-panel .attachment-editor-grid .field span {
+  font-size: 12px;
+}
+
+.inline-file-panel .attachment-editor-grid input,
+.inline-file-panel .attachment-editor-grid select,
+.sales-detail-panel.file-modal-panel .attachment-editor-grid input,
+.sales-detail-panel.file-modal-panel .attachment-editor-grid select {
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+.inline-file-panel .attachment-editor-actions,
+.sales-detail-panel.file-modal-panel .attachment-editor-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(52px, 1fr));
+  gap: 6px;
+  align-items: end;
+  justify-content: stretch;
+}
+
+.inline-file-panel .attachment-editor-actions button,
+.sales-detail-panel.file-modal-panel .attachment-editor-actions button {
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 8px;
+  white-space: nowrap;
 }
 
 .inline-file-panel .empty-inline,
@@ -92,6 +191,18 @@ body.file-modal-open {
 
 body.file-modal-open .file-preview-overlay {
   z-index: 120;
+}
+
+@media (max-width: 1080px) {
+  .inline-file-panel .attachment-editor-card,
+  .sales-detail-panel.file-modal-panel .attachment-editor-card {
+    grid-template-columns: 1fr;
+  }
+
+  .inline-file-panel .attachment-editor-grid,
+  .sales-detail-panel.file-modal-panel .attachment-editor-grid {
+    grid-template-columns: 140px 150px minmax(220px, 1fr) 116px;
+  }
 }
 
 @media (max-width: 900px) {
@@ -112,8 +223,23 @@ body.file-modal-open .file-preview-overlay {
     right: 14px;
   }
 
-  .inline-file-panel .attachment-editor-list,
-  .sales-detail-panel.file-modal-panel .attachment-editor-list {
+  .inline-file-panel .attachment-editor-grid,
+  .sales-detail-panel.file-modal-panel .attachment-editor-grid {
     grid-template-columns: 1fr;
+  }
+
+  .inline-file-panel .attachment-title-row,
+  .sales-detail-panel.file-modal-panel .attachment-title-row {
+    grid-template-columns: 1fr;
+  }
+
+  .inline-file-panel .attachment-actions,
+  .sales-detail-panel.file-modal-panel .attachment-actions {
+    justify-content: flex-start;
+  }
+
+  .inline-file-panel .attachment-editor-actions,
+  .sales-detail-panel.file-modal-panel .attachment-editor-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
