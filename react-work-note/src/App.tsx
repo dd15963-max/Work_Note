@@ -37,7 +37,7 @@ type ListMode = "all" | "active" | "hold" | "closed" | "failed";
 type SalesSortKey = "priority" | "updated" | "nextContact" | "company";
 type SortDirection = "asc" | "desc";
 type AnyRecord = Record<string, unknown>;
-type AttachmentCollectionKey = "companies" | "notes" | "settlementTasks" | "outputTasks" | "otherTasks";
+type AttachmentCollectionKey = "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks";
 type AttachmentOwnerType = "company" | "sales" | "materialSales" | "settlement" | "output" | "other";
 
 type WorkNoteData = {
@@ -141,6 +141,7 @@ const SALES_LIST_MODE_OPTIONS: Array<{ id: ListMode; label: string }> = [
 const MATERIAL_SALES_STATUS_OPTIONS = ["신규 문의", "1차 대응 완료", "검토 중", "납품 완료", "입금 확인 완료"];
 const MATERIAL_QUOTE_STATUS_OPTIONS = ["견적 전", "견적 완료", "견적 불필요"];
 const MATERIAL_REVENUE_TYPE_OPTIONS = ["소재/소모품", "출력서비스", "타사 상품", "기타"];
+const TAX_INVOICE_STATUS_OPTIONS = ["", "발행 예정", "발행 완료", "발행 취소", "재발행 완료"];
 const LEGACY_MATERIAL_SALES_CATEGORIES = ["소재", "타사 소재"];
 const SALES_SORT_OPTIONS: Array<{ id: SalesSortKey; label: string }> = [
   { id: "priority", label: "중요도순" },
@@ -1551,7 +1552,15 @@ function MaterialSalesSection({
   onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
 }) {
   const [editingRecord, setEditingRecord] = useState<AnyRecord | null>(null);
+  const [filePanel, setFilePanel] = useState<string | null>(null);
   const [mode, setMode] = useState<ListMode>("all");
+  const fileHandlers = createAttachmentHandlers({
+    data,
+    onPersist,
+    collectionKey: "materialSalesNotes",
+    ownerType: "materialSales",
+    reasonLabel: "소재/소모품 파일"
+  });
   const searched = useMemo(
     () => asArray(data.materialSalesNotes).filter((record) => matchesRecord(record, query)),
     [data.materialSalesNotes, query]
@@ -1589,13 +1598,19 @@ function MaterialSalesSection({
     setEditingRecord(null);
   };
 
-  const deleteRecord = (record: AnyRecord, index: number) => {
+  const deleteRecord = async (record: AnyRecord, index: number) => {
     const id = recordId(record, index);
-    if (!confirm(`${salesCustomer(record)} 소재/소모품 영업건을 삭제할까요?`)) return;
+    if (!confirm(`${salesCustomer(record)} 소재/소모품 영업건을 삭제할까요? 첨부 원본 파일도 이 브라우저 저장소에서 삭제됩니다.`)) return;
+    try {
+      await Promise.all(asArray(record.attachments).map((attachment) => deleteAttachmentRecord(firstText(attachment, ["id"]))));
+    } catch (error) {
+      if (!confirm(`첨부 파일 원본을 모두 삭제하지 못했습니다.\n${error instanceof Error ? error.message : String(error)}\n\n영업건 목록에서만 삭제할까요?`)) return;
+    }
     onPersist((current) => ({
       ...current,
       materialSalesNotes: asArray(current.materialSalesNotes).filter((item, itemIndex) => recordId(item, itemIndex) !== id)
     }), "소재/소모품 영업건 삭제");
+    if (filePanel === id) setFilePanel(null);
   };
 
   const updateQuickField = (id: string, key: string, value: string) => {
@@ -1641,6 +1656,7 @@ function MaterialSalesSection({
         {records.map((record, index) => {
           const id = recordId(record, index);
           const items = asArray(record.items);
+          const attachments = asArray(record.attachments);
           return (
             <article className="task-card material-sales-card" key={id} data-record-id={id}>
               <div className="card-heading">
@@ -1658,13 +1674,19 @@ function MaterialSalesSection({
                 </div>
               </div>
               <div className="material-sales-summary">
+                <InfoLine label="문의일자" value={formatOptionalDate(firstText(record, ["inquiryDate"])) || "-"} />
                 <InfoLine label="판매품목" value={materialSalesItemsSummary(record) || "품목 없음"} />
                 <InfoLine label="예상매출" value={formatMoney(firstText(record, ["expectedRevenueAmount"])) || formatMoney(String(calculateMaterialSalesTotal(items)))} />
                 <InfoLine label="종합매출" value={formatMoney(firstText(record, ["revenueAmount"])) || "-"} />
                 <InfoLine label="매출구분" value={firstText(record, ["revenueType"]) || "-"} />
+                <InfoLine label="파일" value={attachmentCountText(record)} />
                 <InfoLine label="메모" value={firstText(record, ["memo"])} />
               </div>
               <div className="card-actions">
+                <button type="button" onClick={() => setFilePanel(filePanel === id ? null : id)}>
+                  <FileText size={15} />
+                  파일 {attachments.length}
+                </button>
                 <button type="button" onClick={() => setEditingRecord(prepareMaterialSalesDraft(record, index))}>
                   <Pencil size={15} />
                   수정
@@ -1675,6 +1697,18 @@ function MaterialSalesSection({
                 </button>
                 <small>{formatDateTime(firstText(record, ["updatedAt"]))}</small>
               </div>
+              {filePanel === id && (
+                <div className="inline-file-panel">
+                  <SalesFileManager
+                    noteId={id}
+                    attachments={attachments}
+                    onUpload={fileHandlers.uploadAttachments}
+                    onUpdateMeta={fileHandlers.updateAttachmentMeta}
+                    onDelete={fileHandlers.deleteAttachment}
+                    emptyDetail="소재/소모품 영업건에 보낸 견적서, 세금계산서, 메일 캡처와 관련 자료를 업로드해 두면 다시 다운로드할 수 있습니다."
+                  />
+                </div>
+              )}
             </article>
           );
         })}
@@ -1906,6 +1940,7 @@ function MaterialSalesEditor({
         <TextField label="담당자" value={firstText(draft, ["contactName"])} onChange={(value) => updateField("contactName", value)} placeholder="담당자명" />
         <TextField label="연락처" value={firstText(draft, ["contactPhone"])} onChange={(value) => updateField("contactPhone", value)} placeholder="010-0000-0000" />
         <TextField label="이메일" value={firstText(draft, ["contactEmail"])} onChange={(value) => updateField("contactEmail", value)} placeholder="name@example.com" />
+        <TextField label="문의 일자" type="date" value={firstText(draft, ["inquiryDate"])} onChange={(value) => updateField("inquiryDate", value)} />
         <SelectField label="진행 상태" value={materialSalesStatus(draft)} onChange={(value) => updateField("status", value)} options={MATERIAL_SALES_STATUS_OPTIONS} />
         <SelectField label="견적 여부" value={materialSalesQuoteStatus(draft)} onChange={(value) => updateField("quoteStatus", value)} options={MATERIAL_QUOTE_STATUS_OPTIONS} />
         <SelectField label="매출 구분" value={firstText(draft, ["revenueType"]) || MATERIAL_REVENUE_TYPE_OPTIONS[0]} onChange={(value) => updateField("revenueType", value)} options={MATERIAL_REVENUE_TYPE_OPTIONS} />
@@ -2809,6 +2844,7 @@ function WorkEditor({
           </>
         )}
 
+        {(type === "settlement" || type === "output") && <TaxInvoiceFields draft={draft} updateField={updateField} />}
         <TextAreaField label="업무 메모" value={rawText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="업무 조건, 주의사항, 진행 내용" wide />
       </div>
       <div className="form-actions">
@@ -2818,6 +2854,37 @@ function WorkEditor({
         <button type="button" className="icon-text-button" onClick={onCancel}>
           취소
         </button>
+      </div>
+    </section>
+  );
+}
+
+function TaxInvoiceFields({
+  draft,
+  updateField
+}: {
+  draft: AnyRecord;
+  updateField: (key: string, value: string | boolean | AnyRecord[]) => void;
+}) {
+  const invoiceStatus = firstText(draft, ["taxInvoiceStatus", "invoiceStatus"]);
+  const needsFollowUp = invoiceStatus === "발행 취소" || invoiceStatus === "재발행 완료";
+  return (
+    <section className="tax-invoice-fields wide-field">
+      <div className="section-title-row compact-section-title">
+        <div>
+          <p className="eyebrow">TAX INVOICE</p>
+          <h3>세금계산서</h3>
+        </div>
+      </div>
+      <div className="tax-invoice-grid">
+        <TextField label="발행일" type="date" value={firstText(draft, ["taxInvoiceIssueDate", "invoiceIssueDate"])} onChange={(value) => updateField("taxInvoiceIssueDate", value)} />
+        <SelectField label="발행 상태" value={invoiceStatus} onChange={(value) => updateField("taxInvoiceStatus", value)} options={TAX_INVOICE_STATUS_OPTIONS} />
+        {needsFollowUp && (
+          <>
+            <TextField label="취소 사유" value={firstText(draft, ["taxInvoiceCancelReason", "invoiceCancelReason"])} onChange={(value) => updateField("taxInvoiceCancelReason", value)} placeholder="취소 또는 재발행 사유" />
+            <TextField label="재발행 일자" type="date" value={firstText(draft, ["taxInvoiceReissueDate", "invoiceReissueDate"])} onChange={(value) => updateField("taxInvoiceReissueDate", value)} />
+          </>
+        )}
       </div>
     </section>
   );
@@ -3021,6 +3088,7 @@ function WorkTaskDetails({
           <InfoLine label={isAdvance ? "차감" : "입금"} value={formatMoneyWithVat(firstText(record, ["deductedAmount", "receivedAmount"]), isAdvance ? record.deductedAmountVatIncluded : record.receivedAmountVatIncluded)} />
           <InfoLine label="잔액" value={settlementRemainingText(record)} />
           <InfoLine label="다음" value={joinParts([formatOptionalDate(firstText(record, ["nextActionDate"])), firstText(record, ["nextAction"])], " · ")} />
+          <InfoLine label="세금계산서" value={taxInvoiceSummary(record)} />
           <InfoLine label="파일" value={attachmentCountText(record)} />
           <InfoLine label="수정" value={formatDateTime(firstText(record, ["updatedAt"]))} />
         </div>
@@ -3041,6 +3109,7 @@ function WorkTaskDetails({
           <InfoLine label="기한" value={deadlineText(record)} />
           <InfoLine label="출력" value={firstText(record, ["outputType", "category", "taskType"])} />
           <InfoLine label="주말" value={record.includeWeekends ? "포함" : "제외"} />
+          <InfoLine label="세금계산서" value={taxInvoiceSummary(record)} />
           <InfoLine label="파일" value={attachmentCountText(record)} />
           <InfoLine label="수정" value={formatDateTime(firstText(record, ["updatedAt"]))} />
         </div>
@@ -4597,6 +4666,10 @@ function createBlankSalesNote(): AnyRecord {
     revenueAmountVatIncluded: false,
     revenueType: "",
     memo: "",
+    taxInvoiceIssueDate: "",
+    taxInvoiceStatus: "",
+    taxInvoiceCancelReason: "",
+    taxInvoiceReissueDate: "",
     attachments: []
   };
 }
@@ -4681,13 +4754,19 @@ function createBlankMaterialSalesNote(): AnyRecord {
     contactName: "",
     contactPhone: "",
     contactEmail: "",
+    inquiryDate: "",
     items: [createBlankMaterialSalesItem()],
     status: MATERIAL_SALES_STATUS_OPTIONS[0],
     quoteStatus: MATERIAL_QUOTE_STATUS_OPTIONS[0],
     expectedRevenueAmount: "",
     revenueAmount: "",
     revenueType: MATERIAL_REVENUE_TYPE_OPTIONS[0],
-    memo: ""
+    memo: "",
+    taxInvoiceIssueDate: "",
+    taxInvoiceStatus: "",
+    taxInvoiceCancelReason: "",
+    taxInvoiceReissueDate: "",
+    attachments: []
   };
 }
 
@@ -4700,13 +4779,15 @@ function prepareMaterialSalesDraft(record: AnyRecord, index: number): AnyRecord 
     contactName: firstText(record, ["contactName", "managerName"]),
     contactPhone: firstText(record, ["contactPhone", "phone", "contact", "mobile"]),
     contactEmail: firstText(record, ["contactEmail", "email"]),
+    inquiryDate: firstText(record, ["inquiryDate"]),
     items: normalizeMaterialSalesItems(asArray(record.items)),
     status: materialSalesStatus(record),
     quoteStatus: materialSalesQuoteStatus(record),
     expectedRevenueAmount: firstText(record, ["expectedRevenueAmount"]),
     revenueAmount: firstText(record, ["revenueAmount"]),
     revenueType: firstText(record, ["revenueType"]) || MATERIAL_REVENUE_TYPE_OPTIONS[0],
-    memo: rawText(record, ["memo", "description", "note"])
+    memo: rawText(record, ["memo", "description", "note"]),
+    attachments: asArray(record.attachments)
   };
 }
 
@@ -4728,13 +4809,15 @@ function normalizeMaterialSalesDraft(draft: AnyRecord, companies: AnyRecord[]): 
     contactName: companyUnknown ? "" : (contact ? firstText(contact, ["name", "contactName"]) : firstText(draft, ["contactName"])),
     contactPhone: companyUnknown ? "" : (contact ? firstText(contact, ["phone", "contactPhone"]) : firstText(draft, ["contactPhone"])),
     contactEmail: companyUnknown ? "" : (contact ? firstText(contact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])),
+    inquiryDate: firstText(draft, ["inquiryDate"]),
     items: normalizeMaterialSalesItems(asArray(draft.items)),
     status: MATERIAL_SALES_STATUS_OPTIONS.includes(firstText(draft, ["status"])) ? firstText(draft, ["status"]) : MATERIAL_SALES_STATUS_OPTIONS[0],
     quoteStatus: MATERIAL_QUOTE_STATUS_OPTIONS.includes(firstText(draft, ["quoteStatus"])) ? firstText(draft, ["quoteStatus"]) : MATERIAL_QUOTE_STATUS_OPTIONS[0],
     expectedRevenueAmount: normalizeAmountString(firstText(draft, ["expectedRevenueAmount"])),
     revenueAmount: normalizeAmountString(firstText(draft, ["revenueAmount"])),
     revenueType: MATERIAL_REVENUE_TYPE_OPTIONS.includes(firstText(draft, ["revenueType"])) ? firstText(draft, ["revenueType"]) : MATERIAL_REVENUE_TYPE_OPTIONS[0],
-    memo: rawText(draft, ["memo"])
+    memo: rawText(draft, ["memo"]),
+    attachments: asArray(draft.attachments)
   };
 }
 
@@ -4943,6 +5026,10 @@ function createBlankWorkTask(type: "settlement" | "output" | "other"): AnyRecord
     status: "대기",
     priority: "보통",
     memo: "",
+    taxInvoiceIssueDate: "",
+    taxInvoiceStatus: "",
+    taxInvoiceCancelReason: "",
+    taxInvoiceReissueDate: "",
     attachments: []
   };
   if (type === "settlement") {
@@ -4998,6 +5085,10 @@ function prepareWorkDraft(record: AnyRecord, index: number, type: "settlement" |
     status: firstText(record, ["status", "progressStatus"]) || firstText(blank, ["status"]),
     priority: firstText(record, ["priority", "importance"]) || "보통",
     memo: firstText(record, ["memo", "description", "note"]),
+    taxInvoiceIssueDate: firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]),
+    taxInvoiceStatus: firstText(record, ["taxInvoiceStatus", "invoiceStatus"]),
+    taxInvoiceCancelReason: firstText(record, ["taxInvoiceCancelReason", "invoiceCancelReason"]),
+    taxInvoiceReissueDate: firstText(record, ["taxInvoiceReissueDate", "invoiceReissueDate"]),
     paymentSchedule: asArray(record.paymentSchedule)
   };
 }
@@ -5022,7 +5113,8 @@ function normalizeWorkDraft(draft: AnyRecord, type: "settlement" | "output" | "o
     startDate: firstText(draft, ["startDate"]),
     endDate: firstText(draft, ["endDate"]),
     includeWeekends: Boolean(draft.includeWeekends),
-    memo: firstText(draft, ["memo"])
+    memo: firstText(draft, ["memo"]),
+    ...normalizeTaxInvoiceDraft(draft)
   };
 
   if (type === "settlement") {
@@ -5068,6 +5160,17 @@ function normalizeWorkDraft(draft: AnyRecord, type: "settlement" | "output" | "o
     owner: firstText(draft, ["owner"]),
     status: WORK_STATUS_OPTIONS.includes(firstText(draft, ["status"])) ? firstText(draft, ["status"]) : "대기",
     priority: PRIORITY_OPTIONS.includes(firstText(draft, ["priority"])) ? firstText(draft, ["priority"]) : "보통"
+  };
+}
+
+function normalizeTaxInvoiceDraft(draft: AnyRecord): AnyRecord {
+  const status = firstText(draft, ["taxInvoiceStatus", "invoiceStatus"]);
+  const normalizedStatus = TAX_INVOICE_STATUS_OPTIONS.includes(status) ? status : "";
+  return {
+    taxInvoiceIssueDate: firstText(draft, ["taxInvoiceIssueDate", "invoiceIssueDate"]),
+    taxInvoiceStatus: normalizedStatus,
+    taxInvoiceCancelReason: normalizedStatus === "발행 취소" || normalizedStatus === "재발행 완료" ? firstText(draft, ["taxInvoiceCancelReason", "invoiceCancelReason"]) : "",
+    taxInvoiceReissueDate: normalizedStatus === "재발행 완료" ? firstText(draft, ["taxInvoiceReissueDate", "invoiceReissueDate"]) : ""
   };
 }
 
@@ -5303,11 +5406,13 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
     if (!rows.length) {
       addScheduleItem(items, task, index, firstText(task, ["nextActionDate", "nextProcessDate", "nextDate", "dueDate", "dueEndDate", "endDate"]), `[정산] ${title} 처리`, firstText(task, ["nextAction", "memo", "description"]), "settlement", status, priority);
     }
+    addTaxInvoiceScheduleItem(items, task, index, "settlement", `[정산] ${title} 세금계산서`, status, priority);
   });
 
   data.outputTasks.forEach((task, index) => {
     if (isClosed(firstText(task, ["status", "progressStatus"]))) return;
     addWorkDateRangeItems(items, task, index, "output", `[출력] ${firstText(task, ["outputType"]) || workTitle(task, "output")}`, firstText(task, ["memo", "description"]));
+    addTaxInvoiceScheduleItem(items, task, index, "output", `[출력] ${workTitle(task, "output")} 세금계산서`, firstText(task, ["status", "progressStatus"]), firstText(task, ["priority", "importance"]));
   });
 
   data.otherTasks.forEach((task, index) => {
@@ -5343,6 +5448,19 @@ function addScheduleItem(
     status,
     priority
   });
+}
+
+function addTaxInvoiceScheduleItem(
+  target: ScheduleItem[],
+  record: AnyRecord,
+  index: number,
+  type: Extract<ScheduleItem["type"], "settlement" | "output">,
+  title: string,
+  status: string,
+  priority: string
+) {
+  if (firstText(record, ["taxInvoiceStatus", "invoiceStatus"]) !== "발행 예정") return;
+  addScheduleItem(target, record, index, firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]), title, "세금계산서 발행 예정", type, status, priority, "tax-invoice");
 }
 
 function addWorkDateRangeItems(
@@ -5637,6 +5755,15 @@ function salesPriority(note: AnyRecord): string {
 
 function salesInterest(note: AnyRecord): string {
   return firstText(note, ["interest", "product", "interestProduct", "interestedProduct"]);
+}
+
+function taxInvoiceSummary(record: AnyRecord): string {
+  const status = firstText(record, ["taxInvoiceStatus", "invoiceStatus"]);
+  const date = formatOptionalDate(firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]));
+  const reissueDate = formatOptionalDate(firstText(record, ["taxInvoiceReissueDate", "invoiceReissueDate"]));
+  const reason = firstText(record, ["taxInvoiceCancelReason", "invoiceCancelReason"]);
+  if (!status && !date) return "-";
+  return joinParts([status || "상태 미정", date, reissueDate ? `재발행 ${reissueDate}` : "", reason], " · ");
 }
 
 function attachmentCountText(record: AnyRecord): string {
@@ -5983,3 +6110,5 @@ function groupByDate(items: ScheduleItem[]): Map<string, ScheduleItem[]> {
   });
   return map;
 }
+
+

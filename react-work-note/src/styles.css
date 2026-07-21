@@ -1454,7 +1454,25 @@ h2 {
   padding-top: 12px;
 }
 
-.work-schedule-editor {
+
+.tax-invoice-fields {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--surface-soft);
+}
+
+.tax-invoice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 760px) {
+  .tax-invoice-grid {
+    grid-template-columns: 1fr;
+  }
+}.work-schedule-editor {
   display: grid;
   gap: 12px;
   border: 1px solid var(--line);
