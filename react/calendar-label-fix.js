@@ -2,6 +2,7 @@
   const STORAGE_KEY = "salesNoteAppDataV1";
   const completedWords = ["완료", "종료", "실패", "취소"];
   const highPriorityWords = ["긴급", "높음", "중요"];
+  const TAX_INVOICE_PENDING = "발행 예정";
   let scheduled = false;
   let applying = false;
 
@@ -79,17 +80,20 @@
   const setAttr = (element, name, value) => {
     if (element && element.getAttribute(name) !== value) element.setAttribute(name, value);
   };
-  const addItem = (items, record, index, dateValue, title, detail, type, status, priority, suffix = "") => {
+  const addItem = (items, record, index, dateValue, title, detail, type, status, priority, suffix = "", portal = type) => {
     const date = parseDateKey(dateValue);
     if (!date) return;
     items.push({
       id: `${type}-${recordId(record, index)}-${suffix ? `${suffix}-` : ""}${date}-${items.length}`,
+      recordKey: recordId(record, index),
       date,
       title,
       detail: clean(detail),
       type,
+      portal,
       status: clean(status),
-      priority: clean(priority)
+      priority: clean(priority),
+      isInvoice: suffix === "tax-invoice"
     });
   };
   const addRangeItems = (items, record, index, type, title, detail) => {
@@ -113,6 +117,24 @@
       return {};
     }
   };
+  const addInvoiceItem = (items, record, index, titlePrefix = "영업") => {
+    const status = firstText(record, ["taxInvoiceStatus", "invoiceStatus"]);
+    const date = firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]);
+    if (status !== TAX_INVOICE_PENDING || !parseDateKey(date)) return;
+    addItem(
+      items,
+      record,
+      index,
+      date,
+      labelWithCompany(titlePrefix, salesCustomer(record), "세금계산서"),
+      "세금계산서 발행 예정",
+      "sales",
+      status,
+      firstText(record, ["priority", "importance"]),
+      "tax-invoice",
+      "sales"
+    );
+  };
   const collectItems = () => {
     const data = loadData();
     const items = [];
@@ -122,6 +144,10 @@
       const priority = firstText(note, ["priority", "importance"]);
       addItem(items, note, index, firstText(note, ["nextContactDate"]), labelWithCompany("영업", company, "연락"), firstText(note, ["nextAction"]), "sales", status, priority);
       addItem(items, note, index, firstText(note, ["meetingDate"]), labelWithCompany("영업", company, "미팅"), firstText(note, ["nextAction"]), "sales", status, priority);
+      addInvoiceItem(items, note, index, "영업");
+    });
+    asArray(data.materialSalesNotes).forEach((record, index) => {
+      addInvoiceItem(items, record, index, "영업");
     });
     asArray(data.settlementTasks).forEach((task, index) => {
       if (isClosed(firstText(task, ["status", "progressStatus"]))) return;
@@ -184,34 +210,97 @@
       return toDateKey(new Date(year, month, dayNumber));
     });
   };
+  const openRuntimeItem = (item) => {
+    const salesTab = Array.from(document.querySelectorAll(".portal-button")).find((button) => clean(button.textContent).includes("영업"));
+    salesTab?.click();
+    window.setTimeout(() => {
+      const target = document.querySelector(`.sales-row-group[data-record-id='${CSS.escape(item.recordKey)}']`) || document.querySelector(`.material-sales-card[data-record-id='${CSS.escape(item.recordKey)}']`);
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+      target?.classList.add("is-focus-target");
+      window.setTimeout(() => target?.classList.remove("is-focus-target"), 1600);
+    }, 180);
+  };
+  const createCalendarChip = (item) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = `calendar-chip ${item.type} runtime-calendar-item runtime-invoice-item`;
+    chip.textContent = item.title;
+    chip.title = [item.title, item.detail].filter(Boolean).join(" ");
+    chip.dataset.runtimeItemId = item.id;
+    chip.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openRuntimeItem(item);
+    });
+    return chip;
+  };
+  const createTodayItem = (item) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `schedule-list-item ${item.type} runtime-calendar-item runtime-invoice-item`;
+    button.dataset.runtimeItemId = item.id;
+    button.innerHTML = `
+      <div>
+        <strong></strong>
+        <p></p>
+      </div>
+      <div class="stacked-meta">
+        <span></span>
+        <small></small>
+      </div>
+    `;
+    setText(button.querySelector("strong"), item.title);
+    setText(button.querySelector("p"), item.detail || "세금계산서 발행 예정");
+    setText(button.querySelector(".stacked-meta span"), formatDate(item.date));
+    setText(button.querySelector(".stacked-meta small"), item.status);
+    button.addEventListener("click", () => openRuntimeItem(item));
+    return button;
+  };
+  const clearRuntimeItems = () => {
+    document.querySelectorAll(".runtime-calendar-item").forEach((element) => element.remove());
+  };
   const applyLabels = () => {
     if (applying) return;
     applying = true;
     try {
+      clearRuntimeItems();
       const query = currentQuery();
       const items = collectItems().filter((item) => matchesQuery(item, query));
+      const invoiceItems = items.filter((item) => item.isInvoice);
       const grid = document.querySelector(".calendar-grid");
       if (grid) {
         const cells = Array.from(grid.querySelectorAll(".calendar-cell"));
         const dates = inferCellDates(grid, cells);
         cells.forEach((cell, index) => {
-          const dateItems = items.filter((item) => item.date === dates[index]);
-          Array.from(cell.querySelectorAll(".calendar-chip")).forEach((chip, chipIndex) => {
+          const dateItems = items.filter((item) => item.date === dates[index] && !item.isInvoice);
+          Array.from(cell.querySelectorAll(".calendar-chip:not(.runtime-calendar-item)")).forEach((chip, chipIndex) => {
             const item = dateItems[chipIndex];
             if (!item) return;
             setText(chip, item.title);
             setAttr(chip, "title", [item.title, item.detail].filter(Boolean).join(" "));
           });
+          const wrapper = cell.querySelector(".calendar-items");
+          if (!wrapper) return;
+          invoiceItems
+            .filter((item) => item.date === dates[index])
+            .forEach((item) => wrapper.appendChild(createCalendarChip(item)));
         });
       }
       const todayKey = toDateKey(new Date());
-      const todayItems = items.filter((item) => item.date === todayKey);
-      Array.from(document.querySelectorAll(".today-list .schedule-list-item")).forEach((button, index) => {
-        const item = todayItems[index];
+      const todayBaseItems = items.filter((item) => item.date === todayKey && !item.isInvoice);
+      const todayInvoiceItems = invoiceItems.filter((item) => item.date === todayKey);
+      Array.from(document.querySelectorAll(".today-list .schedule-list-item:not(.runtime-calendar-item)")).forEach((button, index) => {
+        const item = todayBaseItems[index];
         if (!item) return;
         setText(button.querySelector("strong"), item.title);
         setText(button.querySelector("p"), item.detail || "상세 내용 없음");
       });
+      const todayList = document.querySelector(".today-list");
+      if (todayList) {
+        todayInvoiceItems.forEach((item) => todayList.appendChild(createTodayItem(item)));
+        const count = todayBaseItems.length + todayInvoiceItems.length;
+        const countElement = document.querySelector(".today-panel .section-title-row > span");
+        if (countElement) setText(countElement, `${count}건`);
+      }
     } finally {
       applying = false;
     }
