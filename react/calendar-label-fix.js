@@ -215,8 +215,10 @@
   };
   const setNativeValue = (input, value) => {
     const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")?.set;
-    setter ? setter.call(input, value) : input.value = value;
+    if (setter) setter.call(input, value);
+    else input.value = value;
     input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
   };
   const clearSearch = () => {
     const input = document.querySelector(".search-box input");
@@ -227,6 +229,20 @@
     button?.click();
     return Boolean(button);
   };
+  const resetSalesFilters = () => {
+    document.querySelectorAll(".list-toolbar select").forEach((select) => {
+      if (!(select instanceof HTMLSelectElement)) return;
+      if (Array.from(select.options).some((option) => option.value === "all") && select.value !== "all") {
+        setNativeValue(select, "all");
+      }
+    });
+  };
+  const findTarget = (item) => {
+    const wantsMaterial = item.sourceCollection === "materialSalesNotes";
+    const escaped = cssEscape(item.recordKey);
+    if (wantsMaterial) return document.querySelector(`.material-sales-card[data-record-id='${escaped}']`);
+    return document.querySelector(`.sales-row-group[data-record-id='${escaped}']`);
+  };
   const focusTargetElement = (target, openDetail) => {
     target.scrollIntoView({ behavior: "smooth", block: "center" });
     target.classList.add("is-focus-target");
@@ -234,28 +250,31 @@
       const row = target.querySelector("article.clickable-row") || target.querySelector(".table-row.clickable-row");
       row?.click();
     }
-    window.setTimeout(() => target.classList.remove("is-focus-target"), 2200);
+    window.setTimeout(() => target.classList.remove("is-focus-target"), 2400);
   };
   const openRuntimeItem = (item) => {
     clearSearch();
     clickButtonContaining(".portal-button", "영업");
     const wantsMaterial = item.sourceCollection === "materialSalesNotes";
-    const targetSelector = wantsMaterial
-      ? `.material-sales-card[data-record-id='${cssEscape(item.recordKey)}']`
-      : `.sales-row-group[data-record-id='${cssEscape(item.recordKey)}']`;
     let attempts = 0;
     const tryOpen = () => {
       attempts += 1;
-      clickButtonContaining(".memo-list-controls button", "전체");
       clickButtonContaining(".sales-section-tabs button", wantsMaterial ? "소재/소모품" : "장비 영업건");
-      const target = document.querySelector(targetSelector);
+      clickButtonContaining(".memo-list-controls button", "전체");
+      resetSalesFilters();
+      const target = findTarget(item);
       if (target) {
         focusTargetElement(target, !wantsMaterial);
         return;
       }
-      if (attempts < 18) window.setTimeout(tryOpen, 120);
+      if (attempts < 30) window.setTimeout(tryOpen, 120);
     };
     window.setTimeout(tryOpen, 80);
+  };
+  const findRuntimeItemFromElement = (element) => {
+    const id = element?.dataset?.runtimeItemId;
+    if (!id) return null;
+    return collectItems().find((item) => item.id === id) || null;
   };
   const createCalendarChip = (item) => {
     const chip = document.createElement("button");
@@ -264,6 +283,8 @@
     chip.textContent = item.title;
     chip.title = [item.title, item.detail].filter(Boolean).join(" ");
     chip.dataset.runtimeItemId = item.id;
+    chip.dataset.recordKey = item.recordKey;
+    chip.dataset.sourceCollection = item.sourceCollection;
     chip.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -276,6 +297,8 @@
     button.type = "button";
     button.className = `schedule-list-item ${item.type} runtime-calendar-item runtime-invoice-item`;
     button.dataset.runtimeItemId = item.id;
+    button.dataset.recordKey = item.recordKey;
+    button.dataset.sourceCollection = item.sourceCollection;
     button.innerHTML = `
       <div>
         <strong></strong>
@@ -292,6 +315,7 @@
     setText(button.querySelector(".stacked-meta small"), item.status);
     button.addEventListener("click", (event) => {
       event.preventDefault();
+      event.stopPropagation();
       openRuntimeItem(item);
     });
     return button;
@@ -355,6 +379,19 @@
     }, 30);
   };
 
+  document.addEventListener("click", (event) => {
+    const runtimeItem = event.target instanceof Element ? event.target.closest(".runtime-invoice-item") : null;
+    if (!runtimeItem) return;
+    const item = findRuntimeItemFromElement(runtimeItem) || {
+      id: runtimeItem.dataset.runtimeItemId || "",
+      recordKey: runtimeItem.dataset.recordKey || "",
+      sourceCollection: runtimeItem.dataset.sourceCollection || "notes"
+    };
+    if (!item.recordKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openRuntimeItem(item);
+  }, true);
   window.addEventListener("DOMContentLoaded", scheduleApply);
   window.addEventListener("storage", scheduleApply);
   window.setInterval(scheduleApply, 1200);
