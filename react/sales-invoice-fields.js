@@ -5,6 +5,9 @@
   const INVOICE_STATUSES = ["발행 완료", "발행 예정", "발행 취소", "재발행 완료"];
   const EXTRA_STATUSES = new Set(["발행 취소", "재발행 완료"]);
   const PATCH_DELAYS = [80, 220, 520, 950];
+  const EDIT_TARGET_TTL = 8000;
+
+  let lastEditTarget = null;
 
   const text = (value) => String(value ?? "").trim();
   const compact = (value) => text(value).replace(/\s+/g, " ");
@@ -99,20 +102,21 @@
     const contactEmail = lower(firstText(record, ["contactEmail", "email"]));
 
     if (recordCompany && sigCompany && (recordCompany === sigCompany || recordCompany.includes(sigCompany) || sigCompany.includes(recordCompany))) score += 8;
-    if (contactName && lower(signature.contactName) && contactName === lower(signature.contactName)) score += 3;
-    if (contactPhone && lower(signature.contactPhone) && contactPhone === lower(signature.contactPhone)) score += 3;
-    if (contactEmail && lower(signature.contactEmail) && contactEmail === lower(signature.contactEmail)) score += 3;
+    if (contactName && lower(signature.contactName) && contactName === lower(signature.contactName)) score += 4;
+    if (contactPhone && lower(signature.contactPhone) && contactPhone === lower(signature.contactPhone)) score += 4;
+    if (contactEmail && lower(signature.contactEmail) && contactEmail === lower(signature.contactEmail)) score += 4;
 
     if (type === "notes") {
       const interest = lower(firstText(record, ["interest", "product", "item"]));
-      if (interest && lower(signature.interest) && (interest.includes(lower(signature.interest)) || lower(signature.interest).includes(interest))) score += 3;
+      if (interest && lower(signature.interest) && (interest.includes(lower(signature.interest)) || lower(signature.interest).includes(interest))) score += 5;
+      if (firstText(record, ["expectedRevenueAmount"]) && firstText(record, ["expectedRevenueAmount"]) === signature.expectedRevenueAmount) score += 2;
     }
 
     if (type === "materialSalesNotes") {
       const itemNames = lower(asArray(record.items).map((item) => firstText(item, ["name", "itemName"])).join(" "));
       if (itemNames && lower(signature.itemNames)) {
         const wanted = lower(signature.itemNames).split(" ").filter(Boolean);
-        score += wanted.filter((name) => itemNames.includes(name)).length;
+        score += wanted.filter((name) => itemNames.includes(name)).length * 3;
       }
     }
 
@@ -123,12 +127,35 @@
     .map((record, index) => ({
       record,
       index,
+      id: recordId(record, index),
       score: scoreRecord(record, signature, type),
       time: Date.parse(firstText(record, ["updatedAt", "createdAt", "lastModified"])) || 0
     }))
     .sort((a, b) => (b.score - a.score) || (b.time - a.time) || (b.index - a.index));
 
+  const getRecordById = (type, id) => {
+    if (!id) return null;
+    const records = asArray(readData()[type]);
+    const index = records.findIndex((record, itemIndex) => recordId(record, itemIndex) === id);
+    return index >= 0 ? { record: records[index], index, id } : null;
+  };
+
+  const resolveTargetForPanel = (panel, type) => {
+    if (panel.dataset.invoiceRecordId) return panel.dataset.invoiceRecordId;
+    if (lastEditTarget && lastEditTarget.type === type && Date.now() - lastEditTarget.at < EDIT_TARGET_TTL) {
+      if (getRecordById(type, lastEditTarget.id)) {
+        panel.dataset.invoiceRecordId = lastEditTarget.id;
+        return lastEditTarget.id;
+      }
+    }
+    panel.dataset.invoiceRecordId = "";
+    return "";
+  };
+
   const findRecordForEditor = (type, panel) => {
+    const exactId = resolveTargetForPanel(panel, type);
+    if (exactId) return getRecordById(type, exactId)?.record || null;
+
     const data = readData();
     const records = asArray(data[type]);
     if (!records.length) return null;
@@ -136,7 +163,10 @@
     if (!hasSignatureSignal(signature)) return null;
     const candidates = sortedCandidates(records, signature, type);
     const best = candidates[0];
-    return best && best.score > 0 ? best.record : null;
+    const second = candidates[1];
+    if (!best || best.score < 14) return null;
+    if (second && second.score === best.score) return null;
+    return best.record;
   };
 
   const invoiceValuesFromRecord = (record) => ({
@@ -145,6 +175,13 @@
     taxInvoiceCancelReason: firstText(record, ["taxInvoiceCancelReason", "invoiceCancelReason"]),
     taxInvoiceReissueDate: firstText(record, ["taxInvoiceReissueDate", "invoiceReissueDate"])
   });
+
+  const invoiceSummary = (record) => {
+    const status = firstText(record, ["taxInvoiceStatus", "invoiceStatus"]);
+    const date = firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]);
+    if (!status && !date) return "미입력";
+    return [status || "상태 미입력", date || "일자 미입력"].join(" · ");
+  };
 
   const toggleExtraFields = (wrapper) => {
     const status = wrapper.querySelector("[data-invoice-field='taxInvoiceStatus']")?.value || "";
@@ -220,14 +257,26 @@
     return controlValue(panel, "진행 상태");
   };
 
-  const patchRecord = (type, signature, fields, materialStatus) => {
+  const patchRecord = (type, recordIdHint, signature, fields, materialStatus) => {
     const data = readData();
     const records = asArray(data[type]);
-    if (!records.length || !hasSignatureSignal(signature)) return;
+    if (!records.length) return;
 
-    const candidates = sortedCandidates(records, signature, type);
-    const target = candidates[0];
-    if (!target || target.score <= 0) return;
+    let target = null;
+    if (recordIdHint) {
+      const index = records.findIndex((record, itemIndex) => recordId(record, itemIndex) === recordIdHint);
+      if (index >= 0) target = { record: records[index], index, id: recordIdHint };
+    }
+
+    if (!target) {
+      if (!hasSignatureSignal(signature)) return;
+      const candidates = sortedCandidates(records, signature, type);
+      const best = candidates[0];
+      const second = candidates[1];
+      if (!best || best.score < 14) return;
+      if (second && second.score === best.score) return;
+      target = best;
+    }
 
     const nextRecord = {
       ...target.record,
@@ -250,10 +299,11 @@
       if (!button || compact(button.textContent) !== "저장") return;
       const type = editorType(panel);
       if (!type) return;
+      const recordIdHint = resolveTargetForPanel(panel, type);
       const signature = editorSignature(panel, type);
       const fields = readInvoiceFields(panel);
       const materialStatus = readMaterialStatus(panel);
-      PATCH_DELAYS.forEach((delay) => window.setTimeout(() => patchRecord(type, signature, fields, materialStatus), delay));
+      PATCH_DELAYS.forEach((delay) => window.setTimeout(() => patchRecord(type, recordIdHint, signature, fields, materialStatus), delay));
     }, true);
   };
 
@@ -262,6 +312,7 @@
     if (!type) return;
     const grid = panel.querySelector(".form-grid");
     if (!grid) return;
+    resolveTargetForPanel(panel, type);
     bindSavePatch(panel);
     const existing = grid.querySelector("[data-invoice-runtime-panel='true']");
     if (existing) {
@@ -282,6 +333,41 @@
       const anchor = Array.from(select.options).find((option) => option.value === MATERIAL_STATUS_ANCHOR);
       const option = new Option(MATERIAL_DELIVERY_WAITING, MATERIAL_DELIVERY_WAITING);
       select.insertBefore(option, anchor || null);
+    });
+  };
+
+  const upsertInvoiceLine = (container, value) => {
+    let line = container.querySelector("[data-invoice-list-line='true']");
+    if (!line) {
+      line = document.createElement("div");
+      line.className = "invoice-list-line";
+      line.dataset.invoiceListLine = "true";
+      line.innerHTML = "<span>세금계산서</span><strong></strong>";
+      container.appendChild(line);
+    }
+    line.classList.toggle("is-muted", value === "미입력");
+    line.querySelector("strong").textContent = value;
+  };
+
+  const renderInvoiceSummaries = () => {
+    const data = readData();
+    const notes = asArray(data.notes);
+    document.querySelectorAll(".sales-row-group[data-record-id]").forEach((group) => {
+      const id = group.getAttribute("data-record-id");
+      const record = notes.find((item, index) => recordId(item, index) === id);
+      if (!record) return;
+      const statusCells = group.querySelectorAll(".sales-status-lines");
+      const target = statusCells[0];
+      if (target) upsertInvoiceLine(target, invoiceSummary(record));
+    });
+
+    const materialRecords = asArray(data.materialSalesNotes);
+    document.querySelectorAll(".material-sales-card[data-record-id]").forEach((card) => {
+      const id = card.getAttribute("data-record-id");
+      const record = materialRecords.find((item, index) => recordId(item, index) === id);
+      if (!record) return;
+      const target = card.querySelector(".material-sales-summary");
+      if (target) upsertInvoiceLine(target, invoiceSummary(record));
     });
   };
 
@@ -306,12 +392,35 @@
     });
   };
 
+  const rememberEditTarget = (event) => {
+    const button = event.target?.closest?.("button");
+    if (!button) return;
+    const label = compact(button.textContent);
+    if (label.includes("새 장비 영업") || label === "새 영업건") {
+      lastEditTarget = null;
+      return;
+    }
+    if (label !== "수정") return;
+
+    const salesGroup = button.closest(".sales-row-group[data-record-id]");
+    if (salesGroup) {
+      lastEditTarget = { type: "notes", id: salesGroup.getAttribute("data-record-id"), at: Date.now() };
+      return;
+    }
+    const materialCard = button.closest(".material-sales-card[data-record-id]");
+    if (materialCard) {
+      lastEditTarget = { type: "materialSalesNotes", id: materialCard.getAttribute("data-record-id"), at: Date.now() };
+    }
+  };
+
   const apply = () => {
     addMaterialDeliveryWaitingOptions();
     document.querySelectorAll(".editor-panel").forEach(ensureInvoicePanel);
     syncMaterialDeliveryWaitingDisplay();
+    renderInvoiceSummaries();
   };
 
+  document.addEventListener("click", rememberEditTarget, true);
   const observer = new MutationObserver(() => window.requestAnimationFrame(apply));
   observer.observe(document.documentElement, { childList: true, subtree: true });
   window.addEventListener("storage", () => window.requestAnimationFrame(apply));
