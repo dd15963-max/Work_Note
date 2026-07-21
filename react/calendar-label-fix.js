@@ -80,12 +80,14 @@
   const setAttr = (element, name, value) => {
     if (element && element.getAttribute(name) !== value) element.setAttribute(name, value);
   };
-  const addItem = (items, record, index, dateValue, title, detail, type, status, priority, suffix = "", portal = type) => {
+  const cssEscape = (value) => window.CSS?.escape ? CSS.escape(value) : String(value).replace(/['"\\]/g, "\\$&");
+  const addItem = (items, record, index, dateValue, title, detail, type, status, priority, suffix = "", portal = type, sourceCollection = "") => {
     const date = parseDateKey(dateValue);
     if (!date) return;
     items.push({
       id: `${type}-${recordId(record, index)}-${suffix ? `${suffix}-` : ""}${date}-${items.length}`,
       recordKey: recordId(record, index),
+      sourceCollection,
       date,
       title,
       detail: clean(detail),
@@ -117,7 +119,7 @@
       return {};
     }
   };
-  const addInvoiceItem = (items, record, index, titlePrefix = "영업") => {
+  const addInvoiceItem = (items, record, index, sourceCollection, titlePrefix = "영업") => {
     const status = firstText(record, ["taxInvoiceStatus", "invoiceStatus"]);
     const date = firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]);
     if (status !== TAX_INVOICE_PENDING || !parseDateKey(date)) return;
@@ -132,7 +134,8 @@
       status,
       firstText(record, ["priority", "importance"]),
       "tax-invoice",
-      "sales"
+      "sales",
+      sourceCollection
     );
   };
   const collectItems = () => {
@@ -142,12 +145,12 @@
       const company = salesCustomer(note);
       const status = firstText(note, ["status", "progressStatus"]);
       const priority = firstText(note, ["priority", "importance"]);
-      addItem(items, note, index, firstText(note, ["nextContactDate"]), labelWithCompany("영업", company, "연락"), firstText(note, ["nextAction"]), "sales", status, priority);
-      addItem(items, note, index, firstText(note, ["meetingDate"]), labelWithCompany("영업", company, "미팅"), firstText(note, ["nextAction"]), "sales", status, priority);
-      addInvoiceItem(items, note, index, "영업");
+      addItem(items, note, index, firstText(note, ["nextContactDate"]), labelWithCompany("영업", company, "연락"), firstText(note, ["nextAction"]), "sales", status, priority, "", "sales", "notes");
+      addItem(items, note, index, firstText(note, ["meetingDate"]), labelWithCompany("영업", company, "미팅"), firstText(note, ["nextAction"]), "sales", status, priority, "", "sales", "notes");
+      addInvoiceItem(items, note, index, "notes", "영업");
     });
     asArray(data.materialSalesNotes).forEach((record, index) => {
-      addInvoiceItem(items, record, index, "영업");
+      addInvoiceItem(items, record, index, "materialSalesNotes", "영업");
     });
     asArray(data.settlementTasks).forEach((task, index) => {
       if (isClosed(firstText(task, ["status", "progressStatus"]))) return;
@@ -210,15 +213,49 @@
       return toDateKey(new Date(year, month, dayNumber));
     });
   };
+  const setNativeValue = (input, value) => {
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")?.set;
+    setter ? setter.call(input, value) : input.value = value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+  const clearSearch = () => {
+    const input = document.querySelector(".search-box input");
+    if (input && input.value) setNativeValue(input, "");
+  };
+  const clickButtonContaining = (selector, textValue) => {
+    const button = Array.from(document.querySelectorAll(selector)).find((item) => clean(item.textContent).includes(textValue));
+    button?.click();
+    return Boolean(button);
+  };
+  const focusTargetElement = (target, openDetail) => {
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.classList.add("is-focus-target");
+    if (openDetail) {
+      const row = target.querySelector("article.clickable-row") || target.querySelector(".table-row.clickable-row");
+      row?.click();
+    }
+    window.setTimeout(() => target.classList.remove("is-focus-target"), 2200);
+  };
   const openRuntimeItem = (item) => {
-    const salesTab = Array.from(document.querySelectorAll(".portal-button")).find((button) => clean(button.textContent).includes("영업"));
-    salesTab?.click();
-    window.setTimeout(() => {
-      const target = document.querySelector(`.sales-row-group[data-record-id='${CSS.escape(item.recordKey)}']`) || document.querySelector(`.material-sales-card[data-record-id='${CSS.escape(item.recordKey)}']`);
-      target?.scrollIntoView({ behavior: "smooth", block: "center" });
-      target?.classList.add("is-focus-target");
-      window.setTimeout(() => target?.classList.remove("is-focus-target"), 1600);
-    }, 180);
+    clearSearch();
+    clickButtonContaining(".portal-button", "영업");
+    const wantsMaterial = item.sourceCollection === "materialSalesNotes";
+    const targetSelector = wantsMaterial
+      ? `.material-sales-card[data-record-id='${cssEscape(item.recordKey)}']`
+      : `.sales-row-group[data-record-id='${cssEscape(item.recordKey)}']`;
+    let attempts = 0;
+    const tryOpen = () => {
+      attempts += 1;
+      clickButtonContaining(".memo-list-controls button", "전체");
+      clickButtonContaining(".sales-section-tabs button", wantsMaterial ? "소재/소모품" : "장비 영업건");
+      const target = document.querySelector(targetSelector);
+      if (target) {
+        focusTargetElement(target, !wantsMaterial);
+        return;
+      }
+      if (attempts < 18) window.setTimeout(tryOpen, 120);
+    };
+    window.setTimeout(tryOpen, 80);
   };
   const createCalendarChip = (item) => {
     const chip = document.createElement("button");
@@ -228,6 +265,7 @@
     chip.title = [item.title, item.detail].filter(Boolean).join(" ");
     chip.dataset.runtimeItemId = item.id;
     chip.addEventListener("click", (event) => {
+      event.preventDefault();
       event.stopPropagation();
       openRuntimeItem(item);
     });
@@ -252,7 +290,10 @@
     setText(button.querySelector("p"), item.detail || "세금계산서 발행 예정");
     setText(button.querySelector(".stacked-meta span"), formatDate(item.date));
     setText(button.querySelector(".stacked-meta small"), item.status);
-    button.addEventListener("click", () => openRuntimeItem(item));
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      openRuntimeItem(item);
+    });
     return button;
   };
   const clearRuntimeItems = () => {
