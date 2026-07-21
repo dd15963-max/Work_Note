@@ -87,6 +87,9 @@
       .join(" ")
   });
 
+  const hasSignatureSignal = (signature) => Object.entries(signature)
+    .some(([key, value]) => key !== "status" && Boolean(text(value)));
+
   const scoreRecord = (record, signature, type) => {
     let score = 0;
     const recordCompany = lower(companyText(record));
@@ -130,8 +133,10 @@
     const records = asArray(data[type]);
     if (!records.length) return null;
     const signature = editorSignature(panel, type);
+    if (!hasSignatureSignal(signature)) return null;
     const candidates = sortedCandidates(records, signature, type);
-    return candidates[0]?.record || null;
+    const best = candidates[0];
+    return best && best.score > 0 ? best.record : null;
   };
 
   const invoiceValuesFromRecord = (record) => ({
@@ -218,11 +223,11 @@
   const patchRecord = (type, signature, fields, materialStatus) => {
     const data = readData();
     const records = asArray(data[type]);
-    if (!records.length) return;
+    if (!records.length || !hasSignatureSignal(signature)) return;
 
     const candidates = sortedCandidates(records, signature, type);
     const target = candidates[0];
-    if (!target) return;
+    if (!target || target.score <= 0) return;
 
     const nextRecord = {
       ...target.record,
@@ -258,8 +263,9 @@
     const grid = panel.querySelector(".form-grid");
     if (!grid) return;
     bindSavePatch(panel);
-    if (grid.querySelector("[data-invoice-runtime-panel='true']")) {
-      toggleExtraFields(grid.querySelector("[data-invoice-runtime-panel='true']"));
+    const existing = grid.querySelector("[data-invoice-runtime-panel='true']");
+    if (existing) {
+      toggleExtraFields(existing);
       return;
     }
 
@@ -285,8 +291,7 @@
     if (!records.length) return;
     document.querySelectorAll(".material-sales-card[data-record-id]").forEach((card) => {
       const id = card.getAttribute("data-record-id");
-      const index = Array.from(card.parentElement?.children || []).indexOf(card);
-      const record = records.find((item, itemIndex) => recordId(item, itemIndex) === id) || records[index];
+      const record = records.find((item, itemIndex) => recordId(item, itemIndex) === id);
       if (!record || firstText(record, ["status"]) !== MATERIAL_DELIVERY_WAITING) return;
       const select = Array.from(card.querySelectorAll("select")).find((item) => Array.from(item.options).some((option) => option.value === MATERIAL_DELIVERY_WAITING));
       if (select) select.value = MATERIAL_DELIVERY_WAITING;
