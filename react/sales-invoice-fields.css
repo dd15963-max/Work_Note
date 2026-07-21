@@ -68,6 +68,33 @@
   display: none !important;
 }
 
+.invoice-list-line {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.invoice-list-line span {
+  color: #334155;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.invoice-list-line strong {
+  min-width: 0;
+  color: #0f172a;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.invoice-list-line.is-muted strong {
+  color: #64748b;
+  font-weight: 600;
+}
+
 @media (max-width: 760px) {
   .invoice-runtime-row,
   .invoice-runtime-extra {
