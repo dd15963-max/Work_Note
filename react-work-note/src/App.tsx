@@ -2907,6 +2907,9 @@ function SettlementFields({
   const [scheduleAmountVatIncluded, setScheduleAmountVatIncluded] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const isAdvance = firstText(draft, ["paymentType"]).includes("선금");
+  const rowStatusOptions = isAdvance
+    ? ["예정", "차감 완료", "처리 완료", "확인 필요", "보류"]
+    : ["예정", "청구 완료", "입금 완료", "처리 완료", "확인 필요", "보류"];
   const scheduleStats = getSettlementScheduleStats(schedule, isAdvance);
 
   const setSchedule = (rows: AnyRecord[]) => updateField("paymentSchedule", rows);
@@ -2922,7 +2925,7 @@ function SettlementFields({
     const interval = Math.max(1, Number(scheduleInterval) || 14);
     const start = parseDate(scheduleStart || toDateKey(new Date()));
     if (!count) {
-      alert("예정 회차를 입력해 주세요.");
+      alert(isAdvance ? "차감 예정 건수를 입력해 주세요." : "예정 회차를 입력해 주세요.");
       return;
     }
     const rows = Array.from({ length: count }, (_, index) => {
@@ -2954,7 +2957,9 @@ function SettlementFields({
       installmentProgress: schedule.length ? `${scheduleStats.completedCount}/${schedule.length}` : "",
       nextActionDate: firstText(scheduleStats.nextRow || {}, ["dueDate"]),
       nextAction: scheduleStats.nextRow
-        ? `${firstText(scheduleStats.nextRow, ["round"]) || scheduleStats.completedCount + 1}회차 ${isAdvance ? "차감" : "결제"} 예정`
+        ? isAdvance
+          ? `${firstText(scheduleStats.nextRow, ["round"]) || scheduleStats.completedCount + 1}번 차감 예정`
+          : `${firstText(scheduleStats.nextRow, ["round"]) || scheduleStats.completedCount + 1}회차 결제 예정`
         : "정산 완료 확인"
     };
     if (isAdvance) {
@@ -2992,10 +2997,10 @@ function SettlementFields({
           option={<FieldCheck label="VAT 포함" checked={Boolean(draft.deductedAmountVatIncluded)} onChange={(checked) => updateField("deductedAmountVatIncluded", checked)} />}
         />
       )}
-      <TextField label="현재 회차 / 총 회차" value={firstText(draft, ["installmentProgress"])} onChange={(value) => updateField("installmentProgress", value)} placeholder="예: 8/25" />
+      <TextField label={isAdvance ? "현재 차감 / 총 차감" : "현재 회차 / 총 회차"} value={firstText(draft, ["installmentProgress"])} onChange={(value) => updateField("installmentProgress", value)} placeholder="예: 8/25" />
       <TextField label="다음 처리일" type="date" value={firstText(draft, ["nextActionDate"])} onChange={(value) => updateField("nextActionDate", value)} />
-      <TextField label="다음 처리" value={firstText(draft, ["nextAction"])} onChange={(value) => updateField("nextAction", value)} placeholder="예: 9회차 청구" />
-      <TextAreaField label="회차/차감 계획" value={rawText(draft, ["plan"])} onChange={(value) => updateField("plan", value)} placeholder="정산 조건, 남은 금액 처리 계획" wide />
+      <TextField label="다음 처리" value={firstText(draft, ["nextAction"])} onChange={(value) => updateField("nextAction", value)} placeholder={isAdvance ? "예: 9번 차감" : "예: 9회차 청구"} />
+      <TextAreaField label={isAdvance ? "차감 계획" : "회차별 결제 계획"} value={rawText(draft, ["plan"])} onChange={(value) => updateField("plan", value)} placeholder={isAdvance ? "차감 품목, 차감 조건, 남은 선금 처리 계획" : "정산 조건, 남은 금액 처리 계획"} wide />
 
       <section className="work-schedule-editor wide-field">
         <div className="section-title-row">
@@ -3008,10 +3013,10 @@ function SettlementFields({
         <div className="schedule-tool-grid">
           <TextField label="시작일" type="date" value={scheduleStart} onChange={setScheduleStart} />
           <TextField label="간격(일)" type="number" value={scheduleInterval} onChange={setScheduleInterval} />
-          <TextField label="예정 회차" type="number" value={scheduleCount} onChange={setScheduleCount} />
-          <TextField label="회차별 금액" value={scheduleAmount} onChange={setScheduleAmount} option={<FieldCheck label="VAT 포함" checked={scheduleAmountVatIncluded} onChange={setScheduleAmountVatIncluded} />} />
-          <button type="button" className="icon-text-button" onClick={generateRows}>일정 자동 생성</button>
-          <button type="button" className="icon-text-button" onClick={addRow}>회차 추가</button>
+          <TextField label={isAdvance ? "예정 차감 건수" : "예정 회차"} type="number" value={scheduleCount} onChange={setScheduleCount} />
+          <TextField label={isAdvance ? "차감별 금액" : "회차별 금액"} value={scheduleAmount} onChange={setScheduleAmount} option={<FieldCheck label="VAT 포함" checked={scheduleAmountVatIncluded} onChange={setScheduleAmountVatIncluded} />} />
+          <button type="button" className="icon-text-button" onClick={generateRows}>{isAdvance ? "차감 일정 자동 생성" : "일정 자동 생성"}</button>
+          <button type="button" className="icon-text-button" onClick={addRow}>{isAdvance ? "차감 추가" : "회차 추가"}</button>
         </div>
         <div className="settlement-summary-grid">
           <div>
@@ -3023,33 +3028,33 @@ function SettlementFields({
             <strong>{formatMoney(String(scheduleStats.completedAmount))}</strong>
           </div>
           <div>
-            <span>회차 잔액</span>
+            <span>{isAdvance ? "차감 잔액" : "회차 잔액"}</span>
             <strong>{formatMoney(String(scheduleStats.remainingAmount))}</strong>
           </div>
           <div>
             <span>다음 일정</span>
-            <strong>{scheduleStats.nextRow ? joinParts([`${firstText(scheduleStats.nextRow, ["round"])}회차`, formatOptionalDate(firstText(scheduleStats.nextRow, ["dueDate"]))], " · ") : "없음"}</strong>
+            <strong>{scheduleStats.nextRow ? joinParts([isAdvance ? `${firstText(scheduleStats.nextRow, ["round"])}번 차감` : `${firstText(scheduleStats.nextRow, ["round"])}회차`, formatOptionalDate(firstText(scheduleStats.nextRow, ["dueDate"]))], " · ") : "없음"}</strong>
           </div>
         </div>
-        <TextAreaField label="엑셀 일정 붙여넣기" value={pasteText} onChange={setPasteText} placeholder="예: 1회차	2026-07-08	1980000	예정	품목" wide />
+        <TextAreaField label={isAdvance ? "엑셀 차감 목록 붙여넣기" : "엑셀 일정 붙여넣기"} value={pasteText} onChange={setPasteText} placeholder={isAdvance ? "예: 1  2026-07-08  1980000  예정  레진 차감" : "예: 1회차  2026-07-08  1980000  예정  품목"} wide />
         <div className="form-actions compact-actions">
-          <button type="button" className="icon-text-button" onClick={parsePasteRows}>붙여넣은 일정 불러오기</button>
-          <button type="button" className="icon-text-button primary" onClick={syncScheduleProgress}>회차표 완료액 반영</button>
+          <button type="button" className="icon-text-button" onClick={parsePasteRows}>{isAdvance ? "붙여넣은 차감 목록 불러오기" : "붙여넣은 일정 불러오기"}</button>
+          <button type="button" className="icon-text-button primary" onClick={syncScheduleProgress}>{isAdvance ? "차감표 완료액 반영" : "회차표 완료액 반영"}</button>
         </div>
         <div className="payment-row-list">
           {schedule.map((row, index) => {
             const rowStatus = firstText(row, ["status"]) || "예정";
             return (
             <div className="payment-row" key={recordId(row, index)}>
-              <TextField label="회차" value={firstText(row, ["round"])} onChange={(value) => updateRow(index, "round", value)} />
+              <TextField label={isAdvance ? "차감 번호" : "회차"} value={firstText(row, ["round"])} onChange={(value) => updateRow(index, "round", value)} />
               <TextField label="예정일" type="date" value={firstText(row, ["dueDate"])} onChange={(value) => updateRow(index, "dueDate", value)} />
               <TextField label="금액" value={firstText(row, ["amount"])} onChange={(value) => updateRow(index, "amount", value)} option={<FieldCheck label="VAT 포함" checked={Boolean(row.amountVatIncluded)} onChange={(checked) => updateRow(index, "amountVatIncluded", checked)} />} />
               <TextField label={isAdvance ? "차감 품목" : "품목/메모"} value={firstText(row, ["item"])} onChange={(value) => updateRow(index, "item", value)} />
               <label className="field">
                 <span>상태</span>
                 <select value={rowStatus} onChange={(event) => updateRow(index, "status", event.target.value)}>
-                  {!SETTLEMENT_ROW_STATUS_OPTIONS.includes(rowStatus) && <option value={rowStatus}>{rowStatus}</option>}
-                  {SETTLEMENT_ROW_STATUS_OPTIONS.map((status) => (
+                  {!rowStatusOptions.includes(rowStatus) && <option value={rowStatus}>{rowStatus}</option>}
+                  {rowStatusOptions.map((status) => (
                     <option key={status} value={status}>{status}</option>
                   ))}
                 </select>
@@ -3058,7 +3063,7 @@ function SettlementFields({
             </div>
             );
           })}
-          {!schedule.length && <div className="empty-inline"><strong>일정 없음</strong><span>자동 생성, 회차 추가, 엑셀 붙여넣기로 일정을 만들 수 있습니다.</span></div>}
+          {!schedule.length && <div className="empty-inline"><strong>{isAdvance ? "차감 목록 없음" : "일정 없음"}</strong><span>{isAdvance ? "자동 생성, 차감 추가, 엑셀 붙여넣기로 차감 목록을 만들 수 있습니다." : "자동 생성, 회차 추가, 엑셀 붙여넣기로 일정을 만들 수 있습니다."}</span></div>}
         </div>
       </section>
     </>
@@ -3147,7 +3152,7 @@ function SchedulePreview({ rows, isAdvance }: { rows: AnyRecord[]; isAdvance: bo
       </div>
       {rows.slice(0, 4).map((row, index) => (
         <div className="schedule-preview-row" key={recordId(row, index)}>
-          <span>{firstText(row, ["round"]) || `${index + 1}`}회차</span>
+          <span>{isAdvance ? `${firstText(row, ["round"]) || index + 1}번 차감` : `${firstText(row, ["round"]) || index + 1}회차`}</span>
           <strong>{joinParts([formatOptionalDate(firstText(row, ["dueDate"])), formatMoneyWithVat(firstText(row, ["amount"]), row.amountVatIncluded), firstText(row, ["item"])], " · ")}</strong>
           <small>{firstText(row, ["status"]) || "예정"}</small>
         </div>
@@ -5395,7 +5400,7 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
           task,
           index,
           firstText(row, ["dueDate"]),
-          `[정산] ${title} ${round ? `${round}회차` : isAdvance ? "차감" : "결제"}`,
+          `[정산] ${title} ${round ? (isAdvance ? `${round}번 차감` : `${round}회차`) : isAdvance ? "차감" : "결제"}`,
           joinParts([amount, item, rowStatus], " · "),
           "settlement",
           rowStatus || status,
