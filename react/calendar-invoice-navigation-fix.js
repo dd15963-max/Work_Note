@@ -2,6 +2,7 @@
   const STORAGE_KEY = "salesNoteAppDataV1";
   const clean = (value) => String(value ?? "").trim().replace(/\s+/g, " ");
   const cssEscape = (value) => window.CSS?.escape ? CSS.escape(value) : String(value).replace(/['"\\]/g, "\\$&");
+  let lastHandledAt = 0;
 
   const setNativeValue = (element, value) => {
     if (!element) return;
@@ -77,45 +78,66 @@
   };
 
   const candidateSelectors = (sourceCollection, recordKey) => {
-    const escaped = cssEscape(recordKey);
+    const escaped = cssEscape(recordKey || "");
     if (sourceCollection === "materialSalesNotes") {
       return [`.material-sales-card[data-record-id='${escaped}']`];
     }
     return [`.sales-row-group[data-record-id='${escaped}']`];
   };
 
+  const bodyContainsCompany = (element, company) => {
+    const normalized = clean(company).toLowerCase();
+    if (!normalized) return false;
+    const body = clean(element.textContent).toLowerCase();
+    return body.includes(normalized) || normalized.includes(body.slice(0, Math.min(body.length, normalized.length)));
+  };
+
   const findByCompanyInDom = (sourceCollection, company) => {
     if (!company) return null;
-    const selector = sourceCollection === "materialSalesNotes" ? ".material-sales-card[data-record-id]" : ".sales-row-group[data-record-id]";
-    const normalized = clean(company).toLowerCase();
-    return Array.from(document.querySelectorAll(selector)).find((element) => {
-      const body = clean(element.textContent).toLowerCase();
-      return body.includes(normalized) || normalized.includes(body.slice(0, Math.min(body.length, normalized.length)));
-    }) || null;
+    const selectors = sourceCollection === "materialSalesNotes"
+      ? [".material-sales-card[data-record-id]"]
+      : [".sales-row-group[data-record-id]"];
+    for (const selector of selectors) {
+      const target = Array.from(document.querySelectorAll(selector)).find((element) => bodyContainsCompany(element, company));
+      if (target) return target;
+    }
+    return null;
+  };
+
+  const findAnyByCompanyInSales = (company) => {
+    if (!company) return null;
+    const selectors = [".sales-row-group[data-record-id]", ".material-sales-card[data-record-id]"];
+    for (const selector of selectors) {
+      const target = Array.from(document.querySelectorAll(selector)).find((element) => bodyContainsCompany(element, company));
+      if (target) return target;
+    }
+    return null;
   };
 
   const findTarget = (sourceCollection, recordKey, company) => {
-    for (const selector of candidateSelectors(sourceCollection, recordKey)) {
-      const target = document.querySelector(selector);
-      if (target) return target;
+    if (recordKey) {
+      for (const selector of candidateSelectors(sourceCollection, recordKey)) {
+        const target = document.querySelector(selector);
+        if (target) return target;
+      }
     }
-    return findByCompanyInDom(sourceCollection, company);
+    return findByCompanyInDom(sourceCollection, company) || findAnyByCompanyInSales(company);
   };
 
-  const focusTarget = (target, sourceCollection) => {
+  const focusTarget = (target) => {
     target.scrollIntoView({ behavior: "smooth", block: "center" });
     target.classList.add("is-focus-target");
-    if (sourceCollection !== "materialSalesNotes") {
-      const row = target.querySelector("article.clickable-row") || target.querySelector(".table-row.clickable-row");
-      if (row instanceof HTMLElement) window.setTimeout(() => row.click(), 80);
-    }
-    window.setTimeout(() => target.classList.remove("is-focus-target"), 2600);
+    const row = target.querySelector("article.clickable-row") || target.querySelector(".table-row.clickable-row");
+    if (row instanceof HTMLElement) window.setTimeout(() => row.click(), 120);
+    window.setTimeout(() => target.classList.remove("is-focus-target"), 2800);
   };
 
   const navigateInvoiceItem = (element) => {
-    const title = clean(element.textContent || element.getAttribute("title"));
-    const sourceCollection = element.dataset.sourceCollection || "notes";
+    const rawTitle = clean(element.textContent || element.getAttribute("title"));
+    const title = rawTitle.includes("세금계산서") ? rawTitle : clean(element.getAttribute("title") || rawTitle);
     const company = parseCompanyFromTitle(title);
+    const guessedSource = element.dataset.sourceCollection || "notes";
+    let sourceCollection = guessedSource;
     let recordKey = element.dataset.recordKey || "";
     if (!recordKey || recordKey.startsWith("record-")) {
       recordKey = findRecordIdByCompany(sourceCollection, company) || recordKey;
@@ -127,29 +149,57 @@
     let attempts = 0;
     const tryNavigate = () => {
       attempts += 1;
-      clickButtonContaining(".sales-section-tabs button", sourceCollection === "materialSalesNotes" ? "소재/소모품" : "장비 영업건");
       clickButtonContaining(".memo-list-controls button", "전체");
       resetSalesFilters();
 
-      const target = findTarget(sourceCollection, recordKey, company);
-      if (target) {
-        focusTarget(target, sourceCollection);
-        return;
+      if (attempts < 16) {
+        clickButtonContaining(".sales-section-tabs button", sourceCollection === "materialSalesNotes" ? "소재/소모품" : "장비 영업건");
+      } else {
+        sourceCollection = sourceCollection === "materialSalesNotes" ? "notes" : "materialSalesNotes";
+        clickButtonContaining(".sales-section-tabs button", sourceCollection === "materialSalesNotes" ? "소재/소모품" : "장비 영업건");
       }
 
-      if (attempts === 8 && company) setSearch(company);
-      if (attempts < 40) window.setTimeout(tryNavigate, 120);
+      if (attempts === 6 && company) setSearch(company);
+      const target = findTarget(sourceCollection, recordKey, company);
+      if (target) {
+        focusTarget(target);
+        return;
+      }
+      if (attempts < 50) window.setTimeout(tryNavigate, 120);
     };
 
-    window.setTimeout(tryNavigate, 80);
+    window.setTimeout(tryNavigate, 60);
   };
 
-  document.addEventListener("click", (event) => {
-    const target = event.target instanceof Element ? event.target.closest(".runtime-invoice-item") : null;
-    if (!target) return;
+  const isInvoiceCalendarElement = (element) => {
+    if (!element) return false;
+    if (element.closest?.(".runtime-invoice-item")) return true;
+    const chip = element.closest?.(".calendar-chip, .schedule-list-item");
+    if (!chip) return false;
+    const label = clean(chip.textContent || chip.getAttribute("title"));
+    return label.includes("세금계산서");
+  };
+
+  const handleIntent = (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!isInvoiceCalendarElement(target)) return;
+    const now = Date.now();
+    if (now - lastHandledAt < 400) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      return;
+    }
+    lastHandledAt = now;
+    const itemElement = target.closest(".runtime-invoice-item") || target.closest(".calendar-chip, .schedule-list-item");
+    if (!itemElement) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
-    navigateInvoiceItem(target);
-  }, true);
+    navigateInvoiceItem(itemElement);
+  };
+
+  ["pointerdown", "mousedown", "touchstart", "click"].forEach((eventName) => {
+    document.addEventListener(eventName, handleIntent, true);
+  });
 })();
