@@ -99,6 +99,7 @@
       portal,
       status: clean(status),
       priority: clean(priority),
+      isImportant: Boolean(record.isImportant),
       isInvoice: suffix === "tax-invoice"
     });
   };
@@ -183,7 +184,7 @@
       if (isClosed(firstText(task, ["status", "progressStatus"]))) return;
       addRangeItems(items, task, index, "other", labelWithCompany("기타", companyName(task), otherTaskTitle(task)), deadlineText(task));
     });
-    return items.sort((a, b) => a.date.localeCompare(b.date) || priorityScore(b.priority) - priorityScore(a.priority));
+    return items.sort((a, b) => a.date.localeCompare(b.date) || Number(b.isImportant) - Number(a.isImportant) || priorityScore(b.priority) - priorityScore(a.priority));
   };
   const currentQuery = () => clean(document.querySelector(".search-box input")?.value).toLowerCase();
   const matchesQuery = (item, query) => !query || JSON.stringify(item).toLowerCase().includes(query);
@@ -281,12 +282,23 @@
     if (!id) return null;
     return collectItems().find((item) => item.id === id) || null;
   };
+  const displayTitle = (item) => (item.isImportant ? "⭐ " : "") + item.title;
+  const toggleRuntimeImportant = (item) => {
+    const data = loadData();
+    const collection = item.sourceCollection;
+    if (!collection || !Array.isArray(data[collection])) return;
+    data[collection] = data[collection].map((record, index) =>
+      recordId(record, index) === item.recordKey ? { ...record, isImportant: !Boolean(record.isImportant) } : record
+    );
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    window.location.reload();
+  };
   const createCalendarChip = (item) => {
     const chip = document.createElement("button");
     chip.type = "button";
-    chip.className = `calendar-chip ${item.type} runtime-calendar-item runtime-invoice-item`;
-    chip.textContent = item.title;
-    chip.title = [item.title, item.detail].filter(Boolean).join(" ");
+    chip.className = `calendar-chip ${item.type} ${item.isImportant ? "is-important" : ""} runtime-calendar-item runtime-invoice-item`;
+    chip.textContent = displayTitle(item);
+    chip.title = [displayTitle(item), item.detail].filter(Boolean).join(" ");
     chip.dataset.runtimeItemId = item.id;
     chip.dataset.recordKey = item.recordKey;
     chip.dataset.sourceCollection = item.sourceCollection;
@@ -298,32 +310,54 @@
     return chip;
   };
   const createTodayItem = (item) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `schedule-list-item ${item.type} runtime-calendar-item runtime-invoice-item`;
-    button.dataset.runtimeItemId = item.id;
-    button.dataset.recordKey = item.recordKey;
-    button.dataset.sourceCollection = item.sourceCollection;
-    button.innerHTML = `
+    const card = document.createElement("article");
+    card.className = `schedule-list-item ${item.type} ${item.isImportant ? "is-important" : ""} runtime-calendar-item runtime-invoice-item`;
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.dataset.runtimeItemId = item.id;
+    card.dataset.recordKey = item.recordKey;
+    card.dataset.sourceCollection = item.sourceCollection;
+    card.innerHTML = `
       <div>
         <strong></strong>
         <p></p>
       </div>
-      <div class="stacked-meta">
-        <span></span>
-        <small></small>
+      <div class="schedule-item-actions">
+        <button type="button" class="important-toggle" aria-label=""></button>
+        <div class="stacked-meta">
+          <span></span>
+          <small></small>
+        </div>
       </div>
     `;
-    setText(button.querySelector("strong"), item.title);
-    setText(button.querySelector("p"), item.detail || "결제/증빙 예정");
-    setText(button.querySelector(".stacked-meta span"), formatDate(item.date));
-    setText(button.querySelector(".stacked-meta small"), item.status);
-    button.addEventListener("click", (event) => {
+    setText(card.querySelector("strong"), displayTitle(item));
+    setText(card.querySelector("p"), item.detail || "결제/증빙 예정");
+    setText(card.querySelector(".stacked-meta span"), formatDate(item.date));
+    setText(card.querySelector(".stacked-meta small"), item.status);
+    const star = card.querySelector(".important-toggle");
+    if (star) {
+      star.classList.toggle("is-active", item.isImportant);
+      star.textContent = item.isImportant ? "★" : "☆";
+      star.title = item.isImportant ? "중요 업무 해제" : "중요 업무로 설정";
+      star.setAttribute("aria-label", star.title);
+      star.setAttribute("aria-pressed", String(item.isImportant));
+      star.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleRuntimeImportant(item);
+      });
+    }
+    card.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
       openRuntimeItem(item);
     });
-    return button;
+    card.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      openRuntimeItem(item);
+    });
+    return card;
   };
   const clearRuntimeItems = () => {
     document.querySelectorAll(".runtime-calendar-item").forEach((element) => element.remove());
@@ -345,8 +379,8 @@
           Array.from(cell.querySelectorAll(".calendar-chip:not(.runtime-calendar-item)")).forEach((chip, chipIndex) => {
             const item = dateItems[chipIndex];
             if (!item) return;
-            setText(chip, item.title);
-            setAttr(chip, "title", [item.title, item.detail].filter(Boolean).join(" "));
+            setText(chip, displayTitle(item));
+            setAttr(chip, "title", [displayTitle(item), item.detail].filter(Boolean).join(" "));
           });
           const wrapper = cell.querySelector(".calendar-items");
           if (!wrapper) return;
@@ -361,7 +395,8 @@
       Array.from(document.querySelectorAll(".today-list .schedule-list-item:not(.runtime-calendar-item)")).forEach((button, index) => {
         const item = todayBaseItems[index];
         if (!item) return;
-        setText(button.querySelector("strong"), item.title);
+        setText(button.querySelector("strong"), displayTitle(item));
+        button.classList.toggle("is-important", item.isImportant);
         setText(button.querySelector("p"), item.detail || "상세 내용 없음");
       });
       const todayList = document.querySelector(".today-list");
@@ -385,6 +420,7 @@
   };
 
   document.addEventListener("click", (event) => {
+    if (event.target instanceof Element && event.target.closest(".important-toggle")) return;
     const runtimeItem = event.target instanceof Element ? event.target.closest(".runtime-invoice-item") : null;
     if (!runtimeItem) return;
     const item = findRuntimeItemFromElement(runtimeItem) || {

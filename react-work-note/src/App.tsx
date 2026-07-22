@@ -27,7 +27,8 @@ import {
   WalletCards,
   X,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  Star
 } from "lucide-react";
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
@@ -40,6 +41,8 @@ type SortDirection = "asc" | "desc";
 type AnyRecord = Record<string, unknown>;
 type AttachmentCollectionKey = "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks";
 type AttachmentOwnerType = "company" | "sales" | "materialSales" | "settlement" | "output" | "other";
+type TaskCollectionKey = Exclude<AttachmentCollectionKey, "companies">;
+type ScheduleQuickFilter = "today" | "week" | "important" | "all";
 
 type WorkNoteData = {
   version: string;
@@ -68,12 +71,35 @@ type ScheduleItem = {
   taxInvoiceItemId?: string;
   status: string;
   priority: string;
+  collectionKey: TaskCollectionKey;
+  isImportant: boolean;
+};
+
+type UnifiedWorkItem = {
+  id: string;
+  sourceId: string;
+  collectionKey: TaskCollectionKey;
+  portal: Extract<PortalId, "sales" | "settlement" | "output" | "other">;
+  salesKind?: "equipment" | "material";
+  badge: "영업" | "정산" | "출력" | "기타";
+  subtype: string;
+  title: string;
+  contact: string;
+  status: string;
+  schedule: string;
+  memo: string;
+  updatedAt: string;
+  isImportant: boolean;
+  isToday: boolean;
+  isThisWeek: boolean;
 };
 
 type FocusTarget = {
   portal: PortalId;
   id: string;
   taxInvoiceItemId?: string;
+  salesKind?: "equipment" | "material";
+  openEditor?: boolean;
   nonce?: number;
 };
 
@@ -188,23 +214,14 @@ export function App() {
     [scheduleItems, query]
   );
   const todayItems = useMemo(
-    () => filteredScheduleItems.filter((item) => item.date === toDateKey(new Date())),
+    () =>
+      filteredScheduleItems
+        .filter((item) => item.date === toDateKey(new Date()))
+        .sort((a, b) => Number(b.isImportant) - Number(a.isImportant) || priorityScoreFromText(b.priority) - priorityScoreFromText(a.priority)),
     [filteredScheduleItems]
   );
+  const unifiedWorkItems = useMemo(() => collectUnifiedWorkItems(data, scheduleItems), [data, scheduleItems]);
   const globalResults = useMemo(() => collectGlobalResults(data, query), [data, query]);
-  const counts = useMemo(
-    () => ({
-      companies: data.companies.length,
-      sales: data.notes.length + asArray(data.materialSalesNotes).length,
-      settlement: data.settlementTasks.length,
-      output: data.outputTasks.length,
-      other: data.otherTasks.length,
-      account: data.accounts.length,
-      today: todayItems.length,
-      week: scheduleItems.filter((item) => isSameWeek(parseDate(item.date), new Date())).length
-    }),
-    [data, scheduleItems, todayItems.length]
-  );
 
   const refreshData = () => setData(loadWorkNoteData());
   const selectPortal = (portal: PortalId) => {
@@ -217,9 +234,21 @@ export function App() {
       portal: item.sourceType,
       id: item.sourceId,
       taxInvoiceItemId: item.taxInvoiceItemId,
+      salesKind: item.collectionKey === "materialSalesNotes" ? "material" : item.sourceType === "sales" ? "equipment" : undefined,
       nonce: Date.now()
     });
     setActivePortal(item.sourceType);
+  };
+  const openUnifiedWorkItem = (item: UnifiedWorkItem) => {
+    setQuery("");
+    setFocusTarget({
+      portal: item.portal,
+      id: item.sourceId,
+      salesKind: item.salesKind,
+      openEditor: true,
+      nonce: Date.now()
+    });
+    setActivePortal(item.portal);
   };
   const persistData = (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => {
     try {
@@ -232,6 +261,14 @@ export function App() {
       setSaveMessage(`저장 실패 · ${message}`);
       alert(`저장하지 못했습니다.\n${message}`);
     }
+  };
+  const toggleImportant = (collectionKey: TaskCollectionKey, id: string) => {
+    persistData((current) => ({
+      ...current,
+      [collectionKey]: (current[collectionKey] as AnyRecord[]).map((record, index) =>
+        recordId(record, index) === id ? { ...record, isImportant: !Boolean(record.isImportant) } : record
+      )
+    } as WorkNoteData), "중요 업무");
   };
 
   return (
@@ -303,14 +340,17 @@ export function App() {
       <main className="portal-content">
         {activePortal === "schedule" && (
           <SchedulePortal
-            counts={counts}
             items={filteredScheduleItems}
             todayItems={todayItems}
+            workItems={unifiedWorkItems}
+            query={query}
             calendarCursor={calendarCursor}
             setCalendarCursor={setCalendarCursor}
             calendarMode={calendarMode}
             setCalendarMode={setCalendarMode}
             onOpenItem={openScheduleItem}
+            onOpenWorkItem={openUnifiedWorkItem}
+            onToggleImportant={toggleImportant}
           />
         )}
         {activePortal === "company" && <CompanyPortal data={data} query={query} onPersist={persistData} />}
@@ -717,33 +757,118 @@ function BackupCenter({
 }
 
 function SchedulePortal({
-  counts,
   items,
   todayItems,
+  workItems,
+  query,
   calendarCursor,
   setCalendarCursor,
   calendarMode,
   setCalendarMode,
-  onOpenItem
+  onOpenItem,
+  onOpenWorkItem,
+  onToggleImportant
 }: {
-  counts: Record<string, number>;
   items: ScheduleItem[];
   todayItems: ScheduleItem[];
+  workItems: UnifiedWorkItem[];
+  query: string;
   calendarCursor: Date;
   setCalendarCursor: (date: Date) => void;
   calendarMode: CalendarMode;
   setCalendarMode: (mode: CalendarMode) => void;
   onOpenItem: (item: ScheduleItem) => void;
+  onOpenWorkItem: (item: UnifiedWorkItem) => void;
+  onToggleImportant: (collectionKey: TaskCollectionKey, id: string) => void;
 }) {
+  const [quickFilter, setQuickFilter] = useState<ScheduleQuickFilter>("all");
+  const counts = useMemo(
+    () => ({
+      today: workItems.filter((item) => item.isToday).length,
+      week: workItems.filter((item) => item.isThisWeek).length,
+      important: workItems.filter((item) => item.isImportant).length,
+      all: workItems.length
+    }),
+    [workItems]
+  );
+  const filteredWorkItems = useMemo(
+    () =>
+      workItems
+        .filter((item) => matchesText(item, query))
+        .filter((item) => {
+          if (quickFilter === "today") return item.isToday;
+          if (quickFilter === "week") return item.isThisWeek;
+          if (quickFilter === "important") return item.isImportant;
+          return true;
+        })
+        .sort(compareUnifiedWorkItems),
+    [workItems, query, quickFilter]
+  );
+  const quickCards: Array<{ id: ScheduleQuickFilter; label: string; value: number }> = [
+    { id: "today", label: "오늘 업무", value: counts.today },
+    { id: "week", label: "이번 주 일정", value: counts.week },
+    { id: "important", label: "중요 업무", value: counts.important },
+    { id: "all", label: "전체 업무", value: counts.all }
+  ];
+  const emptyMessages: Record<ScheduleQuickFilter, string> = {
+    today: "오늘 예정된 업무가 없습니다.",
+    week: "이번 주 일정이 없습니다.",
+    important: "중요 업무가 없습니다.",
+    all: "등록된 업무가 없습니다."
+  };
+
   return (
     <div className="schedule-layout">
       <section className="schedule-main">
-        <div className="summary-grid">
-          <MetricCard label="오늘 업무" value={counts.today} />
-          <MetricCard label="이번 주 일정" value={counts.week} />
-          <MetricCard label="영업" value={counts.sales} />
-          <MetricCard label="전체 업무" value={counts.settlement + counts.output + counts.other} />
+        <div className="summary-grid" aria-label="업무 빠른 필터">
+          {quickCards.map((card) => (
+            <MetricCard
+              key={card.id}
+              label={card.label}
+              value={card.value}
+              active={quickFilter === card.id}
+              onClick={() => setQuickFilter(card.id)}
+            />
+          ))}
         </div>
+        <section className="panel unified-work-panel">
+          <div className="section-title-row">
+            <div>
+              <p className="eyebrow">WORK LIST</p>
+              <h2>{quickCards.find((card) => card.id === quickFilter)?.label}</h2>
+            </div>
+            <span className="count-label">{filteredWorkItems.length}건</span>
+          </div>
+          <div className="unified-work-list">
+            {filteredWorkItems.map((item) => (
+              <article className={`unified-work-item ${item.isImportant ? "is-important" : ""}`} key={item.id} data-collection-key={item.collectionKey} data-source-id={item.sourceId}>
+                <button type="button" className="unified-work-main" onClick={() => onOpenWorkItem(item)}>
+                  <span className={`work-type-badge ${item.portal}`}>{item.badge}</span>
+                  <span className="unified-work-copy">
+                    <strong>{item.title}</strong>
+                    <small>{joinParts([item.subtype, item.contact], " · ") || "담당자 미입력"}</small>
+                    {item.memo && <p>{summarizeForList(item.memo, 110)}</p>}
+                  </span>
+                  <span className="unified-work-meta">
+                    <strong>{item.status || "상태 미정"}</strong>
+                    <small>{item.schedule || "일정 미정"}</small>
+                  </span>
+                </button>
+                <div className="unified-work-actions">
+                  <ImportantToggle
+                    active={item.isImportant}
+                    onToggle={() => onToggleImportant(item.collectionKey, item.sourceId)}
+                  />
+                  <button type="button" className="icon-text-button" onClick={() => onOpenWorkItem(item)}>
+                    <Pencil size={15} />
+                    수정
+                  </button>
+                </div>
+              </article>
+            ))}
+            {!filteredWorkItems.length && <EmptyState title={emptyMessages[quickFilter]} detail={query ? "현재 검색어와 카드 조건을 함께 적용한 결과입니다." : "필요한 업무를 등록하거나 별표를 설정해 주세요."} />}
+          </div>
+        </section>
         <div className="panel calendar-panel">
           <div className="section-title-row">
             <div>
@@ -791,7 +916,7 @@ function SchedulePortal({
         </div>
         <div className="today-list">
           {todayItems.map((item) => (
-            <ScheduleListItem item={item} key={item.id} onOpenItem={onOpenItem} />
+            <ScheduleListItem item={item} key={item.id} onOpenItem={onOpenItem} onToggleImportant={onToggleImportant} />
           ))}
           {!todayItems.length && <EmptyState title="오늘 일정 없음" detail="오늘 날짜에 연결된 업무가 없습니다." />}
         </div>
@@ -819,8 +944,8 @@ function CalendarGrid({ cursor, mode, items, onOpenItem }: { cursor: Date; mode:
             <strong>{day.getDate()}</strong>
             <div className="calendar-items">
               {dayItems.slice(0, mode === "week" ? 8 : 3).map((item) => (
-                <button type="button" className={`calendar-chip ${item.type}`} key={item.id} title={`${item.title} ${item.detail}`} onClick={() => onOpenItem(item)}>
-                  {item.title}
+                <button type="button" className={`calendar-chip ${item.type} ${item.isImportant ? "is-important" : ""}`} key={item.id} title={`${item.title} ${item.detail}`} onClick={() => onOpenItem(item)}>
+                  {item.isImportant ? "⭐ " : ""}{item.title}
                 </button>
               ))}
               {dayItems.length > (mode === "week" ? 8 : 3) && <small>+{dayItems.length - (mode === "week" ? 8 : 3)}</small>}
@@ -832,19 +957,75 @@ function CalendarGrid({ cursor, mode, items, onOpenItem }: { cursor: Date; mode:
   );
 }
 
-function ScheduleListItem({ item, onOpenItem }: { item: ScheduleItem; onOpenItem: (item: ScheduleItem) => void }) {
+function ScheduleListItem({
+  item,
+  onOpenItem,
+  onToggleImportant
+}: {
+  item: ScheduleItem;
+  onOpenItem: (item: ScheduleItem) => void;
+  onToggleImportant: (collectionKey: TaskCollectionKey, id: string) => void;
+}) {
   return (
-    <button type="button" className={`schedule-list-item ${item.type}`} onClick={() => onOpenItem(item)}>
+    <article
+      className={`schedule-list-item ${item.type} ${item.isImportant ? "is-important" : ""}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpenItem(item)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpenItem(item);
+        }
+      }}
+    >
       <div>
-        <strong>{item.title}</strong>
+        <strong>{item.isImportant ? "⭐ " : ""}{item.title}</strong>
         <p>{item.detail || "상세 내용 없음"}</p>
       </div>
-      <div className="stacked-meta">
-        <span>{formatDateForDisplay(item.date)}</span>
-        {item.status && <small>{item.status}</small>}
+      <div className="schedule-item-actions">
+        <ImportantToggle
+          active={item.isImportant}
+          onToggle={() => onToggleImportant(item.collectionKey, item.sourceId)}
+        />
+        <div className="stacked-meta">
+          <span>{formatDateForDisplay(item.date)}</span>
+          {item.status && <small>{item.status}</small>}
+        </div>
       </div>
+    </article>
+  );
+}
+
+function ImportantToggle({ active, onToggle }: { active: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className={`important-toggle ${active ? "is-active" : ""}`}
+      title={active ? "중요 업무 해제" : "중요 업무로 설정"}
+      aria-label={active ? "중요 업무 해제" : "중요 업무로 설정"}
+      aria-pressed={active}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+      onKeyDown={(event) => event.stopPropagation()}
+    >
+      <Star size={18} fill={active ? "currentColor" : "none"} />
     </button>
   );
+}
+function persistImportantToggle(
+  onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void,
+  collectionKey: TaskCollectionKey,
+  id: string
+) {
+  onPersist((current) => ({
+    ...current,
+    [collectionKey]: (current[collectionKey] as AnyRecord[]).map((record, index) =>
+      recordId(record, index) === id ? { ...record, isImportant: !Boolean(record.isImportant) } : record
+    )
+  } as WorkNoteData), "중요 업무");
 }
 
 function CompanyPortal({
@@ -1178,7 +1359,12 @@ function SalesPortal({
   );
 
   useEffect(() => {
-    if (focusTarget?.portal !== "sales") return;
+    if (focusTarget?.portal === "sales" && focusTarget.salesKind === "material") {
+      setSalesSection("material");
+    }
+  }, [focusTarget]);
+  useEffect(() => {
+    if (focusTarget?.portal !== "sales" || focusTarget.salesKind === "material") return;
     const focusKey = `${focusTarget.portal}:${focusTarget.id}:${focusTarget.nonce ?? ""}`;
     if (handledFocusTargetRef.current === focusKey) return;
     const focusedNote = searchedNotes.find((note, index) => recordId(note, index) === focusTarget.id);
@@ -1189,9 +1375,10 @@ function SalesPortal({
     setSalesCategoryFilter("all");
     setSalesPriorityFilter("all");
     setSalesMode(getListMode(focusedNote));
-    setSalesPanel((current) => (current?.id === focusTarget.id && current.mode === "detail" ? current : { id: focusTarget.id, mode: "detail" }));
+    if (focusTarget.openEditor) setEditingNote(prepareSalesDraft(focusedNote, data.notes.indexOf(focusedNote)));
+    else setSalesPanel((current) => (current?.id === focusTarget.id && current.mode === "detail" ? current : { id: focusTarget.id, mode: "detail" }));
     window.setTimeout(() => scrollRecordIntoView(focusTarget.id), 0);
-  }, [focusTarget, searchedNotes]);
+  }, [focusTarget, searchedNotes, data.notes]);
   const toggleSalesPanel = (id: string, mode: SalesPanelMode) => {
     setSalesPanel((current) => (current?.id === id && current.mode === mode ? null : { id, mode }));
   };
@@ -1481,7 +1668,7 @@ function SalesPortal({
           const linkedCompany = getLinkedCompanyForSales(note, data.companies);
           const attachments = asArray(note.attachments);
           return (
-            <div className={`sales-row-group ${focusTarget?.portal === "sales" && focusTarget.id === id ? "is-focus-target" : ""}`} key={id} data-record-id={id}>
+            <div className={`sales-row-group ${note.isImportant ? "is-important" : ""} ${focusTarget?.portal === "sales" && focusTarget.id === id ? "is-focus-target" : ""}`} key={id} data-record-id={id}>
               <article
                 className={`table-row sales-grid clickable-row ${expanded ? "is-expanded" : ""}`}
                 role="button"
@@ -1494,12 +1681,15 @@ function SalesPortal({
                   }
                 }}
               >
-                <div>
-                  <strong>{salesCustomer(note)}</strong>
-                  <div className="contact-lines">
-                    <span>{firstText(note, ["contactName", "managerName"]) || "담당자 미입력"}</span>
-                    <span>{firstText(note, ["contactPhone", "phone", "contact", "mobile"]) || "연락처 미입력"}</span>
-                    <span>{firstText(note, ["contactEmail", "email"]) || "이메일 미입력"}</span>
+                <div className="record-title-with-star">
+                  <ImportantToggle active={Boolean(note.isImportant)} onToggle={() => persistImportantToggle(onPersist, "notes", id)} />
+                  <div>
+                    <strong>{salesCustomer(note)}</strong>
+                    <div className="contact-lines">
+                      <span>{firstText(note, ["contactName", "managerName"]) || "담당자 미입력"}</span>
+                      <span>{firstText(note, ["contactPhone", "phone", "contact", "mobile"]) || "연락처 미입력"}</span>
+                      <span>{firstText(note, ["contactEmail", "email"]) || "이메일 미입력"}</span>
+                    </div>
                   </div>
                 </div>
                 <div onClick={(event) => event.stopPropagation()}>
@@ -1602,7 +1792,7 @@ function SalesPortal({
         </>
       )}
       {salesSection === "material" && (
-        <MaterialSalesSection data={data} query={query} onPersist={onPersist} />
+        <MaterialSalesSection data={data} query={query} onPersist={onPersist} focusTarget={focusTarget} />
       )}
     </section>
   );
@@ -1611,15 +1801,18 @@ function SalesPortal({
 function MaterialSalesSection({
   data,
   query,
-  onPersist
+  onPersist,
+  focusTarget
 }: {
   data: WorkNoteData;
   query: string;
   onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
+  focusTarget: FocusTarget | null;
 }) {
   const [editingRecord, setEditingRecord] = useState<AnyRecord | null>(null);
   const [filePanel, setFilePanel] = useState<string | null>(null);
   const [mode, setMode] = useState<ListMode>("all");
+  const handledFocusTargetRef = useRef("");
   const fileHandlers = createAttachmentHandlers({
     data,
     onPersist,
@@ -1636,6 +1829,19 @@ function MaterialSalesSection({
     () => searched.filter((record) => matchesMaterialSalesMode(record, mode)).sort((a, b) => compareUpdatedAt(a, b, "desc")),
     [searched, mode]
   );
+
+  useEffect(() => {
+    if (focusTarget?.portal !== "sales" || focusTarget.salesKind !== "material") return;
+    const focusKey = focusTarget.id + ":" + (focusTarget.nonce ?? "");
+    if (handledFocusTargetRef.current === focusKey) return;
+    const index = asArray(data.materialSalesNotes).findIndex((record, recordIndex) => recordId(record, recordIndex) === focusTarget.id);
+    if (index < 0) return;
+    handledFocusTargetRef.current = focusKey;
+    const record = data.materialSalesNotes[index];
+    setMode(getMaterialSalesMode(record));
+    setEditingRecord(prepareMaterialSalesDraft(record, index));
+    window.setTimeout(() => scrollRecordIntoView(focusTarget.id), 0);
+  }, [focusTarget, data.materialSalesNotes]);
 
   const saveRecord = (draft: AnyRecord) => {
     const normalized = normalizeMaterialSalesDraft(draft, data.companies);
@@ -1729,11 +1935,14 @@ function MaterialSalesSection({
           const items = asArray(record.items);
           const attachments = asArray(record.attachments);
           return (
-            <article className="task-card material-sales-card" key={id} data-record-id={id}>
+            <article className={`task-card material-sales-card ${record.isImportant ? "is-important" : ""}`} key={id} data-record-id={id}>
               <div className="card-heading">
-                <div>
-                  <strong>{salesCustomer(record)}</strong>
-                  <small>{contactBundle(record) || "담당자 정보 미입력"}</small>
+                <div className="record-title-with-star">
+                  <ImportantToggle active={Boolean(record.isImportant)} onToggle={() => persistImportantToggle(onPersist, "materialSalesNotes", id)} />
+                  <div>
+                    <strong>{salesCustomer(record)}</strong>
+                    <small>{contactBundle(record) || "담당자 정보 미입력"}</small>
+                  </div>
                 </div>
                 <div className="badge-stack inline-select-stack">
                   <select value={materialSalesStatus(record)} onChange={(event) => updateQuickField(id, "status", event.target.value)}>
@@ -2615,7 +2824,7 @@ function GenericWorkPortal({
     if (!target) return;
     handledFocusTargetRef.current = focusKey;
     setWorkMode(getListMode(target.record));
-    if (focusTarget.taxInvoiceItemId && (type === "settlement" || focusTarget.taxInvoiceItemId === "record-tax-invoice")) {
+    if (focusTarget.openEditor || (focusTarget.taxInvoiceItemId && (type === "settlement" || focusTarget.taxInvoiceItemId === "record-tax-invoice"))) {
       setEditingRecord(prepareWorkDraft(target.record, target.originalIndex, type));
     }
     window.setTimeout(() => scrollRecordIntoView(focusTarget.id), 0);
@@ -2711,11 +2920,14 @@ function GenericWorkPortal({
           const attachments = asArray(record.attachments);
           const linkedSales = getLinkedSalesForWork(record, data.notes, data.materialSalesNotes);
           return (
-            <article className={`task-card ${type} ${focusTarget?.portal === type && focusTarget.id === id ? "is-focus-target" : ""}`} key={id} data-record-id={id}>
+            <article className={`task-card ${type} ${record.isImportant ? "is-important" : ""} ${focusTarget?.portal === type && focusTarget.id === id ? "is-focus-target" : ""}`} key={id} data-record-id={id}>
               <div className="card-heading">
-                <div>
-                  <strong>{workTitle(record, type)}</strong>
-                  <small>{linkedSales ? `관련 영업: ${salesCustomer(linkedSales)}` : relatedSalesFallback(record)}</small>
+                <div className="record-title-with-star">
+                  <ImportantToggle active={Boolean(record.isImportant)} onToggle={() => persistImportantToggle(onPersist, workAttachmentCollectionKey(type), id)} />
+                  <div>
+                    <strong>{workTitle(record, type)}</strong>
+                    <small>{linkedSales ? `관련 영업: ${salesCustomer(linkedSales)}` : relatedSalesFallback(record)}</small>
+                  </div>
                 </div>
                 <div className="badge-stack">
                   <Badge tone={statusTone(firstText(record, ["status", "progressStatus"]))}>
@@ -3779,12 +3991,27 @@ function CopyButton({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: number }) {
+function MetricCard({
+  label,
+  value,
+  active,
+  onClick
+}: {
+  label: string;
+  value: number;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
-    <article className="metric-card">
+    <button
+      type="button"
+      className={`metric-card ${active ? "is-active" : ""}`}
+      aria-pressed={active}
+      onClick={onClick}
+    >
       <span>{label}</span>
-      <strong>{value}</strong>
-    </article>
+      <strong key={value}>{value}</strong>
+    </button>
   );
 }
 
@@ -3950,7 +4177,23 @@ function loadWorkNoteData(): WorkNoteData {
 }
 
 function migrateWorkNoteData(data: WorkNoteData): WorkNoteData {
-  return migrateSettlementTaxInvoiceRows(migrateLegacyMaterialSalesNotes(data));
+  return migrateImportantFlags(migrateSettlementTaxInvoiceRows(migrateLegacyMaterialSalesNotes(data)));
+}
+
+function migrateImportantFlags(data: WorkNoteData): WorkNoteData {
+  let changed = false;
+  const taskCollections: TaskCollectionKey[] = ["notes", "materialSalesNotes", "settlementTasks", "outputTasks", "otherTasks"];
+  const migrated = { ...data };
+
+  taskCollections.forEach((collectionKey) => {
+    migrated[collectionKey] = asArray(data[collectionKey]).map((record) => {
+      if (typeof record.isImportant === "boolean") return record;
+      changed = true;
+      return { ...record, isImportant: false };
+    });
+  });
+
+  return changed ? migrated : data;
 }
 
 function migrateSettlementTaxInvoiceRows(data: WorkNoteData): WorkNoteData {
@@ -4381,7 +4624,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
   ]);
 
   addSheet("장비영업", [
-    ["업체명", "담당자", "연락처", "이메일", "진행상태", "구분", "중요도", "관심 장비", "견적 여부", "구매 가능성", "예상매출", "예상매출 VAT", "매출", "매출 VAT", "매출 구분", "다음 연락", "미팅 일정", "최근 연락", "결제/증빙 방식", "처리 상태", "발행/결제 예정일", "첨부 수", "최종 수정", "다음 액션", "메모"],
+    ["업체명", "담당자", "연락처", "이메일", "진행상태", "구분", "중요도", "중요 업무", "관심 장비", "견적 여부", "구매 가능성", "예상매출", "예상매출 VAT", "매출", "매출 VAT", "매출 구분", "다음 연락", "미팅 일정", "최근 연락", "결제/증빙 방식", "처리 상태", "발행/결제 예정일", "첨부 수", "최종 수정", "다음 액션", "메모"],
     ...asArray(data.notes).map((note) => [
       salesCustomer(note),
       firstText(note, ["contactName", "managerName"]),
@@ -4390,6 +4633,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
       salesStatus(note),
       salesCategory(note),
       salesPriority(note),
+      note.isImportant ? "예" : "아니오",
       salesInterest(note),
       firstText(note, ["quoteStatus"]),
       firstText(note, ["purchasePossibility"]),
@@ -4412,7 +4656,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
   ]);
 
   addSheet("소재영업", [
-    ["업체명", "문의일자", "담당자", "연락처", "이메일", "진행상태", "견적 여부", "판매 품목 요약", "예상매출", "종합매출", "매출 구분", "결제/증빙 방식", "처리 상태", "발행/결제 예정일", "첨부 수", "최종 수정", "메모"],
+    ["업체명", "문의일자", "담당자", "연락처", "이메일", "진행상태", "중요 업무", "견적 여부", "판매 품목 요약", "예상매출", "종합매출", "매출 구분", "결제/증빙 방식", "처리 상태", "발행/결제 예정일", "첨부 수", "최종 수정", "메모"],
     ...asArray(data.materialSalesNotes).map((record) => [
       salesCustomer(record),
       firstText(record, ["inquiryDate"]),
@@ -4420,6 +4664,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
       firstText(record, ["contactPhone", "phone", "contact", "mobile"]),
       firstText(record, ["contactEmail", "email"]),
       materialSalesStatus(record),
+      record.isImportant ? "예" : "아니오",
       materialSalesQuoteStatus(record),
       materialSalesItemsSummary(record),
       amountForXlsx(firstText(record, ["expectedRevenueAmount"])),
@@ -4449,7 +4694,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
   ]);
 
   addSheet("정산", [
-    ["업체명", "담당자", "연락처", "이메일", "결제 유형", "진행상태", "중요도", "총 관리/선금", "금액 VAT", "입금/차감 완료", "완료액 VAT", "잔액", "현재 진행", "다음 처리일", "다음 처리", "결제/증빙 요약", "첨부 수", "최종 수정", "계획", "메모"],
+    ["업체명", "담당자", "연락처", "이메일", "결제 유형", "진행상태", "중요도", "중요 업무", "총 관리/선금", "금액 VAT", "입금/차감 완료", "완료액 VAT", "잔액", "현재 진행", "다음 처리일", "다음 처리", "결제/증빙 요약", "첨부 수", "최종 수정", "계획", "메모"],
     ...asArray(data.settlementTasks).map((record) => {
       const isAdvance = firstText(record, ["paymentType"]).includes("선금");
       return [
@@ -4460,6 +4705,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
         firstText(record, ["paymentType"]),
         firstText(record, ["status", "progressStatus"]),
         firstText(record, ["priority", "importance"]),
+        record.isImportant ? "예" : "아니오",
         amountForXlsx(firstText(record, ["totalAmount", "advanceAmount"])),
         formatVatStatus(isAdvance ? record.advanceAmountVatIncluded : record.totalAmountVatIncluded),
         amountForXlsx(firstText(record, [isAdvance ? "deductedAmount" : "receivedAmount"])),
@@ -4503,7 +4749,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
   ]);
 
   addSheet("출력", [
-    ["업체명/업무명", "요청자", "연락처", "이메일", "관련 영업", "진행상태", "중요도", "기한 시작", "기한 종료", "출력 종류", "주말 포함", "결제/증빙 방식", "처리 상태", "발행/결제 예정일", "첨부 수", "최종 수정", "메모"],
+    ["업체명/업무명", "요청자", "연락처", "이메일", "관련 영업", "진행상태", "중요도", "중요 업무", "기한 시작", "기한 종료", "출력 종류", "주말 포함", "결제/증빙 방식", "처리 상태", "발행/결제 예정일", "첨부 수", "최종 수정", "메모"],
     ...asArray(data.outputTasks).map((record) => {
       const linkedSales = getLinkedSalesForWork(record, data.notes, data.materialSalesNotes);
       return [
@@ -4514,6 +4760,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
         linkedSales ? salesCustomer(linkedSales) : relatedSalesFallback(record),
         firstText(record, ["status", "progressStatus"]),
         firstText(record, ["priority", "importance"]),
+        record.isImportant ? "예" : "아니오",
         firstText(record, ["startDate", "dueStartDate"]),
         firstText(record, ["endDate", "dueEndDate", "deadline", "dueDate"]),
         firstText(record, ["outputType", "category", "taskType"]),
@@ -4529,7 +4776,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
   ]);
 
   addSheet("기타", [
-    ["업무명", "관련 업체", "담당/요청자", "연락처", "이메일", "분류", "진행상태", "중요도", "기한 시작", "기한 종료", "주말 포함", "첨부 수", "최종 수정", "메모"],
+    ["업무명", "관련 업체", "담당/요청자", "연락처", "이메일", "분류", "진행상태", "중요도", "중요 업무", "기한 시작", "기한 종료", "주말 포함", "첨부 수", "최종 수정", "메모"],
     ...asArray(data.otherTasks).map((record) => [
       workTitle(record, "other"),
       companyName(record),
@@ -4539,6 +4786,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
       firstText(record, ["category", "taskType"]),
       firstText(record, ["status", "progressStatus"]),
       firstText(record, ["priority", "importance"]),
+      record.isImportant ? "예" : "아니오",
       firstText(record, ["startDate", "dueStartDate"]),
       firstText(record, ["endDate", "dueEndDate", "deadline", "dueDate"]),
       record.includeWeekends ? "포함" : "제외",
@@ -4715,6 +4963,11 @@ function escapeCsv(value: string): string {
 
 function summarizeForCsv(value: string): string {
   return clean(value).replace(/\s+/g, " ").slice(0, 500);
+}
+
+function summarizeForList(value: string, maxLength = 110): string {
+  const text = clean(value).replace(/\s+/g, " ");
+  return text.length > maxLength ? text.slice(0, maxLength) + "..." : text;
 }
 
 function getFilenameTimestamp(): string {
@@ -5303,7 +5556,8 @@ function createBlankSalesNote(): AnyRecord {
     taxInvoiceStatus: "",
     taxInvoiceCancelReason: "",
     taxInvoiceReissueDate: "",
-    attachments: []
+    attachments: [],
+    isImportant: false
   };
 }
 
@@ -5363,7 +5617,8 @@ function normalizeSalesDraft(draft: AnyRecord, companies: AnyRecord[]): AnyRecor
     expectedRevenueVatIncluded: Boolean(draft.expectedRevenueVatIncluded),
     revenueAmount: normalizeAmountString(firstText(draft, ["revenueAmount"])),
     revenueAmountVatIncluded: Boolean(draft.revenueAmountVatIncluded),
-    revenueType: firstText(draft, ["revenueType"])
+    revenueType: firstText(draft, ["revenueType"]),
+    isImportant: Boolean(draft.isImportant)
   };
 }
 
@@ -5400,7 +5655,8 @@ function createBlankMaterialSalesNote(): AnyRecord {
     taxInvoiceStatus: "",
     taxInvoiceCancelReason: "",
     taxInvoiceReissueDate: "",
-    attachments: []
+    attachments: [],
+    isImportant: false
   };
 }
 
@@ -5451,7 +5707,8 @@ function normalizeMaterialSalesDraft(draft: AnyRecord, companies: AnyRecord[]): 
     revenueAmount: normalizeAmountString(firstText(draft, ["revenueAmount"])),
     revenueType: MATERIAL_REVENUE_TYPE_OPTIONS.includes(firstText(draft, ["revenueType"])) ? firstText(draft, ["revenueType"]) : MATERIAL_REVENUE_TYPE_OPTIONS[0],
     memo: rawText(draft, ["memo"]),
-    attachments: asArray(draft.attachments)
+    attachments: asArray(draft.attachments),
+    isImportant: Boolean(draft.isImportant)
   };
 }
 
@@ -5665,7 +5922,8 @@ function createBlankWorkTask(type: "settlement" | "output" | "other"): AnyRecord
     taxInvoiceStatus: "",
     taxInvoiceCancelReason: "",
     taxInvoiceReissueDate: "",
-    attachments: []
+    attachments: [],
+    isImportant: false
   };
   if (type === "settlement") {
     return {
@@ -5752,6 +6010,7 @@ function normalizeWorkDraft(draft: AnyRecord, type: "settlement" | "output" | "o
     endDate: firstText(draft, ["endDate"]),
     includeWeekends: Boolean(draft.includeWeekends),
     memo: firstText(draft, ["memo"]),
+    isImportant: Boolean(draft.isImportant),
     ...normalizeTaxInvoiceDraft(draft)
   };
 
@@ -6041,6 +6300,185 @@ function isRecordLinkedToCompany(record: AnyRecord, company: AnyRecord, companyI
   const recordName = normalizeMergeText(salesLike ? salesCustomer(record) : companyName(record));
   return Boolean(recordName && recordName !== normalizeMergeText("고객 미정") && recordName === targetName);
 }
+function collectUnifiedWorkItems(data: WorkNoteData, scheduleItems: ScheduleItem[]): UnifiedWorkItem[] {
+  const today = toDateKey(new Date());
+  const { start: weekStart, end: weekEnd } = getMondayWeekRange(new Date());
+  const scheduleDates = new Map<string, string[]>();
+
+  scheduleItems.forEach((item) => {
+    const key = `${item.collectionKey}:${item.sourceId}`;
+    const dates = scheduleDates.get(key) || [];
+    if (!dates.includes(item.date)) dates.push(item.date);
+    scheduleDates.set(key, dates);
+  });
+
+  const createItem = (
+    record: AnyRecord,
+    index: number,
+    collectionKey: TaskCollectionKey,
+    portal: UnifiedWorkItem["portal"],
+    badge: UnifiedWorkItem["badge"],
+    subtype: string,
+    title: string,
+    status: string,
+    schedule: string,
+    memo: string,
+    salesKind?: UnifiedWorkItem["salesKind"]
+  ): UnifiedWorkItem => {
+    const sourceId = recordId(record, index);
+    const key = `${collectionKey}:${sourceId}`;
+    const dates = [...(scheduleDates.get(key) || [])];
+    if (collectionKey === "notes" || collectionKey === "materialSalesNotes") {
+      const billingDate = firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]);
+      if (firstText(record, ["taxInvoiceStatus", "invoiceStatus"]) === "발행 예정" && parseDateKey(billingDate)) {
+        dates.push(parseDateKey(billingDate));
+      }
+    }
+    const startDate = parseDateKey(firstText(record, ["startDate", "dueStartDate"]));
+    const endDate = parseDateKey(firstText(record, ["endDate", "dueEndDate", "deadline", "dueDate"])) || startDate;
+    const hasRange = (collectionKey === "outputTasks" || collectionKey === "otherTasks") && !isClosed(firstText(record, ["status", "progressStatus"])) && Boolean(startDate && endDate);
+    const isToday = dates.includes(today) || Boolean(hasRange && startDate <= today && today <= endDate);
+    const isThisWeek = dates.some((date) => weekStart <= date && date <= weekEnd)
+      || Boolean(hasRange && startDate <= weekEnd && endDate >= weekStart);
+
+    return {
+      id: key,
+      sourceId,
+      collectionKey,
+      portal,
+      salesKind,
+      badge,
+      subtype,
+      title,
+      contact: contactBundle(record),
+      status,
+      schedule,
+      memo,
+      updatedAt: firstText(record, ["updatedAt", "modifiedAt", "createdAt"]),
+      isImportant: Boolean(record.isImportant),
+      isToday,
+      isThisWeek
+    };
+  };
+
+  return [
+    ...asArray(data.notes).map((record, index) =>
+      createItem(
+        record,
+        index,
+        "notes",
+        "sales",
+        "영업",
+        "장비 영업",
+        salesCustomer(record),
+        salesStatus(record),
+        equipmentSalesScheduleText(record),
+        firstText(record, ["memo"]),
+        "equipment"
+      )
+    ),
+    ...asArray(data.materialSalesNotes).map((record, index) =>
+      createItem(
+        record,
+        index,
+        "materialSalesNotes",
+        "sales",
+        "영업",
+        "소재/소모품",
+        salesCustomer(record),
+        materialSalesStatus(record),
+        materialSalesScheduleText(record),
+        firstText(record, ["memo"]),
+        "material"
+      )
+    ),
+    ...asArray(data.settlementTasks).map((record, index) =>
+      createItem(
+        record,
+        index,
+        "settlementTasks",
+        "settlement",
+        "정산",
+        firstText(record, ["paymentType"]) || "정산",
+        workTitle(record, "settlement"),
+        firstText(record, ["status", "progressStatus"]),
+        settlementUnifiedScheduleText(record, scheduleDates.get(`settlementTasks:${recordId(record, index)}`) || []),
+        firstText(record, ["memo"])
+      )
+    ),
+    ...asArray(data.outputTasks).map((record, index) =>
+      createItem(
+        record,
+        index,
+        "outputTasks",
+        "output",
+        "출력",
+        firstText(record, ["outputType"]) || "출력 업무",
+        workTitle(record, "output"),
+        firstText(record, ["status", "progressStatus"]),
+        deadlineText(record),
+        firstText(record, ["memo"])
+      )
+    ),
+    ...asArray(data.otherTasks).map((record, index) =>
+      createItem(
+        record,
+        index,
+        "otherTasks",
+        "other",
+        "기타",
+        firstText(record, ["category"]) || "기타 업무",
+        workTitle(record, "other"),
+        firstText(record, ["status", "progressStatus"]),
+        deadlineText(record),
+        firstText(record, ["memo"])
+      )
+    )
+  ];
+}
+
+function equipmentSalesScheduleText(record: AnyRecord): string {
+  const parts = [
+    firstText(record, ["nextContactDate"]) ? `다음 연락 ${formatOptionalDate(firstText(record, ["nextContactDate"]))}` : "",
+    firstText(record, ["meetingDate"]) ? `미팅 ${formatOptionalDate(firstText(record, ["meetingDate"]))}` : "",
+    firstText(record, ["taxInvoiceStatus", "invoiceStatus"]) === "발행 예정"
+      ? `${billingMethodFor(record)} ${formatOptionalDate(firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]))}`
+      : ""
+  ];
+  return joinParts(parts, " · ") || "일정 미정";
+}
+
+function materialSalesScheduleText(record: AnyRecord): string {
+  if (firstText(record, ["taxInvoiceStatus", "invoiceStatus"]) === "발행 예정") {
+    return `${billingMethodFor(record)} ${formatOptionalDate(firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"])) || "예정일 미정"}`;
+  }
+  const inquiryDate = formatOptionalDate(firstText(record, ["inquiryDate"]));
+  return inquiryDate ? `문의 ${inquiryDate}` : "일정 미정";
+}
+
+function settlementUnifiedScheduleText(record: AnyRecord, dates: string[]): string {
+  const sortedDates = [...new Set(dates.filter(Boolean))].sort();
+  if (sortedDates.length > 1) return `${formatDateForDisplay(sortedDates[0])} ~ ${formatDateForDisplay(sortedDates[sortedDates.length - 1])}`;
+  if (sortedDates.length === 1) return formatDateForDisplay(sortedDates[0]);
+  return formatOptionalDate(firstText(record, ["nextActionDate", "endDate"])) || "일정 미정";
+}
+
+function getMondayWeekRange(date: Date): { start: string; end: string } {
+  const current = startOfDay(date);
+  const monday = new Date(current);
+  monday.setDate(current.getDate() - ((current.getDay() + 6) % 7));
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return { start: toDateKey(monday), end: toDateKey(sunday) };
+}
+
+function compareUnifiedWorkItems(a: UnifiedWorkItem, b: UnifiedWorkItem): number {
+  return Number(b.isImportant) - Number(a.isImportant)
+    || Number(b.isToday) - Number(a.isToday)
+    || Number(b.isThisWeek) - Number(a.isThisWeek)
+    || compareDate(b.updatedAt, a.updatedAt)
+    || a.title.localeCompare(b.title, "ko");
+}
 function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
   const items: ScheduleItem[] = [];
 
@@ -6122,7 +6560,7 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
     addWorkDateRangeItems(items, task, index, "other", `[기타] ${workTitle(task, "other")}`, firstText(task, ["memo", "description"]));
   });
 
-  return items.sort((a, b) => a.date.localeCompare(b.date) || priorityScoreFromText(b.priority) - priorityScoreFromText(a.priority));
+  return items.sort((a, b) => a.date.localeCompare(b.date) || Number(b.isImportant) - Number(a.isImportant) || priorityScoreFromText(b.priority) - priorityScoreFromText(a.priority));
 }
 
 function addScheduleItem(
@@ -6152,7 +6590,9 @@ function addScheduleItem(
     sourceId: recordId(record, index),
     taxInvoiceItemId: taxInvoiceItemId || undefined,
     status,
-    priority
+    priority,
+    collectionKey: type === "sales" ? "notes" : type === "settlement" ? "settlementTasks" : type === "output" ? "outputTasks" : "otherTasks",
+    isImportant: Boolean(record.isImportant)
   });
 }
 
@@ -6433,7 +6873,7 @@ function getWorkModeCounts(records: AnyRecord[]): { active: number; hold: number
   );
 }
 
-function workAttachmentCollectionKey(type: "settlement" | "output" | "other"): AttachmentCollectionKey {
+function workAttachmentCollectionKey(type: "settlement" | "output" | "other"): TaskCollectionKey {
   if (type === "settlement") return "settlementTasks";
   if (type === "output") return "outputTasks";
   return "otherTasks";
