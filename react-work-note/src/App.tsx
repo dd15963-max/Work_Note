@@ -464,6 +464,11 @@ function BackupCenter({
     setSaveMessage(`CSV 내보내기 완료 · ${formatDateTime(new Date().toISOString())}`);
   };
 
+  const exportXlsx = () => {
+    downloadWorkNoteXlsx(data);
+    setSaveMessage(`엑셀 내보내기 완료 · ${formatDateTime(new Date().toISOString())}`);
+  };
+
   const auditAttachments = async () => {
     setBusy("첨부 원본 점검 중");
     try {
@@ -638,6 +643,7 @@ function BackupCenter({
         <div>
           <strong>관리</strong>
           <button type="button" onClick={exportCsv} disabled={Boolean(busy)}>CSV 내보내기</button>
+          <button type="button" onClick={exportXlsx} disabled={Boolean(busy)}>엑셀 내보내기</button>
           <button className="danger" type="button" onClick={resetWorkspace} disabled={Boolean(busy)}>전체 초기화</button>
         </div>
         <small>{busy || "ZIP은 원본 파일까지, JSON은 기록만 저장합니다."}</small>
@@ -4086,6 +4092,366 @@ function downloadWorkNoteCsv(data: WorkNoteData) {
   downloadBlob(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }), `work-note-export-${getFilenameTimestamp()}.csv`, "text/csv;charset=utf-8");
 }
 
+type XlsxCellValue = string | number | boolean | null | undefined;
+type XlsxSheet = { name: string; rows: XlsxCellValue[][] };
+
+function downloadWorkNoteXlsx(data: WorkNoteData) {
+  const sheets = createWorkNoteXlsxSheets(data);
+  const blob = createXlsxWorkbookBlob(sheets);
+  downloadBlob(blob, `work-note-export-${getFilenameTimestamp()}.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+}
+
+function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
+  const sheets: XlsxSheet[] = [];
+  const addSheet = (name: string, rows: XlsxCellValue[][]) => {
+    sheets.push({ name, rows: rows.length > 1 ? rows : [...rows, ["데이터 없음"]] });
+  };
+
+  addSheet("업체", [
+    ["업체명", "사업자번호", "대표자", "업종/분류", "거래상태", "주소", "대표 연락처", "대표 이메일", "기본 담당자", "담당자 연락처", "담당자 이메일", "담당자 수", "첨부 수", "최종 수정", "메모"],
+    ...asArray(data.companies).map((company) => {
+      const contacts = asArray(company.contacts);
+      const primary = contacts.find((contact) => Boolean(contact.isPrimary)) || contacts[0] || {};
+      return [
+        companyName(company),
+        firstText(company, ["businessNumber"]),
+        firstText(company, ["representative", "representativeName", "ceoName", "owner"]),
+        firstText(company, ["businessType", "category"]),
+        firstText(company, ["status", "tradeStatus"]),
+        firstText(company, ["address"]),
+        firstText(company, ["mainPhone", "phone", "contact"]),
+        firstText(company, ["mainEmail", "email"]),
+        firstText(primary, ["name", "contactName"]),
+        firstText(primary, ["phone", "contactPhone", "mobile"]),
+        firstText(primary, ["email", "contactEmail"]),
+        contacts.length,
+        asArray(company.attachments).length,
+        formatDateTime(firstText(company, ["updatedAt"])),
+        summarizeForCsv(firstText(company, ["memo", "note"]))
+      ];
+    })
+  ]);
+
+  addSheet("장비영업", [
+    ["업체명", "담당자", "연락처", "이메일", "진행상태", "구분", "중요도", "관심 장비", "견적 여부", "구매 가능성", "예상매출", "예상매출 VAT", "매출", "매출 VAT", "매출 구분", "다음 연락", "미팅 일정", "최근 연락", "세금계산서 상태", "세금계산서 발행일", "첨부 수", "최종 수정", "다음 액션", "메모"],
+    ...asArray(data.notes).map((note) => [
+      salesCustomer(note),
+      firstText(note, ["contactName", "managerName"]),
+      firstText(note, ["contactPhone", "phone", "contact", "mobile"]),
+      firstText(note, ["contactEmail", "email"]),
+      salesStatus(note),
+      salesCategory(note),
+      salesPriority(note),
+      salesInterest(note),
+      firstText(note, ["quoteStatus"]),
+      firstText(note, ["purchasePossibility"]),
+      amountForXlsx(firstText(note, ["expectedRevenueAmount"])),
+      formatVatStatus(note.expectedRevenueVatIncluded),
+      amountForXlsx(firstText(note, ["revenueAmount"])),
+      formatVatStatus(note.revenueAmountVatIncluded),
+      firstText(note, ["revenueType"]),
+      formatNextContact(note),
+      firstText(note, ["meetingDate"]),
+      firstText(note, ["lastContactDate"]),
+      firstText(note, ["taxInvoiceStatus", "invoiceStatus"]),
+      firstText(note, ["taxInvoiceIssueDate", "invoiceIssueDate"]),
+      asArray(note.attachments).length,
+      formatDateTime(firstText(note, ["updatedAt"])),
+      summarizeForCsv(firstText(note, ["nextAction"])),
+      summarizeForCsv(firstText(note, ["memo", "description", "note"]))
+    ])
+  ]);
+
+  addSheet("소재영업", [
+    ["업체명", "문의일자", "담당자", "연락처", "이메일", "진행상태", "견적 여부", "판매 품목 요약", "예상매출", "종합매출", "매출 구분", "세금계산서 상태", "세금계산서 발행일", "첨부 수", "최종 수정", "메모"],
+    ...asArray(data.materialSalesNotes).map((record) => [
+      salesCustomer(record),
+      firstText(record, ["inquiryDate"]),
+      firstText(record, ["contactName", "managerName"]),
+      firstText(record, ["contactPhone", "phone", "contact", "mobile"]),
+      firstText(record, ["contactEmail", "email"]),
+      materialSalesStatus(record),
+      materialSalesQuoteStatus(record),
+      materialSalesItemsSummary(record),
+      amountForXlsx(firstText(record, ["expectedRevenueAmount"])),
+      amountForXlsx(firstText(record, ["revenueAmount"])),
+      firstText(record, ["revenueType"]),
+      firstText(record, ["taxInvoiceStatus", "invoiceStatus"]),
+      firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]),
+      asArray(record.attachments).length,
+      formatDateTime(firstText(record, ["updatedAt"])),
+      summarizeForCsv(firstText(record, ["memo", "description", "note"]))
+    ])
+  ]);
+
+  addSheet("소재판매품목", [
+    ["업체명", "영업건 ID", "품목명", "가격", "수량", "품목별 메모"],
+    ...asArray(data.materialSalesNotes).flatMap((record, recordIndex) =>
+      asArray(record.items).map((item) => [
+        salesCustomer(record),
+        recordId(record, recordIndex),
+        firstText(item, ["name", "itemName"]),
+        amountForXlsx(firstText(item, ["price", "amount"])),
+        amountForXlsx(firstText(item, ["quantity", "qty"])),
+        summarizeForCsv(firstText(item, ["memo", "note"]))
+      ])
+    )
+  ]);
+
+  addSheet("정산", [
+    ["업체명", "담당자", "연락처", "이메일", "결제 유형", "진행상태", "중요도", "총 관리/선금", "금액 VAT", "입금/차감 완료", "완료액 VAT", "잔액", "현재 진행", "다음 처리일", "다음 처리", "세금계산서 상태", "세금계산서 발행일", "첨부 수", "최종 수정", "계획", "메모"],
+    ...asArray(data.settlementTasks).map((record) => {
+      const isAdvance = firstText(record, ["paymentType"]).includes("선금");
+      return [
+        workTitle(record, "settlement"),
+        firstText(record, ["contactName", "requester", "assignee", "owner"]),
+        firstText(record, ["contactPhone", "phone", "mobile"]),
+        firstText(record, ["contactEmail", "email"]),
+        firstText(record, ["paymentType"]),
+        firstText(record, ["status", "progressStatus"]),
+        firstText(record, ["priority", "importance"]),
+        amountForXlsx(firstText(record, ["totalAmount", "advanceAmount"])),
+        formatVatStatus(isAdvance ? record.advanceAmountVatIncluded : record.totalAmountVatIncluded),
+        amountForXlsx(firstText(record, [isAdvance ? "deductedAmount" : "receivedAmount"])),
+        formatVatStatus(isAdvance ? record.deductedAmountVatIncluded : record.receivedAmountVatIncluded),
+        amountForXlsx(settlementRemainingText(record)),
+        firstText(record, ["installmentProgress"]),
+        firstText(record, ["nextActionDate"]),
+        firstText(record, ["nextAction"]),
+        firstText(record, ["taxInvoiceStatus", "invoiceStatus"]),
+        firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]),
+        asArray(record.attachments).length,
+        formatDateTime(firstText(record, ["updatedAt"])),
+        summarizeForCsv(firstText(record, ["plan"])),
+        summarizeForCsv(firstText(record, ["memo", "description", "note"]))
+      ];
+    })
+  ]);
+
+  addSheet("정산일정_차감목록", [
+    ["업체명", "정산 ID", "결제 유형", "구분", "번호", "예정일", "금액", "VAT", "상태", "품목/메모"],
+    ...asArray(data.settlementTasks).flatMap((record, recordIndex) => {
+      const isAdvance = firstText(record, ["paymentType"]).includes("선금");
+      return asArray(record.paymentSchedule).map((row) => [
+        workTitle(record, "settlement"),
+        recordId(record, recordIndex),
+        firstText(record, ["paymentType"]),
+        isAdvance ? "차감" : "회차",
+        firstText(row, ["round"]),
+        firstText(row, ["dueDate"]),
+        amountForXlsx(firstText(row, ["amount"])),
+        formatVatStatus(row.amountVatIncluded),
+        firstText(row, ["status"]),
+        firstText(row, ["item", "memo", "description"])
+      ]);
+    })
+  ]);
+
+  addSheet("출력", [
+    ["업체명/업무명", "요청자", "연락처", "이메일", "관련 영업", "진행상태", "중요도", "기한 시작", "기한 종료", "출력 종류", "주말 포함", "세금계산서 상태", "세금계산서 발행일", "첨부 수", "최종 수정", "메모"],
+    ...asArray(data.outputTasks).map((record) => {
+      const linkedSales = getLinkedSalesForWork(record, data.notes);
+      return [
+        workTitle(record, "output"),
+        firstText(record, ["contactName", "requester", "assignee", "owner"]),
+        firstText(record, ["contactPhone", "phone", "mobile"]),
+        firstText(record, ["contactEmail", "email"]),
+        linkedSales ? salesCustomer(linkedSales) : relatedSalesFallback(record),
+        firstText(record, ["status", "progressStatus"]),
+        firstText(record, ["priority", "importance"]),
+        firstText(record, ["startDate", "dueStartDate"]),
+        firstText(record, ["endDate", "dueEndDate", "deadline", "dueDate"]),
+        firstText(record, ["outputType", "category", "taskType"]),
+        record.includeWeekends ? "포함" : "제외",
+        firstText(record, ["taxInvoiceStatus", "invoiceStatus"]),
+        firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]),
+        asArray(record.attachments).length,
+        formatDateTime(firstText(record, ["updatedAt"])),
+        summarizeForCsv(firstText(record, ["memo", "description", "note"]))
+      ];
+    })
+  ]);
+
+  addSheet("기타", [
+    ["업무명", "관련 업체", "담당/요청자", "연락처", "이메일", "분류", "진행상태", "중요도", "기한 시작", "기한 종료", "주말 포함", "첨부 수", "최종 수정", "메모"],
+    ...asArray(data.otherTasks).map((record) => [
+      workTitle(record, "other"),
+      companyName(record),
+      firstText(record, ["contactName", "requester", "assignee", "owner"]),
+      firstText(record, ["contactPhone", "phone", "mobile"]),
+      firstText(record, ["contactEmail", "email"]),
+      firstText(record, ["category", "taskType"]),
+      firstText(record, ["status", "progressStatus"]),
+      firstText(record, ["priority", "importance"]),
+      firstText(record, ["startDate", "dueStartDate"]),
+      firstText(record, ["endDate", "dueEndDate", "deadline", "dueDate"]),
+      record.includeWeekends ? "포함" : "제외",
+      asArray(record.attachments).length,
+      formatDateTime(firstText(record, ["updatedAt"])),
+      summarizeForCsv(firstText(record, ["memo", "description", "note"]))
+    ])
+  ]);
+
+  addSheet("계정", [
+    ["홈페이지 이름", "홈페이지 링크", "아이디", "비밀번호", "계정 용도", "담당자/소유자", "생성일", "비밀번호 변경일", "최종 수정", "메모"],
+    ...asArray(data.accounts).map((account) => [
+      firstText(account, ["siteName", "homepageName", "name"]),
+      firstText(account, ["siteUrl", "homepageUrl", "url"]),
+      firstText(account, ["username", "accountId"]),
+      firstText(account, ["password"]),
+      firstText(account, ["purpose"]),
+      firstText(account, ["owner"]),
+      firstText(account, ["accountCreatedDate", "createdDate"]),
+      firstText(account, ["passwordChangedDate"]),
+      formatDateTime(firstText(account, ["updatedAt"])),
+      summarizeForCsv(firstText(account, ["memo", "note"]))
+    ])
+  ]);
+
+  addSheet("첨부파일목록", [
+    ["구분", "대상", "파일명", "분류", "발송/등록일", "메모", "파일 크기", "업로드일"],
+    ...getAttachmentOwnerGroups(data).flatMap((group) =>
+      group.items.flatMap((owner) =>
+        asArray(owner.attachments).map((attachment) => [
+          attachmentOwnerLabel(group.type),
+          attachmentOwnerTitle(group.type, owner),
+          firstText(attachment, ["fileName", "name", "filename"]),
+          firstText(attachment, ["category"]),
+          firstText(attachment, ["sentDate"]),
+          summarizeForCsv(firstText(attachment, ["memo"])),
+          formatFileSize(Number(attachment.fileSize) || 0),
+          formatDateTime(firstText(attachment, ["uploadedAt"]))
+        ])
+      )
+    )
+  ]);
+
+  return sheets;
+}
+
+function amountForXlsx(value: string): string | number {
+  const amount = parseAmountNumber(value);
+  return amount === null ? clean(value) : amount;
+}
+
+function attachmentOwnerLabel(type: AttachmentOwnerType): string {
+  if (type === "company") return "업체";
+  if (type === "sales") return "장비영업";
+  if (type === "materialSales") return "소재영업";
+  if (type === "settlement") return "정산";
+  if (type === "output") return "출력";
+  return "기타";
+}
+
+
+function createXlsxWorkbookBlob(sheets: XlsxSheet[]): Blob {
+  const usedNames: string[] = [];
+  const safeSheets = sheets.map((sheet) => {
+    const name = uniqueSheetName(sheet.name, usedNames);
+    usedNames.push(name);
+    return { ...sheet, name };
+  });
+  const entries: Array<{ path: string; data: Uint8Array | string }> = [
+    { path: "[Content_Types].xml", data: createXlsxContentTypesXml(safeSheets.length) },
+    { path: "_rels/.rels", data: createXlsxRootRelsXml() },
+    { path: "xl/workbook.xml", data: createXlsxWorkbookXml(safeSheets) },
+    { path: "xl/_rels/workbook.xml.rels", data: createXlsxWorkbookRelsXml(safeSheets.length) },
+    { path: "xl/styles.xml", data: createXlsxStylesXml() },
+    ...safeSheets.map((sheet, index) => ({ path: `xl/worksheets/sheet${index + 1}.xml`, data: createXlsxWorksheetXml(sheet.rows) }))
+  ];
+  return new Blob([createZipBlob(entries)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
+function uniqueSheetName(name: string, previousNames: string[]): string {
+  const base = sanitizeXlsxSheetName(name) || "Sheet";
+  const used = new Set(previousNames.map((item) => sanitizeXlsxSheetName(item).toLowerCase()));
+  if (!used.has(base.toLowerCase())) return base;
+  for (let index = 2; index < 100; index += 1) {
+    const suffix = `_${index}`;
+    const candidate = `${base.slice(0, 31 - suffix.length)}${suffix}`;
+    if (!used.has(candidate.toLowerCase())) return candidate;
+  }
+  return `${base.slice(0, 28)}_${Date.now().toString(36).slice(-2)}`;
+}
+
+function sanitizeXlsxSheetName(name: string): string {
+  return clean(name).replace(/[\\/?*\[\]:]/g, " ").replace(/\s+/g, " ").trim().slice(0, 31);
+}
+
+function createXlsxContentTypesXml(sheetCount: number): string {
+  const sheets = Array.from({ length: sheetCount }, (_, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets}</Types>`;
+}
+
+function createXlsxRootRelsXml(): string {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
+}
+
+function createXlsxWorkbookXml(sheets: Array<{ name: string }>): string {
+  const sheetXml = sheets.map((sheet, index) => `<sheet name="${xmlEscape(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheetXml}</sheets></workbook>`;
+}
+
+function createXlsxWorkbookRelsXml(sheetCount: number): string {
+  const sheetRels = Array.from({ length: sheetCount }, (_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheetRels}<Relationship Id="rId${sheetCount + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
+}
+
+function createXlsxStylesXml(): string {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.##"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1F6FEB"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD7E0EC"/></left><right style="thin"><color rgb="FFD7E0EC"/></right><top style="thin"><color rgb="FFD7E0EC"/></top><bottom style="thin"><color rgb="FFD7E0EC"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="top"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+}
+
+function createXlsxWorksheetXml(rows: XlsxCellValue[][]): string {
+  const columnCount = Math.max(1, ...rows.map((row) => row.length));
+  const cols = Array.from({ length: columnCount }, (_, index) => `<col min="${index + 1}" max="${index + 1}" width="${xlsxColumnWidth(rows, index)}" customWidth="1"/>`).join("");
+  const rowXml = rows.map((row, rowIndex) => {
+    const cells = Array.from({ length: columnCount }, (_, columnIndex) => createXlsxCell(row[columnIndex], rowIndex, columnIndex)).join("");
+    return `<row r="${rowIndex + 1}"${rowIndex === 0 ? ' ht="24" customHeight="1"' : ""}>${cells}</row>`;
+  }).join("");
+  const dimension = `A1:${xlsxColumnName(columnCount)}${Math.max(1, rows.length)}`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><dimension ref="${dimension}"/><cols>${cols}</cols><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetData>${rowXml}</sheetData><autoFilter ref="${dimension}"/></worksheet>`;
+}
+
+function createXlsxCell(value: XlsxCellValue, rowIndex: number, columnIndex: number): string {
+  const ref = `${xlsxColumnName(columnIndex + 1)}${rowIndex + 1}`;
+  const style = rowIndex === 0 ? 1 : typeof value === "number" ? 3 : 2;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return `<c r="${ref}" s="${style}"><v>${value}</v></c>`;
+  }
+  const text = cleanXlsxText(value);
+  if (!text) return `<c r="${ref}" s="${style}"/>`;
+  return `<c r="${ref}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(text)}</t></is></c>`;
+}
+
+function xlsxColumnWidth(rows: XlsxCellValue[][], columnIndex: number): number {
+  const longest = rows.reduce((max, row) => {
+    const text = cleanXlsxText(row[columnIndex]);
+    const firstLine = text.split(/\r?\n/, 1)[0] || "";
+    const visualLength = Array.from(firstLine).reduce((length, char) => length + (char.charCodeAt(0) > 255 ? 1.7 : 1), 0);
+    return Math.max(max, visualLength);
+  }, 0);
+  return Math.min(42, Math.max(10, Math.ceil(longest + 2)));
+}
+
+function xlsxColumnName(index: number): string {
+  let name = "";
+  let current = index;
+  while (current > 0) {
+    const remainder = (current - 1) % 26;
+    name = String.fromCharCode(65 + remainder) + name;
+    current = Math.floor((current - 1) / 26);
+  }
+  return name || "A";
+}
+
+function cleanXlsxText(value: XlsxCellValue): string {
+  if (value === null || value === undefined) return "";
+  return String(value).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
+}
+
+function xmlEscape(value: string): string {
+  return cleanXlsxText(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
 function escapeCsv(value: string): string {
   const text = clean(value);
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
