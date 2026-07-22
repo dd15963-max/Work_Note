@@ -151,7 +151,9 @@ const SALES_LIST_MODE_OPTIONS: Array<{ id: ListMode; label: string }> = [
 const MATERIAL_SALES_STATUS_OPTIONS = ["신규 문의", "1차 대응 완료", "검토 중", "납품 완료", "입금 확인 완료"];
 const MATERIAL_QUOTE_STATUS_OPTIONS = ["견적 전", "견적 완료", "견적 불필요"];
 const MATERIAL_REVENUE_TYPE_OPTIONS = ["소재/소모품", "출력서비스", "타사 상품", "기타"];
+const BILLING_METHOD_OPTIONS = ["세금계산서", "카드결제", "불필요"];
 const TAX_INVOICE_STATUS_OPTIONS = ["", "발행 예정", "발행 완료", "발행 취소", "재발행 완료"];
+const CARD_PAYMENT_STATUS_OPTIONS = ["발행 예정", "발행 완료", "결제 완료"];
 const LEGACY_MATERIAL_SALES_CATEGORIES = ["소재", "타사 소재"];
 const SALES_SORT_OPTIONS: Array<{ id: SalesSortKey; label: string }> = [
   { id: "priority", label: "중요도순" },
@@ -2928,30 +2930,38 @@ function TaxInvoiceFields({
   draft: AnyRecord;
   updateField: (key: string, value: string | boolean | AnyRecord[]) => void;
 }) {
-  const invoiceStatus = firstText(draft, ["taxInvoiceStatus", "invoiceStatus"]);
-  const needsFollowUp = invoiceStatus === "발행 취소" || invoiceStatus === "재발행 완료";
+  const method = billingMethodFor(draft);
+  const statusOptions = billingStatusOptions(method);
+  const rawStatus = firstText(draft, ["taxInvoiceStatus", "invoiceStatus"]);
+  const invoiceStatus = statusOptions.includes(rawStatus) ? rawStatus : statusOptions[0] || "";
+  const needsFollowUp = method === "세금계산서" && (invoiceStatus === "발행 취소" || invoiceStatus === "재발행 완료");
+  const isCard = method === "카드결제";
   return (
     <section className="tax-invoice-fields wide-field">
       <div className="section-title-row compact-section-title">
         <div>
-          <p className="eyebrow">TAX INVOICE</p>
-          <h3>세금계산서</h3>
+          <p className="eyebrow">BILLING</p>
+          <h3>결제 및 증빙</h3>
         </div>
       </div>
       <div className="tax-invoice-grid">
-        <TextField label="발행일" type="date" value={firstText(draft, ["taxInvoiceIssueDate", "invoiceIssueDate"])} onChange={(value) => updateField("taxInvoiceIssueDate", value)} />
-        <SelectField label="발행 상태" value={invoiceStatus} onChange={(value) => updateField("taxInvoiceStatus", value)} options={TAX_INVOICE_STATUS_OPTIONS} />
-        {needsFollowUp && (
+        <SelectField label="처리 방식" value={method} onChange={(value) => updateField("billingMethod", value)} options={BILLING_METHOD_OPTIONS} />
+        {method !== "불필요" && (
           <>
-            <TextField label="취소 사유" value={firstText(draft, ["taxInvoiceCancelReason", "invoiceCancelReason"])} onChange={(value) => updateField("taxInvoiceCancelReason", value)} placeholder="취소 또는 재발행 사유" />
-            <TextField label="재발행 일자" type="date" value={firstText(draft, ["taxInvoiceReissueDate", "invoiceReissueDate"])} onChange={(value) => updateField("taxInvoiceReissueDate", value)} />
+            <TextField label={isCard ? "결제 예정일" : "발행일"} type="date" value={firstText(draft, ["taxInvoiceIssueDate", "invoiceIssueDate"])} onChange={(value) => updateField("taxInvoiceIssueDate", value)} />
+            <SelectField label="처리 상태" value={invoiceStatus} onChange={(value) => updateField("taxInvoiceStatus", value)} options={statusOptions} />
+            {needsFollowUp && (
+              <>
+                <TextField label="취소 사유" value={firstText(draft, ["taxInvoiceCancelReason", "invoiceCancelReason"])} onChange={(value) => updateField("taxInvoiceCancelReason", value)} placeholder="취소 또는 재발행 사유" />
+                <TextField label="재발행 일자" type="date" value={firstText(draft, ["taxInvoiceReissueDate", "invoiceReissueDate"])} onChange={(value) => updateField("taxInvoiceReissueDate", value)} />
+              </>
+            )}
           </>
         )}
       </div>
     </section>
   );
 }
-
 function SettlementFields({
   draft,
   updateField,
@@ -2973,6 +2983,7 @@ function SettlementFields({
   const [pasteText, setPasteText] = useState("");
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
   const [openInvoiceRowIds, setOpenInvoiceRowIds] = useState<string[]>([]);
+  const [bulkBillingMethod, setBulkBillingMethod] = useState("");
   const [bulkInvoiceStatus, setBulkInvoiceStatus] = useState("");
   const [bulkPlannedDate, setBulkPlannedDate] = useState("");
   const [bulkIssuedDate, setBulkIssuedDate] = useState("");
@@ -2985,6 +2996,7 @@ function SettlementFields({
   const rowIds = schedule.map((row, index) => recordId(row, index));
   const draftId = firstText(draft, ["id"]);
   const allSelected = Boolean(rowIds.length) && rowIds.every((id) => selectedRowIds.includes(id));
+  const bulkStatusOptions = billingStatusOptions(bulkBillingMethod || "세금계산서");
 
   useEffect(() => {
     setSelectedRowIds([]);
@@ -3014,6 +3026,7 @@ function SettlementFields({
         status: isAdvance ? "차감 완료" : "예정",
         item: "",
         memo: "",
+        billingMethod: "세금계산서",
         taxInvoiceStatus: "",
         taxInvoicePlannedDate: "",
         taxInvoiceIssuedDate: "",
@@ -3047,6 +3060,7 @@ function SettlementFields({
         status: "예정",
         item: "",
         memo: "",
+        billingMethod: "세금계산서",
         taxInvoiceStatus: "",
         taxInvoicePlannedDate: "",
         taxInvoiceIssuedDate: "",
@@ -3083,18 +3097,35 @@ function SettlementFields({
   };
   const applyBulkInvoice = () => {
     if (!selectedRowIds.length) {
-      alert("세금계산서 정보를 적용할 회차 또는 차감 항목을 선택해 주세요.");
+      alert("결제 및 증빙 정보를 적용할 회차 또는 차감 항목을 선택해 주세요.");
       return;
     }
-    if (!bulkInvoiceStatus && !bulkPlannedDate && !bulkIssuedDate) {
-      alert("일괄 적용할 세금계산서 정보를 하나 이상 입력해 주세요.");
+    if (!bulkBillingMethod && !bulkInvoiceStatus && !bulkPlannedDate && !bulkIssuedDate) {
+      alert("일괄 적용할 결제 및 증빙 정보를 하나 이상 입력해 주세요.");
       return;
     }
     setSchedule(schedule.map((row, index) => {
       if (!selectedRowIds.includes(recordId(row, index))) return row;
+      const billingMethod = bulkBillingMethod || billingMethodFor(row);
+      if (billingMethod === "불필요") {
+        return {
+          ...row,
+          billingMethod,
+          taxInvoiceStatus: "",
+          taxInvoicePlannedDate: "",
+          taxInvoiceIssuedDate: "",
+          taxInvoiceMemo: ""
+        };
+      }
+      const allowedStatuses = billingStatusOptions(billingMethod);
+      const currentStatus = firstText(row, ["taxInvoiceStatus"]);
+      const nextStatus = bulkInvoiceStatus
+        ? (allowedStatuses.includes(bulkInvoiceStatus) ? bulkInvoiceStatus : "")
+        : (allowedStatuses.includes(currentStatus) ? currentStatus : "");
       return {
         ...row,
-        ...(bulkInvoiceStatus ? { taxInvoiceStatus: bulkInvoiceStatus } : {}),
+        billingMethod,
+        taxInvoiceStatus: nextStatus,
         ...(bulkPlannedDate ? { taxInvoicePlannedDate: bulkPlannedDate } : {}),
         ...(bulkIssuedDate ? { taxInvoiceIssuedDate: bulkIssuedDate } : {})
       };
@@ -3180,14 +3211,32 @@ function SettlementFields({
             <strong>{selectedRowIds.length}건 선택</strong>
           </div>
           <label className="field">
-            <span>발행 상태</span>
-            <select value={bulkInvoiceStatus} onChange={(event) => setBulkInvoiceStatus(event.target.value)}>
+            <span>처리 방식</span>
+            <select
+              value={bulkBillingMethod}
+              onChange={(event) => {
+                const method = event.target.value;
+                setBulkBillingMethod(method);
+                if (bulkInvoiceStatus && !billingStatusOptions(method || "세금계산서").includes(bulkInvoiceStatus)) setBulkInvoiceStatus("");
+              }}
+            >
               <option value="">변경 안 함</option>
-              {TAX_INVOICE_STATUS_OPTIONS.filter(Boolean).map((status) => <option key={status} value={status}>{status}</option>)}
+              {BILLING_METHOD_OPTIONS.map((method) => <option key={method} value={method}>{method}</option>)}
             </select>
           </label>
-          <TextField label="발행 예정일" type="date" value={bulkPlannedDate} onChange={setBulkPlannedDate} />
-          <TextField label="실제 발행일" type="date" value={bulkIssuedDate} onChange={setBulkIssuedDate} />
+          {bulkBillingMethod !== "불필요" && (
+            <>
+              <label className="field">
+                <span>처리 상태</span>
+                <select value={bulkInvoiceStatus} onChange={(event) => setBulkInvoiceStatus(event.target.value)}>
+                  <option value="">변경 안 함</option>
+                  {bulkStatusOptions.filter(Boolean).map((status) => <option key={status} value={status}>{status}</option>)}
+                </select>
+              </label>
+              <TextField label={bulkBillingMethod === "카드결제" ? "결제 예정일" : "발행 예정일"} type="date" value={bulkPlannedDate} onChange={setBulkPlannedDate} />
+              <TextField label={bulkBillingMethod === "카드결제" ? "결제 완료일" : "실제 발행일"} type="date" value={bulkIssuedDate} onChange={setBulkIssuedDate} />
+            </>
+          )}
           <button type="button" className="icon-text-button primary" onClick={applyBulkInvoice}>선택 항목에 적용</button>
         </section>
 
@@ -3195,6 +3244,8 @@ function SettlementFields({
           {schedule.map((row, index) => {
             const rowId = recordId(row, index);
             const rowStatus = firstText(row, ["status"]) || (isAdvance ? "차감 완료" : "예정");
+            const rowBillingMethod = billingMethodFor(row);
+            const rowBillingStatus = firstText(row, ["taxInvoiceStatus"]);
             const invoiceOpen = openInvoiceRowIds.includes(rowId);
             const focused = focusTaxInvoiceItemId === rowId;
             return (
@@ -3229,8 +3280,8 @@ function SettlementFields({
                     </label>
                   </>
                 )}
-                <button type="button" className={`invoice-row-toggle ${firstText(row, ["taxInvoiceStatus"]) ? "has-invoice" : ""}`} onClick={() => toggleInvoiceEditor(rowId)}>
-                  세금계산서{firstText(row, ["taxInvoiceStatus"]) ? ` · ${firstText(row, ["taxInvoiceStatus"])}` : ""}
+                <button type="button" className={`invoice-row-toggle ${rowBillingStatus || rowBillingMethod !== "세금계산서" ? "has-invoice" : ""}`} onClick={() => toggleInvoiceEditor(rowId)}>
+                  {rowBillingMethod}{rowBillingStatus ? ` · ${rowBillingStatus}` : ""}
                 </button>
                 <button type="button" className="danger-button" onClick={() => removeRow(index)}>삭제</button>
                 {invoiceOpen && (
@@ -3258,22 +3309,33 @@ function SettlementRowTaxInvoiceEditor({
   row: AnyRecord;
   onChange: (key: string, value: string) => void;
 }) {
+  const method = billingMethodFor(row);
+  const statusOptions = billingStatusOptions(method);
+  const rawStatus = firstText(row, ["taxInvoiceStatus"]);
+  const status = statusOptions.includes(rawStatus) ? rawStatus : statusOptions[0] || "";
+  const isCard = method === "카드결제";
   return (
     <section className="settlement-row-tax-invoice">
       <div className="settlement-row-tax-heading">
         <div>
-          <p className="eyebrow">TAX INVOICE</p>
-          <strong>이 항목의 세금계산서</strong>
+          <p className="eyebrow">BILLING</p>
+          <strong>이 항목의 결제 및 증빙</strong>
         </div>
         <span>{joinParts([firstText(row, ["round"]) ? `${firstText(row, ["round"])}회차` : "", firstText(row, ["item"]), formatMoney(firstText(row, ["amount"]))], " · ") || "항목 정보 미정"}</span>
       </div>
-      <SelectField label="발행 상태" value={firstText(row, ["taxInvoiceStatus"])} onChange={(value) => onChange("taxInvoiceStatus", value)} options={TAX_INVOICE_STATUS_OPTIONS} />
-      <TextField label="발행 예정일" type="date" value={firstText(row, ["taxInvoicePlannedDate"])} onChange={(value) => onChange("taxInvoicePlannedDate", value)} />
-      <TextField label="실제 발행일" type="date" value={firstText(row, ["taxInvoiceIssuedDate"])} onChange={(value) => onChange("taxInvoiceIssuedDate", value)} />
-      <TextField label="세금계산서 메모" value={firstText(row, ["taxInvoiceMemo"])} onChange={(value) => onChange("taxInvoiceMemo", value)} placeholder="발행·취소·재발행 관련 메모" />
+      <SelectField label="처리 방식" value={method} onChange={(value) => onChange("billingMethod", value)} options={BILLING_METHOD_OPTIONS} />
+      {method !== "불필요" && (
+        <>
+          <SelectField label="처리 상태" value={status} onChange={(value) => onChange("taxInvoiceStatus", value)} options={statusOptions} />
+          <TextField label={isCard ? "결제 예정일" : "발행 예정일"} type="date" value={firstText(row, ["taxInvoicePlannedDate"])} onChange={(value) => onChange("taxInvoicePlannedDate", value)} />
+          <TextField label={isCard ? "결제 완료일" : "실제 발행일"} type="date" value={firstText(row, ["taxInvoiceIssuedDate"])} onChange={(value) => onChange("taxInvoiceIssuedDate", value)} />
+          <TextField label="메모" value={firstText(row, ["taxInvoiceMemo"])} onChange={(value) => onChange("taxInvoiceMemo", value)} placeholder="발행·결제 관련 메모" />
+        </>
+      )}
     </section>
   );
 }
+
 function WorkTaskDetails({
   record,
   type,
@@ -3297,7 +3359,7 @@ function WorkTaskDetails({
           <InfoLine label={isAdvance ? "누적 차감" : "입금"} value={isAdvance ? formatMoney(firstText(record, ["deductedAmount"])) : formatMoneyWithVat(firstText(record, ["receivedAmount"]), record.receivedAmountVatIncluded)} />
           <InfoLine label="잔액" value={settlementRemainingText(record)} />
           {!isAdvance && <InfoLine label="다음" value={joinParts([formatOptionalDate(firstText(record, ["nextActionDate"])), firstText(record, ["nextAction"])], " · ")} />}
-          <InfoLine label="세금계산서" value={settlementTaxInvoiceSummary(record)} />
+          <InfoLine label="결제/증빙" value={settlementTaxInvoiceSummary(record)} />
           <InfoLine label="파일" value={attachmentCountText(record)} />
           <InfoLine label="수정" value={formatDateTime(firstText(record, ["updatedAt"]))} />
         </div>
@@ -3318,7 +3380,7 @@ function WorkTaskDetails({
           <InfoLine label="기한" value={deadlineText(record)} />
           <InfoLine label="출력" value={firstText(record, ["outputType", "category", "taskType"])} />
           <InfoLine label="주말" value={record.includeWeekends ? "포함" : "제외"} />
-          <InfoLine label="세금계산서" value={taxInvoiceSummary(record)} />
+          <InfoLine label="결제/증빙" value={taxInvoiceSummary(record)} />
           <InfoLine label="파일" value={attachmentCountText(record)} />
           <InfoLine label="수정" value={formatDateTime(firstText(record, ["updatedAt"]))} />
         </div>
@@ -3871,6 +3933,7 @@ function migrateSettlementTaxInvoiceRows(data: WorkNoteData): WorkNoteData {
             item: "기존 세금계산서",
             memo: "",
             isTaxInvoiceOnly: true,
+            billingMethod: "세금계산서",
             taxInvoiceStatus: "",
             taxInvoicePlannedDate: "",
             taxInvoiceIssuedDate: "",
@@ -4266,7 +4329,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
   ]);
 
   addSheet("장비영업", [
-    ["업체명", "담당자", "연락처", "이메일", "진행상태", "구분", "중요도", "관심 장비", "견적 여부", "구매 가능성", "예상매출", "예상매출 VAT", "매출", "매출 VAT", "매출 구분", "다음 연락", "미팅 일정", "최근 연락", "세금계산서 상태", "세금계산서 발행일", "첨부 수", "최종 수정", "다음 액션", "메모"],
+    ["업체명", "담당자", "연락처", "이메일", "진행상태", "구분", "중요도", "관심 장비", "견적 여부", "구매 가능성", "예상매출", "예상매출 VAT", "매출", "매출 VAT", "매출 구분", "다음 연락", "미팅 일정", "최근 연락", "결제/증빙 방식", "처리 상태", "발행/결제 예정일", "첨부 수", "최종 수정", "다음 액션", "메모"],
     ...asArray(data.notes).map((note) => [
       salesCustomer(note),
       firstText(note, ["contactName", "managerName"]),
@@ -4286,6 +4349,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
       formatNextContact(note),
       firstText(note, ["meetingDate"]),
       firstText(note, ["lastContactDate"]),
+      billingMethodFor(note),
       firstText(note, ["taxInvoiceStatus", "invoiceStatus"]),
       firstText(note, ["taxInvoiceIssueDate", "invoiceIssueDate"]),
       asArray(note.attachments).length,
@@ -4296,7 +4360,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
   ]);
 
   addSheet("소재영업", [
-    ["업체명", "문의일자", "담당자", "연락처", "이메일", "진행상태", "견적 여부", "판매 품목 요약", "예상매출", "종합매출", "매출 구분", "세금계산서 상태", "세금계산서 발행일", "첨부 수", "최종 수정", "메모"],
+    ["업체명", "문의일자", "담당자", "연락처", "이메일", "진행상태", "견적 여부", "판매 품목 요약", "예상매출", "종합매출", "매출 구분", "결제/증빙 방식", "처리 상태", "발행/결제 예정일", "첨부 수", "최종 수정", "메모"],
     ...asArray(data.materialSalesNotes).map((record) => [
       salesCustomer(record),
       firstText(record, ["inquiryDate"]),
@@ -4309,6 +4373,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
       amountForXlsx(firstText(record, ["expectedRevenueAmount"])),
       amountForXlsx(firstText(record, ["revenueAmount"])),
       firstText(record, ["revenueType"]),
+      billingMethodFor(record),
       firstText(record, ["taxInvoiceStatus", "invoiceStatus"]),
       firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]),
       asArray(record.attachments).length,
@@ -4332,7 +4397,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
   ]);
 
   addSheet("정산", [
-    ["업체명", "담당자", "연락처", "이메일", "결제 유형", "진행상태", "중요도", "총 관리/선금", "금액 VAT", "입금/차감 완료", "완료액 VAT", "잔액", "현재 진행", "다음 처리일", "다음 처리", "세금계산서 요약", "첨부 수", "최종 수정", "계획", "메모"],
+    ["업체명", "담당자", "연락처", "이메일", "결제 유형", "진행상태", "중요도", "총 관리/선금", "금액 VAT", "입금/차감 완료", "완료액 VAT", "잔액", "현재 진행", "다음 처리일", "다음 처리", "결제/증빙 요약", "첨부 수", "최종 수정", "계획", "메모"],
     ...asArray(data.settlementTasks).map((record) => {
       const isAdvance = firstText(record, ["paymentType"]).includes("선금");
       return [
@@ -4361,7 +4426,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
   ]);
 
   addSheet("정산일정_차감목록", [
-    ["업체명", "정산 ID", "결제 유형", "구분", "번호", "일자", "금액", "VAT", "상태", "품목", "메모", "세금계산서 상태", "발행 예정일", "실제 발행일", "세금계산서 메모"],
+    ["업체명", "정산 ID", "결제 유형", "구분", "번호", "일자", "금액", "VAT", "상태", "품목", "메모", "결제/증빙 방식", "처리 상태", "발행/결제 예정일", "실제 발행/결제일", "결제/증빙 메모"],
     ...asArray(data.settlementTasks).flatMap((record, recordIndex) => {
       const isAdvance = firstText(record, ["paymentType"]).includes("선금");
       return asArray(record.paymentSchedule).map((row) => [
@@ -4376,6 +4441,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
         firstText(row, ["status"]),
         firstText(row, ["item"]),
         firstText(row, ["memo", "description"]),
+        billingMethodFor(row),
         firstText(row, ["taxInvoiceStatus"]),
         firstText(row, ["taxInvoicePlannedDate"]),
         firstText(row, ["taxInvoiceIssuedDate"]),
@@ -4385,7 +4451,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
   ]);
 
   addSheet("출력", [
-    ["업체명/업무명", "요청자", "연락처", "이메일", "관련 영업", "진행상태", "중요도", "기한 시작", "기한 종료", "출력 종류", "주말 포함", "세금계산서 상태", "세금계산서 발행일", "첨부 수", "최종 수정", "메모"],
+    ["업체명/업무명", "요청자", "연락처", "이메일", "관련 영업", "진행상태", "중요도", "기한 시작", "기한 종료", "출력 종류", "주말 포함", "결제/증빙 방식", "처리 상태", "발행/결제 예정일", "첨부 수", "최종 수정", "메모"],
     ...asArray(data.outputTasks).map((record) => {
       const linkedSales = getLinkedSalesForWork(record, data.notes, data.materialSalesNotes);
       return [
@@ -4400,6 +4466,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
         firstText(record, ["endDate", "dueEndDate", "deadline", "dueDate"]),
         firstText(record, ["outputType", "category", "taskType"]),
         record.includeWeekends ? "포함" : "제외",
+        billingMethodFor(record),
         firstText(record, ["taxInvoiceStatus", "invoiceStatus"]),
         firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]),
         asArray(record.attachments).length,
@@ -5179,6 +5246,7 @@ function createBlankSalesNote(): AnyRecord {
     revenueAmountVatIncluded: false,
     revenueType: "",
     memo: "",
+    billingMethod: "세금계산서",
     taxInvoiceIssueDate: "",
     taxInvoiceStatus: "",
     taxInvoiceCancelReason: "",
@@ -5275,6 +5343,7 @@ function createBlankMaterialSalesNote(): AnyRecord {
     revenueAmount: "",
     revenueType: MATERIAL_REVENUE_TYPE_OPTIONS[0],
     memo: "",
+    billingMethod: "세금계산서",
     taxInvoiceIssueDate: "",
     taxInvoiceStatus: "",
     taxInvoiceCancelReason: "",
@@ -5539,6 +5608,7 @@ function createBlankWorkTask(type: "settlement" | "output" | "other"): AnyRecord
     status: "대기",
     priority: "보통",
     memo: "",
+    billingMethod: "세금계산서",
     taxInvoiceIssueDate: "",
     taxInvoiceStatus: "",
     taxInvoiceCancelReason: "",
@@ -5600,6 +5670,7 @@ function prepareWorkDraft(record: AnyRecord, index: number, type: "settlement" |
     status: firstText(record, ["status", "progressStatus"]) || firstText(blank, ["status"]),
     priority: firstText(record, ["priority", "importance"]) || "보통",
     memo: firstText(record, ["memo", "description", "note"]),
+    billingMethod: billingMethodFor(record),
     taxInvoiceIssueDate: firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]),
     taxInvoiceStatus: firstText(record, ["taxInvoiceStatus", "invoiceStatus"]),
     taxInvoiceCancelReason: firstText(record, ["taxInvoiceCancelReason", "invoiceCancelReason"]),
@@ -5682,21 +5753,45 @@ function normalizeWorkDraft(draft: AnyRecord, type: "settlement" | "output" | "o
   };
 }
 
-function normalizeTaxInvoiceDraft(draft: AnyRecord): AnyRecord {
-  const status = firstText(draft, ["taxInvoiceStatus", "invoiceStatus"]);
-  const normalizedStatus = TAX_INVOICE_STATUS_OPTIONS.includes(status) ? status : "";
-  return {
-    taxInvoiceIssueDate: firstText(draft, ["taxInvoiceIssueDate", "invoiceIssueDate"]),
-    taxInvoiceStatus: normalizedStatus,
-    taxInvoiceCancelReason: normalizedStatus === "발행 취소" || normalizedStatus === "재발행 완료" ? firstText(draft, ["taxInvoiceCancelReason", "invoiceCancelReason"]) : "",
-    taxInvoiceReissueDate: normalizedStatus === "재발행 완료" ? firstText(draft, ["taxInvoiceReissueDate", "invoiceReissueDate"]) : ""
-  };
+function billingMethodFor(record: AnyRecord): string {
+  const method = firstText(record, ["billingMethod", "invoiceMethod"]);
+  return BILLING_METHOD_OPTIONS.includes(method) ? method : "세금계산서";
 }
 
+function billingStatusOptions(method: string): string[] {
+  if (method === "카드결제") return CARD_PAYMENT_STATUS_OPTIONS;
+  if (method === "불필요") return [];
+  return TAX_INVOICE_STATUS_OPTIONS;
+}
+
+function normalizeTaxInvoiceDraft(draft: AnyRecord): AnyRecord {
+  const billingMethod = billingMethodFor(draft);
+  const status = firstText(draft, ["taxInvoiceStatus", "invoiceStatus"]);
+  const normalizedStatus = billingStatusOptions(billingMethod).includes(status)
+    ? status
+    : billingMethod === "카드결제"
+      ? "발행 예정"
+      : "";
+  const disabled = billingMethod === "불필요";
+  return {
+    billingMethod,
+    taxInvoiceIssueDate: disabled ? "" : firstText(draft, ["taxInvoiceIssueDate", "invoiceIssueDate"]),
+    taxInvoiceStatus: disabled ? "" : normalizedStatus,
+    taxInvoiceCancelReason: !disabled && billingMethod === "세금계산서" && (normalizedStatus === "발행 취소" || normalizedStatus === "재발행 완료") ? firstText(draft, ["taxInvoiceCancelReason", "invoiceCancelReason"]) : "",
+    taxInvoiceReissueDate: !disabled && billingMethod === "세금계산서" && normalizedStatus === "재발행 완료" ? firstText(draft, ["taxInvoiceReissueDate", "invoiceReissueDate"]) : ""
+  };
+}
 function normalizePaymentSchedule(rows: AnyRecord[]): AnyRecord[] {
   return rows
     .map((row, index) => {
+      const billingMethod = billingMethodFor(row);
       const taxInvoiceStatus = firstText(row, ["taxInvoiceStatus", "invoiceStatus"]);
+      const disabled = billingMethod === "불필요";
+      const normalizedStatus = billingStatusOptions(billingMethod).includes(taxInvoiceStatus)
+        ? taxInvoiceStatus
+        : billingMethod === "카드결제"
+          ? "발행 예정"
+          : "";
       return {
         id: firstText(row, ["id"]) || createId("pay_"),
         round: firstText(row, ["round"]) || (row.isTaxInvoiceOnly ? "" : String(index + 1)),
@@ -5707,13 +5802,14 @@ function normalizePaymentSchedule(rows: AnyRecord[]): AnyRecord[] {
         item: firstText(row, ["item"]),
         memo: firstText(row, ["memo", "description"]),
         isTaxInvoiceOnly: Boolean(row.isTaxInvoiceOnly),
-        taxInvoiceStatus: TAX_INVOICE_STATUS_OPTIONS.includes(taxInvoiceStatus) ? taxInvoiceStatus : "",
-        taxInvoicePlannedDate: parseDateKey(firstText(row, ["taxInvoicePlannedDate", "invoicePlannedDate"])) || firstText(row, ["taxInvoicePlannedDate", "invoicePlannedDate"]),
-        taxInvoiceIssuedDate: parseDateKey(firstText(row, ["taxInvoiceIssuedDate", "invoiceIssuedDate"])) || firstText(row, ["taxInvoiceIssuedDate", "invoiceIssuedDate"]),
-        taxInvoiceMemo: firstText(row, ["taxInvoiceMemo", "invoiceMemo"])
+        billingMethod,
+        taxInvoiceStatus: disabled ? "" : normalizedStatus,
+        taxInvoicePlannedDate: disabled ? "" : (parseDateKey(firstText(row, ["taxInvoicePlannedDate", "invoicePlannedDate"])) || firstText(row, ["taxInvoicePlannedDate", "invoicePlannedDate"])),
+        taxInvoiceIssuedDate: disabled ? "" : (parseDateKey(firstText(row, ["taxInvoiceIssuedDate", "invoiceIssuedDate"])) || firstText(row, ["taxInvoiceIssuedDate", "invoiceIssuedDate"])),
+        taxInvoiceMemo: disabled ? "" : firstText(row, ["taxInvoiceMemo", "invoiceMemo"])
       };
     })
-    .filter((row) => row.isTaxInvoiceOnly || ["dueDate", "amount", "status", "item", "memo", "taxInvoiceStatus", "taxInvoicePlannedDate", "taxInvoiceIssuedDate", "taxInvoiceMemo"].some((key) => firstText(row, [key])));
+    .filter((row) => row.isTaxInvoiceOnly || ["dueDate", "amount", "status", "item", "memo", "billingMethod", "taxInvoiceStatus", "taxInvoicePlannedDate", "taxInvoiceIssuedDate", "taxInvoiceMemo"].some((key) => firstText(row, [key])));
 }
 function parseSettlementSchedulePaste(text: string): AnyRecord[] {
   return text
@@ -5940,6 +6036,8 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
 
     rows.forEach((row, rowIndex) => {
       if (firstText(row, ["taxInvoiceStatus"]) !== "발행 예정") return;
+      const billingMethod = billingMethodFor(row);
+      if (billingMethod === "불필요") return;
       const rowId = recordId(row, rowIndex);
       const rowLabel = isAdvance
         ? firstText(row, ["item"]) || "차감 품목"
@@ -5951,8 +6049,8 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
         task,
         index,
         firstText(row, ["taxInvoicePlannedDate"]),
-        `[정산] ${title} ${rowLabel} 세금계산서`,
-        joinParts(["세금계산서 발행 예정", formatMoney(firstText(row, ["amount"])), firstText(row, ["taxInvoiceMemo"])], " · "),
+        `[정산] ${title} ${rowLabel} ${billingMethod}`,
+        joinParts([`${billingMethod} 발행 예정`, formatMoney(firstText(row, ["amount"])), firstText(row, ["taxInvoiceMemo"])], " · "),
         "settlement",
         status,
         priority,
@@ -5964,7 +6062,7 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
   data.outputTasks.forEach((task, index) => {
     if (isClosed(firstText(task, ["status", "progressStatus"]))) return;
     addWorkDateRangeItems(items, task, index, "output", `[출력] ${firstText(task, ["outputType"]) || workTitle(task, "output")}`, firstText(task, ["memo", "description"]));
-    addTaxInvoiceScheduleItem(items, task, index, "output", `[출력] ${workTitle(task, "output")} 세금계산서`, firstText(task, ["status", "progressStatus"]), firstText(task, ["priority", "importance"]));
+    addTaxInvoiceScheduleItem(items, task, index, "output", `[출력] ${workTitle(task, "output")}`, firstText(task, ["status", "progressStatus"]), firstText(task, ["priority", "importance"]));
   });
 
   data.otherTasks.forEach((task, index) => {
@@ -6015,8 +6113,10 @@ function addTaxInvoiceScheduleItem(
   status: string,
   priority: string
 ) {
+  const billingMethod = billingMethodFor(record);
+  if (billingMethod === "불필요") return;
   if (firstText(record, ["taxInvoiceStatus", "invoiceStatus"]) !== "발행 예정") return;
-  addScheduleItem(target, record, index, firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]), title, "세금계산서 발행 예정", type, status, priority, "tax-invoice", "record-tax-invoice");
+  addScheduleItem(target, record, index, firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]), `${title} ${billingMethod}`, `${billingMethod} 발행 예정`, type, status, priority, "tax-invoice", "record-tax-invoice");
 }
 
 function addWorkDateRangeItems(
@@ -6334,10 +6434,10 @@ function salesInterest(note: AnyRecord): string {
 
 function settlementTaxInvoiceSummary(record: AnyRecord): string {
   const rows = normalizePaymentSchedule(asArray(record.paymentSchedule));
-  const invoiceRows = rows.filter((row) => firstText(row, ["taxInvoiceStatus", "taxInvoicePlannedDate", "taxInvoiceIssuedDate"]));
+  const invoiceRows = rows.filter((row) => billingMethodFor(row) !== "불필요" && firstText(row, ["taxInvoiceStatus", "taxInvoicePlannedDate", "taxInvoiceIssuedDate"]));
   if (!invoiceRows.length) return "-";
   const planned = invoiceRows.filter((row) => firstText(row, ["taxInvoiceStatus"]) === "발행 예정").length;
-  const completed = invoiceRows.filter((row) => firstText(row, ["taxInvoiceStatus"]) === "발행 완료" || firstText(row, ["taxInvoiceStatus"]) === "재발행 완료").length;
+  const completed = invoiceRows.filter((row) => ["발행 완료", "재발행 완료", "결제 완료"].includes(firstText(row, ["taxInvoiceStatus"]))).length;
   const nearestDate = invoiceRows
     .map((row) => firstText(row, ["taxInvoicePlannedDate"]))
     .filter(Boolean)
@@ -6350,12 +6450,14 @@ function settlementTaxInvoiceSummary(record: AnyRecord): string {
   ], " · ");
 }
 function taxInvoiceSummary(record: AnyRecord): string {
+  const billingMethod = billingMethodFor(record);
+  if (billingMethod === "불필요") return "불필요";
   const status = firstText(record, ["taxInvoiceStatus", "invoiceStatus"]);
   const date = formatOptionalDate(firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]));
   const reissueDate = formatOptionalDate(firstText(record, ["taxInvoiceReissueDate", "invoiceReissueDate"]));
   const reason = firstText(record, ["taxInvoiceCancelReason", "invoiceCancelReason"]);
-  if (!status && !date) return "-";
-  return joinParts([status || "상태 미정", date, reissueDate ? `재발행 ${reissueDate}` : "", reason], " · ");
+  if (!status && !date) return billingMethod;
+  return joinParts([billingMethod, status || "상태 미정", date, reissueDate ? `재발행 ${reissueDate}` : "", reason], " · ");
 }
 
 function attachmentCountText(record: AnyRecord): string {

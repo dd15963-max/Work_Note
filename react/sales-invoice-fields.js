@@ -2,7 +2,9 @@
   const STORAGE_KEY = "salesNoteAppDataV1";
   const MATERIAL_DELIVERY_WAITING = "출고대기";
   const MATERIAL_STATUS_ANCHOR = "납품 완료";
-  const INVOICE_STATUSES = ["발행 완료", "발행 예정", "발행 취소", "재발행 완료"];
+  const BILLING_METHODS = ["세금계산서", "카드결제", "불필요"];
+  const TAX_INVOICE_STATUSES = ["발행 예정", "발행 완료", "발행 취소", "재발행 완료"];
+  const CARD_PAYMENT_STATUSES = ["발행 예정", "발행 완료", "결제 완료"];
   const EXTRA_STATUSES = new Set(["발행 취소", "재발행 완료"]);
   const PATCH_DELAYS = [80, 220, 520, 950];
   const EDIT_TARGET_TTL = 8000;
@@ -169,24 +171,56 @@
     return best.record;
   };
 
+  const billingMethodFromRecord = (record) => {
+    const method = firstText(record, ["billingMethod", "invoiceMethod"]);
+    return BILLING_METHODS.includes(method) ? method : "세금계산서";
+  };
+
+  const statusesForMethod = (method) => {
+    if (method === "카드결제") return CARD_PAYMENT_STATUSES;
+    if (method === "불필요") return [];
+    return TAX_INVOICE_STATUSES;
+  };
+
   const invoiceValuesFromRecord = (record) => ({
+    billingMethod: billingMethodFromRecord(record),
     taxInvoiceIssueDate: firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]),
-    taxInvoiceStatus: firstText(record, ["taxInvoiceStatus", "invoiceStatus"]) || "발행 예정",
+    taxInvoiceStatus: firstText(record, ["taxInvoiceStatus", "invoiceStatus"]),
     taxInvoiceCancelReason: firstText(record, ["taxInvoiceCancelReason", "invoiceCancelReason"]),
     taxInvoiceReissueDate: firstText(record, ["taxInvoiceReissueDate", "invoiceReissueDate"])
   });
 
   const invoiceSummary = (record) => {
+    const method = billingMethodFromRecord(record);
+    if (method === "불필요") return "불필요";
     const status = firstText(record, ["taxInvoiceStatus", "invoiceStatus"]);
     const date = firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]);
-    if (!status && !date) return "미입력";
-    return [status || "상태 미입력", date || "일자 미입력"].join(" · ");
+    return [method, status || "상태 미입력", date || "일자 미입력"].join(" · ");
   };
 
   const toggleExtraFields = (wrapper) => {
+    const method = wrapper.querySelector("[data-invoice-field='billingMethod']")?.value || "세금계산서";
     const status = wrapper.querySelector("[data-invoice-field='taxInvoiceStatus']")?.value || "";
+    const row = wrapper.querySelector(".invoice-runtime-row");
     const extra = wrapper.querySelector(".invoice-runtime-extra");
-    if (extra) extra.hidden = !EXTRA_STATUSES.has(status);
+    if (row) row.classList.toggle("is-disabled", method === "불필요");
+    if (extra) extra.hidden = method !== "세금계산서" || !EXTRA_STATUSES.has(status);
+  };
+
+  const syncInvoiceStatusOptions = (wrapper) => {
+    const method = wrapper.querySelector("[data-invoice-field='billingMethod']")?.value || "세금계산서";
+    const status = wrapper.querySelector("[data-invoice-field='taxInvoiceStatus']");
+    if (!(status instanceof HTMLSelectElement)) return;
+    const previous = status.value;
+    const options = statusesForMethod(method);
+    status.replaceChildren(...options.map((item) => new Option(item, item)));
+    status.value = options.includes(previous) ? previous : (options[0] || "");
+    status.disabled = method === "불필요";
+    const issueDate = wrapper.querySelector("[data-invoice-field='taxInvoiceIssueDate']");
+    if (issueDate) issueDate.disabled = method === "불필요";
+    const issueLabel = wrapper.querySelector("[data-invoice-date-label]");
+    if (issueLabel) issueLabel.textContent = method === "카드결제" ? "결제 예정일" : "발행일";
+    toggleExtraFields(wrapper);
   };
 
   const createField = (labelText, control) => {
@@ -205,7 +239,12 @@
 
     const title = document.createElement("div");
     title.className = "invoice-runtime-title";
-    title.innerHTML = "<strong>세금계산서</strong><small>발행일과 발행 상태 관리</small>";
+    title.innerHTML = "<strong>결제 및 증빙</strong><small>세금계산서·카드결제 처리 관리</small>";
+
+    const method = document.createElement("select");
+    method.dataset.invoiceField = "billingMethod";
+    BILLING_METHODS.forEach((item) => method.add(new Option(item, item)));
+    method.value = BILLING_METHODS.includes(values.billingMethod) ? values.billingMethod : "세금계산서";
 
     const issueDate = document.createElement("input");
     issueDate.type = "date";
@@ -214,12 +253,15 @@
 
     const status = document.createElement("select");
     status.dataset.invoiceField = "taxInvoiceStatus";
-    INVOICE_STATUSES.forEach((item) => status.add(new Option(item, item)));
-    status.value = INVOICE_STATUSES.includes(values.taxInvoiceStatus) ? values.taxInvoiceStatus : "발행 예정";
+    const initialStatuses = statusesForMethod(method.value);
+    initialStatuses.forEach((item) => status.add(new Option(item, item)));
+    status.value = initialStatuses.includes(values.taxInvoiceStatus) ? values.taxInvoiceStatus : (initialStatuses[0] || "");
 
     const row = document.createElement("div");
     row.className = "invoice-runtime-row";
-    row.append(createField("세금계산서 발행일", issueDate), createField("발행 상태", status));
+    const dateField = createField(method.value === "카드결제" ? "결제 예정일" : "발행일", issueDate);
+    dateField.querySelector("span").dataset.invoiceDateLabel = "true";
+    row.append(createField("처리 방식", method), dateField, createField("처리 상태", status));
 
     const cancelReason = document.createElement("input");
     cancelReason.type = "text";
@@ -237,18 +279,25 @@
     extra.append(createField("취소 사유", cancelReason), createField("재발행 일자", reissueDate));
 
     wrapper.append(title, row, extra);
+    method.addEventListener("change", () => syncInvoiceStatusOptions(wrapper));
     status.addEventListener("change", () => toggleExtraFields(wrapper));
-    toggleExtraFields(wrapper);
+    syncInvoiceStatusOptions(wrapper);
     return wrapper;
   };
 
   const readInvoiceFields = (panel) => {
     const get = (key) => text(panel.querySelector(`[data-invoice-field='${key}']`)?.value);
+    const billingMethod = BILLING_METHODS.includes(get("billingMethod")) ? get("billingMethod") : "세금계산서";
+    const disabled = billingMethod === "불필요";
+    const statuses = statusesForMethod(billingMethod);
+    const rawStatus = get("taxInvoiceStatus");
+    const taxInvoiceStatus = statuses.includes(rawStatus) ? rawStatus : (billingMethod === "카드결제" ? "발행 예정" : "");
     return {
-      taxInvoiceIssueDate: get("taxInvoiceIssueDate"),
-      taxInvoiceStatus: get("taxInvoiceStatus") || "발행 예정",
-      taxInvoiceCancelReason: get("taxInvoiceCancelReason"),
-      taxInvoiceReissueDate: get("taxInvoiceReissueDate")
+      billingMethod,
+      taxInvoiceIssueDate: disabled ? "" : get("taxInvoiceIssueDate"),
+      taxInvoiceStatus: disabled ? "" : taxInvoiceStatus,
+      taxInvoiceCancelReason: !disabled && billingMethod === "세금계산서" && EXTRA_STATUSES.has(taxInvoiceStatus) ? get("taxInvoiceCancelReason") : "",
+      taxInvoiceReissueDate: !disabled && billingMethod === "세금계산서" && taxInvoiceStatus === "재발행 완료" ? get("taxInvoiceReissueDate") : ""
     };
   };
 
@@ -342,7 +391,7 @@
       line = document.createElement("div");
       line.className = "invoice-list-line";
       line.dataset.invoiceListLine = "true";
-      line.innerHTML = "<span>세금계산서</span><strong></strong>";
+      line.innerHTML = "<span>결제/증빙</span><strong></strong>";
       container.appendChild(line);
     }
     line.classList.toggle("is-muted", value === "미입력");

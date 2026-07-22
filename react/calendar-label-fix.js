@@ -18,6 +18,10 @@
   const asArray = (value) => Array.isArray(value) ? value.filter((item) => item && typeof item === "object" && !Array.isArray(item)) : [];
   const recordId = (record, index) => firstText(record, ["id", "uuid"]) || `record-${index}`;
   const companyName = (record) => firstText(record, ["company", "companyName", "name", "clientName", "relatedCompany", "customerName"]);
+  const billingMethod = (record) => {
+    const method = firstText(record, ["billingMethod", "invoiceMethod"]);
+    return ["세금계산서", "카드결제", "불필요"].includes(method) ? method : "세금계산서";
+  };
   const salesCustomer = (record) => companyName(record) || firstText(record, ["customer", "organization"]) || "고객 미정";
   const workTitle = (record, type) => {
     if (type === "settlement") return companyName(record) || firstText(record, ["title", "taskName"]) || "정산 업무";
@@ -120,16 +124,17 @@
     }
   };
   const addInvoiceItem = (items, record, index, sourceCollection, titlePrefix = "영업") => {
+    const method = billingMethod(record);
     const status = firstText(record, ["taxInvoiceStatus", "invoiceStatus"]);
     const date = firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]);
-    if (status !== TAX_INVOICE_PENDING || !parseDateKey(date)) return;
+    if (method === "불필요" || status !== TAX_INVOICE_PENDING || !parseDateKey(date)) return;
     addItem(
       items,
       record,
       index,
       date,
-      labelWithCompany(titlePrefix, salesCustomer(record), "세금계산서"),
-      "세금계산서 발행 예정",
+      labelWithCompany(titlePrefix, salesCustomer(record), method),
+      `${method} 발행 예정`,
       "sales",
       status,
       firstText(record, ["priority", "importance"]),
@@ -310,7 +315,7 @@
       </div>
     `;
     setText(button.querySelector("strong"), item.title);
-    setText(button.querySelector("p"), item.detail || "세금계산서 발행 예정");
+    setText(button.querySelector("p"), item.detail || "결제/증빙 예정");
     setText(button.querySelector(".stacked-meta span"), formatDate(item.date));
     setText(button.querySelector(".stacked-meta small"), item.status);
     button.addEventListener("click", (event) => {

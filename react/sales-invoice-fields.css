@@ -30,7 +30,7 @@
 .invoice-runtime-row,
 .invoice-runtime-extra {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr);
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
   gap: 10px;
 }
 
@@ -66,6 +66,10 @@
 
 .invoice-runtime-extra[hidden] {
   display: none !important;
+}
+
+.invoice-runtime-row.is-disabled .invoice-runtime-field:not(:first-child) {
+  display: none;
 }
 
 .invoice-list-line {
