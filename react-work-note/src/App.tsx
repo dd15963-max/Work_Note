@@ -2639,7 +2639,7 @@ function GenericWorkPortal({
       <div className="task-list">
         {filtered.map(({ record, originalIndex, id }) => {
           const attachments = asArray(record.attachments);
-          const linkedSales = getLinkedSalesForWork(record, data.notes);
+          const linkedSales = getLinkedSalesForWork(record, data.notes, data.materialSalesNotes);
           return (
             <article className={`task-card ${type} ${focusTarget?.portal === type && focusTarget.id === id ? "is-focus-target" : ""}`} key={id} data-record-id={id}>
               <div className="card-heading">
@@ -2719,9 +2719,27 @@ function WorkEditor({
     ? data.companies.find((company, index) => recordId(company, index) === firstText(draft, ["companyId"]))
     : null;
   const contacts = selectedCompany ? asArray(selectedCompany.contacts) : [];
-  const selectedSales = firstText(draft, ["salesNoteId"])
-    ? data.notes.find((note, index) => recordId(note, index) === firstText(draft, ["salesNoteId"]))
+  const linkedSalesOptions = useMemo(
+    () => [
+      ...data.notes.map((note, index) => ({
+        note,
+        type: "equipment" as const,
+        id: recordId(note, index),
+        value: `equipment::${recordId(note, index)}`
+      })),
+      ...data.materialSalesNotes.map((note, index) => ({
+        note,
+        type: "material" as const,
+        id: recordId(note, index),
+        value: `material::${recordId(note, index)}`
+      }))
+    ],
+    [data.notes, data.materialSalesNotes]
+  );
+  const selectedSalesOption = firstText(draft, ["salesNoteId"])
+    ? linkedSalesOptions.find((option) => option.id === firstText(draft, ["salesNoteId"]) && (!firstText(draft, ["salesNoteType"]) || option.type === firstText(draft, ["salesNoteType"]))) || null
     : null;
+  const selectedSales = selectedSalesOption?.note || null;
   const [companySearch, setCompanySearch] = useState("");
   const [salesSearch, setSalesSearch] = useState("");
   const companyOptions = useMemo(
@@ -2729,8 +2747,8 @@ function WorkEditor({
     [data.companies, companySearch]
   );
   const salesOptions = useMemo(
-    () => data.notes.filter((note) => matchesText(note, salesSearch)).slice(0, 80),
-    [data.notes, salesSearch]
+    () => linkedSalesOptions.filter((option) => matchesText(option.note, salesSearch) || matchesText({ type: option.type === "material" ? "소재 소모품 기타" : "장비" }, salesSearch)).slice(0, 80),
+    [linkedSalesOptions, salesSearch]
   );
 
   const selectCompany = (value: string) => {
@@ -2765,13 +2783,15 @@ function WorkEditor({
 
   const selectSales = (value: string) => {
     if (value === "__unknown") {
-      setDraft({ ...draft, salesNoteId: "", salesLinkUnknown: true });
+      setDraft({ ...draft, salesNoteId: "", salesNoteType: "", salesLinkUnknown: true });
       return;
     }
-    const note = data.notes.find((item, index) => recordId(item, index) === value) || null;
+    const option = linkedSalesOptions.find((item) => item.value === value) || null;
+    const note = option?.note || null;
     setDraft({
       ...draft,
-      salesNoteId: value,
+      salesNoteId: option?.id || "",
+      salesNoteType: option?.type || "",
       salesLinkUnknown: false,
       companyId: note && !note.companyUnknown ? firstText(note, ["companyId"]) : firstText(draft, ["companyId"]),
       contactId: note && !note.companyUnknown ? firstText(note, ["contactId"]) : firstText(draft, ["contactId"]),
@@ -2815,24 +2835,24 @@ function WorkEditor({
                 type="search"
                 value={salesSearch}
                 onChange={(event) => setSalesSearch(event.target.value)}
-                placeholder="업체, 담당자, 관심제품, 다음 액션"
+                placeholder="업체, 담당자, 장비, 소재/소모품, 품목"
               />
             </label>
             <label className="field wide-field">
               <span>관련 영업건</span>
-              <select value={draft.salesLinkUnknown ? "__unknown" : firstText(draft, ["salesNoteId"])} onChange={(event) => selectSales(event.target.value)}>
+              <select value={draft.salesLinkUnknown ? "__unknown" : selectedSalesOption?.value || ""} onChange={(event) => selectSales(event.target.value)}>
                 <option value="">연결 안 함</option>
                 <option value="__unknown">미정</option>
-                {salesOptions.map((note, index) => (
-                  <option key={recordId(note, index)} value={recordId(note, index)}>
-                    {salesCustomer(note)} · {salesInterest(note) || firstText(note, ["nextAction"]) || "영업 메모"}
+                {salesOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    [{option.type === "material" ? "소재" : "장비"}] {salesCustomer(option.note)} · {option.type === "material" ? materialSalesItemsSummary(option.note) || firstText(option.note, ["revenueType"]) || "품목 미입력" : salesInterest(option.note) || firstText(option.note, ["nextAction"]) || "영업 메모"}
                   </option>
                 ))}
               </select>
             </label>
             <div className="selection-summary wide-field">
               <strong>{selectedSales ? salesCustomer(selectedSales) : (draft.salesLinkUnknown ? "영업건 미정" : "영업건 연결 안 함")}</strong>
-              <span>{selectedSales ? joinParts([salesInterest(selectedSales), firstText(selectedSales, ["nextAction"])], " · ") : "검색 후 관련 영업건을 선택할 수 있습니다."}</span>
+              <span>{selectedSales ? joinParts([selectedSalesOption?.type === "material" ? "소재/소모품" : "장비", selectedSalesOption?.type === "material" ? materialSalesItemsSummary(selectedSales) || firstText(selectedSales, ["revenueType"]) : salesInterest(selectedSales), firstText(selectedSales, ["nextAction"])], " · ") : "검색 후 장비 또는 소재/소모품 영업건을 선택할 수 있습니다."}</span>
             </div>
           </>
         )}
@@ -4356,7 +4376,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
   addSheet("출력", [
     ["업체명/업무명", "요청자", "연락처", "이메일", "관련 영업", "진행상태", "중요도", "기한 시작", "기한 종료", "출력 종류", "주말 포함", "세금계산서 상태", "세금계산서 발행일", "첨부 수", "최종 수정", "메모"],
     ...asArray(data.outputTasks).map((record) => {
-      const linkedSales = getLinkedSalesForWork(record, data.notes);
+      const linkedSales = getLinkedSalesForWork(record, data.notes, data.materialSalesNotes);
       return [
         workTitle(record, "output"),
         firstText(record, ["contactName", "requester", "assignee", "owner"]),
@@ -4947,8 +4967,9 @@ function mergeBackupData(current: WorkNoteData, incomingRaw: AnyRecord): WorkNot
   next.notes = mergeRecordList("sales", current.notes, incoming.notes);
   next.materialSalesNotes = mergeRecordList("materialSales", current.materialSalesNotes, incoming.materialSalesNotes);
   const salesIdMap = createIdMap(current.notes, incoming.notes, next.notes, "sales");
-  remapSalesLinks(incoming.settlementTasks, salesIdMap);
-  remapSalesLinks(incoming.outputTasks, salesIdMap);
+  const materialSalesIdMap = createIdMap(current.materialSalesNotes, incoming.materialSalesNotes, next.materialSalesNotes, "materialSales");
+  remapSalesLinks(incoming.settlementTasks, salesIdMap, materialSalesIdMap);
+  remapSalesLinks(incoming.outputTasks, salesIdMap, materialSalesIdMap);
 
   next.settlementTasks = mergeRecordList("settlement", current.settlementTasks, incoming.settlementTasks);
   next.outputTasks = mergeRecordList("output", current.outputTasks, incoming.outputTasks);
@@ -4976,10 +4997,14 @@ function remapCompanyLinks(records: AnyRecord[], companyIdMap: Map<string, strin
   });
 }
 
-function remapSalesLinks(records: AnyRecord[], salesIdMap: Map<string, string>) {
+function remapSalesLinks(records: AnyRecord[], salesIdMap: Map<string, string>, materialSalesIdMap: Map<string, string>) {
   records.forEach((record) => {
     const salesNoteId = firstText(record, ["salesNoteId"]);
-    if (salesNoteId && salesIdMap.has(salesNoteId)) record.salesNoteId = salesIdMap.get(salesNoteId);
+    if (!salesNoteId) return;
+    const preferredMap = firstText(record, ["salesNoteType"]) === "material" ? materialSalesIdMap : salesIdMap;
+    const fallbackMap = preferredMap === salesIdMap ? materialSalesIdMap : salesIdMap;
+    if (preferredMap.has(salesNoteId)) record.salesNoteId = preferredMap.get(salesNoteId);
+    else if (fallbackMap.has(salesNoteId)) record.salesNoteId = fallbackMap.get(salesNoteId);
   });
 }
 
@@ -5514,6 +5539,7 @@ function createBlankWorkTask(type: "settlement" | "output" | "other"): AnyRecord
       ...common,
       status: "예정",
       salesNoteId: "",
+      salesNoteType: "",
       salesLinkUnknown: false,
       paymentType: "분할 결제",
       totalAmount: "",
@@ -5535,6 +5561,7 @@ function createBlankWorkTask(type: "settlement" | "output" | "other"): AnyRecord
     return {
       ...common,
       salesNoteId: "",
+      salesNoteType: "",
       salesLinkUnknown: false,
       outputType: ""
     };
@@ -5602,6 +5629,7 @@ function normalizeWorkDraft(draft: AnyRecord, type: "settlement" | "output" | "o
     return {
       ...common,
       salesNoteId: Boolean(draft.salesLinkUnknown) ? "" : firstText(draft, ["salesNoteId"]),
+      salesNoteType: Boolean(draft.salesLinkUnknown) ? "" : firstText(draft, ["salesNoteType"]),
       salesLinkUnknown: Boolean(draft.salesLinkUnknown),
       paymentType,
       status: SETTLEMENT_STATUS_OPTIONS.includes(firstText(draft, ["status"])) ? firstText(draft, ["status"]) : "예정",
@@ -5625,6 +5653,7 @@ function normalizeWorkDraft(draft: AnyRecord, type: "settlement" | "output" | "o
     return {
       ...common,
       salesNoteId: Boolean(draft.salesLinkUnknown) ? "" : firstText(draft, ["salesNoteId"]),
+      salesNoteType: Boolean(draft.salesLinkUnknown) ? "" : firstText(draft, ["salesNoteType"]),
       salesLinkUnknown: Boolean(draft.salesLinkUnknown),
       status: WORK_STATUS_OPTIONS.includes(firstText(draft, ["status"])) ? firstText(draft, ["status"]) : "대기",
       priority: PRIORITY_OPTIONS.includes(firstText(draft, ["priority"])) ? firstText(draft, ["priority"]) : "보통",
@@ -6100,16 +6129,29 @@ function getLinkedCompanyForSales(note: AnyRecord, companies: AnyRecord[]): AnyR
   return companies.find((company) => companyName(company).toLowerCase() === name) || null;
 }
 
-function getLinkedSalesForWork(record: AnyRecord, notes: AnyRecord[]): AnyRecord | null {
+function getLinkedSalesForWork(record: AnyRecord, notes: AnyRecord[], materialSalesNotes: AnyRecord[] = []): AnyRecord | null {
   const linkedId = firstText(record, ["salesNoteId", "relatedSalesId", "salesId"]);
+  const linkedType = firstText(record, ["salesNoteType"]);
+  const collections = linkedType === "material"
+    ? [materialSalesNotes, notes]
+    : linkedType === "equipment"
+      ? [notes, materialSalesNotes]
+      : [notes, materialSalesNotes];
+
   if (linkedId) {
-    const byId = notes.find((note, index) => recordId(note, index) === linkedId || firstText(note, ["id"]) === linkedId);
-    if (byId) return byId;
+    for (const collection of collections) {
+      const byId = collection.find((note, index) => recordId(note, index) === linkedId || firstText(note, ["id"]) === linkedId);
+      if (byId) return byId;
+    }
   }
 
   const name = companyName(record).toLowerCase();
   if (!name) return null;
-  return notes.find((note) => salesCustomer(note).toLowerCase() === name) || null;
+  for (const collection of collections) {
+    const byCompany = collection.find((note) => salesCustomer(note).toLowerCase() === name);
+    if (byCompany) return byCompany;
+  }
+  return null;
 }
 
 function relatedSalesFallback(record: AnyRecord): string {
