@@ -1565,6 +1565,101 @@ h2 {
   margin-top: 0;
 }
 
+.settlement-invoice-bulk-panel {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(130px, 0.8fr) minmax(130px, 0.8fr) minmax(130px, 0.8fr) auto;
+  gap: 10px;
+  align-items: end;
+  border: 1px solid #bdd7ff;
+  border-radius: 8px;
+  background: #f4f8ff;
+  padding: 12px;
+}
+
+.settlement-select-all {
+  display: grid;
+  gap: 5px;
+  align-self: center;
+}
+
+.row-select-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.row-select-check input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+}
+
+.payment-row.installment-payment-row {
+  grid-template-columns: 62px 58px 118px minmax(105px, 0.8fr) minmax(120px, 1fr) minmax(96px, 0.65fr) 104px 50px;
+}
+
+.payment-row.advance-deduction-row {
+  grid-template-columns: 62px 120px minmax(135px, 1.05fr) minmax(115px, 0.8fr) minmax(135px, 1fr) 104px 50px;
+}
+
+.payment-row-select {
+  min-height: 40px;
+  align-self: end;
+}
+
+.invoice-row-toggle {
+  min-height: 40px;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.invoice-row-toggle.has-invoice {
+  border-color: #75b798;
+  background: #effaf4;
+  color: #12633d;
+}
+
+.settlement-row-tax-invoice {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(180px, 0.9fr) repeat(3, minmax(150px, 1fr));
+  gap: 10px;
+  align-items: end;
+  border-top: 1px solid var(--line);
+  margin-top: 2px;
+  padding-top: 12px;
+}
+
+.settlement-row-tax-heading {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: end;
+}
+
+.settlement-row-tax-heading p,
+.settlement-row-tax-heading strong,
+.settlement-row-tax-heading span {
+  margin: 0;
+}
+
+.settlement-row-tax-heading span {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+.payment-row.is-tax-invoice-focus {
+  border-color: #16a36a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 106, 0.18);
+  background: #f3fcf7;
+}
+
 .task-list {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -1858,7 +1953,9 @@ h2 {
   .payment-row,
   .payment-row.advance-deduction-row,
   .settlement-summary-grid,
-  .settlement-summary-grid.advance-balance-summary {
+  .settlement-summary-grid.advance-balance-summary,
+  .settlement-invoice-bulk-panel,
+  .settlement-row-tax-invoice {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -2061,7 +2158,9 @@ h2 {
   .payment-row,
   .payment-row.advance-deduction-row,
   .settlement-summary-grid,
-  .settlement-summary-grid.advance-balance-summary {
+  .settlement-summary-grid.advance-balance-summary,
+  .settlement-invoice-bulk-panel,
+  .settlement-row-tax-invoice {
     grid-template-columns: 1fr;
   }
 
