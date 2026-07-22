@@ -138,25 +138,6 @@
       sourceCollection
     );
   };
-  const addWorkInvoiceItem = (items, record, index, type, titlePrefix, company) => {
-    const status = firstText(record, ["taxInvoiceStatus", "invoiceStatus"]);
-    const date = firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]);
-    if (status !== TAX_INVOICE_PENDING || !parseDateKey(date)) return;
-    addItem(
-      items,
-      record,
-      index,
-      date,
-      labelWithCompany(titlePrefix, company, "세금계산서"),
-      "세금계산서 발행 예정",
-      type,
-      status,
-      firstText(record, ["priority", "importance"]),
-      "tax-invoice",
-      type,
-      type === "settlement" ? "settlementTasks" : "outputTasks"
-    );
-  };
   const collectItems = () => {
     const data = loadData();
     const items = [];
@@ -188,12 +169,10 @@
       if (!rows.length) {
         addItem(items, task, index, firstText(task, ["nextActionDate", "nextProcessDate", "nextDate", "dueDate", "dueEndDate", "endDate"]), labelWithCompany("정산", company, "처리"), firstText(task, ["nextAction"]), "settlement", status, priority);
       }
-      addWorkInvoiceItem(items, task, index, "settlement", "정산", company);
     });
     asArray(data.outputTasks).forEach((task, index) => {
       if (isClosed(firstText(task, ["status", "progressStatus"]))) return;
       addRangeItems(items, task, index, "output", labelWithCompany("출력", companyName(task), outputAction(task)), deadlineText(task));
-      addWorkInvoiceItem(items, task, index, "output", "출력", companyName(task) || workTitle(task, "output"));
     });
     asArray(data.otherTasks).forEach((task, index) => {
       if (isClosed(firstText(task, ["status", "progressStatus"]))) return;

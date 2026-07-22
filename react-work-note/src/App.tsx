@@ -204,6 +204,10 @@ export function App() {
   );
 
   const refreshData = () => setData(loadWorkNoteData());
+  const selectPortal = (portal: PortalId) => {
+    setFocusTarget(null);
+    setActivePortal(portal);
+  };
   const openScheduleItem = (item: ScheduleItem) => {
     setQuery("");
     setFocusTarget({
@@ -241,16 +245,16 @@ export function App() {
 
       <nav className="portal-nav" aria-label="업무 포탈">
         <div className="portal-nav-group schedule-group">
-          <PortalButton id="schedule" activePortal={activePortal} setActivePortal={setActivePortal} />
+          <PortalButton id="schedule" activePortal={activePortal} setActivePortal={selectPortal} />
         </div>
         <div className="portal-nav-group work-group">
           {(["sales", "settlement", "output", "other"] as PortalId[]).map((id) => (
-            <PortalButton key={id} id={id} activePortal={activePortal} setActivePortal={setActivePortal} />
+            <PortalButton key={id} id={id} activePortal={activePortal} setActivePortal={selectPortal} />
           ))}
         </div>
         <div className="portal-nav-group account-group">
           {(["company", "account"] as PortalId[]).map((id) => (
-            <PortalButton key={id} id={id} activePortal={activePortal} setActivePortal={setActivePortal} />
+            <PortalButton key={id} id={id} activePortal={activePortal} setActivePortal={selectPortal} />
           ))}
         </div>
       </nav>
@@ -282,7 +286,7 @@ export function App() {
                 type="button"
                 className="result-card"
                 key={result.id}
-                onClick={() => setActivePortal(result.portal)}
+                onClick={() => selectPortal(result.portal)}
               >
                 <strong>{result.title}</strong>
                 <span>{result.meta}</span>
@@ -308,9 +312,9 @@ export function App() {
         )}
         {activePortal === "company" && <CompanyPortal data={data} query={query} onPersist={persistData} />}
         {activePortal === "sales" && <SalesPortal data={data} query={query} onPersist={persistData} focusTarget={focusTarget} />}
-        {activePortal === "settlement" && <GenericWorkPortal title="정산" records={data.settlementTasks} query={query} type="settlement" data={data} onPersist={persistData} focusTarget={focusTarget} />}
-        {activePortal === "output" && <GenericWorkPortal title="출력" records={data.outputTasks} query={query} type="output" data={data} onPersist={persistData} focusTarget={focusTarget} />}
-        {activePortal === "other" && <GenericWorkPortal title="기타" records={data.otherTasks} query={query} type="other" data={data} onPersist={persistData} focusTarget={focusTarget} />}
+        {activePortal === "settlement" && <GenericWorkPortal title="정산" records={data.settlementTasks} query={query} type="settlement" data={data} onPersist={persistData} focusTarget={focusTarget} onClearFocusTarget={() => setFocusTarget(null)} />}
+        {activePortal === "output" && <GenericWorkPortal title="출력" records={data.outputTasks} query={query} type="output" data={data} onPersist={persistData} focusTarget={focusTarget} onClearFocusTarget={() => setFocusTarget(null)} />}
+        {activePortal === "other" && <GenericWorkPortal title="기타" records={data.otherTasks} query={query} type="other" data={data} onPersist={persistData} focusTarget={focusTarget} onClearFocusTarget={() => setFocusTarget(null)} />}
         {activePortal === "account" && <AccountPortal data={data} query={query} onPersist={persistData} />}
       </main>
 
@@ -2508,7 +2512,8 @@ function GenericWorkPortal({
   type,
   data,
   onPersist,
-  focusTarget
+  focusTarget,
+  onClearFocusTarget
 }: {
   title: string;
   records: AnyRecord[];
@@ -2517,6 +2522,7 @@ function GenericWorkPortal({
   data: WorkNoteData;
   onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
   focusTarget: FocusTarget | null;
+  onClearFocusTarget: () => void;
 }) {
   const [filePanel, setFilePanel] = useState<string | null>(null);
   const [editingRecord, setEditingRecord] = useState<AnyRecord | null>(null);
@@ -2542,6 +2548,11 @@ function GenericWorkPortal({
     [searched, workMode]
   );
 
+  const closeEditor = () => {
+    setEditingRecord(null);
+    onClearFocusTarget();
+  };
+
   useEffect(() => {
     if (focusTarget?.portal !== type) return;
     const focusKey = `${focusTarget.portal}:${focusTarget.id}:${focusTarget.taxInvoiceItemId || ""}:${focusTarget.nonce ?? ""}`;
@@ -2550,7 +2561,7 @@ function GenericWorkPortal({
     if (!target) return;
     handledFocusTargetRef.current = focusKey;
     setWorkMode(getListMode(target.record));
-    if (type === "settlement" && focusTarget.taxInvoiceItemId) {
+    if (focusTarget.taxInvoiceItemId && (type === "settlement" || focusTarget.taxInvoiceItemId === "record-tax-invoice")) {
       setEditingRecord(prepareWorkDraft(target.record, target.originalIndex, type));
     }
     window.setTimeout(() => scrollRecordIntoView(focusTarget.id), 0);
@@ -2587,7 +2598,7 @@ function GenericWorkPortal({
           : [record, ...items]
       } as WorkNoteData;
     }, `${title} 업무 ${firstText(draft, ["id"]) ? "수정" : "등록"}`);
-    setEditingRecord(null);
+    closeEditor();
   };
 
   const deleteWorkRecord = async (record: AnyRecord, id: string) => {
@@ -2622,7 +2633,7 @@ function GenericWorkPortal({
         </div>
       </div>
       {editingRecord && (
-        <EditorDrawer onClose={() => setEditingRecord(null)}>
+        <EditorDrawer onClose={closeEditor}>
           <WorkEditor
             draft={editingRecord}
             setDraft={setEditingRecord}
@@ -2631,7 +2642,7 @@ function GenericWorkPortal({
             data={data}
             focusTaxInvoiceItemId={focusTarget?.portal === type ? focusTarget.taxInvoiceItemId : undefined}
             onSave={saveWorkRecord}
-            onCancel={() => setEditingRecord(null)}
+            onCancel={closeEditor}
           />
         </EditorDrawer>
       )}
@@ -6005,7 +6016,7 @@ function addTaxInvoiceScheduleItem(
   priority: string
 ) {
   if (firstText(record, ["taxInvoiceStatus", "invoiceStatus"]) !== "발행 예정") return;
-  addScheduleItem(target, record, index, firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]), title, "세금계산서 발행 예정", type, status, priority, "tax-invoice");
+  addScheduleItem(target, record, index, firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]), title, "세금계산서 발행 예정", type, status, priority, "tax-invoice", "record-tax-invoice");
 }
 
 function addWorkDateRangeItems(
