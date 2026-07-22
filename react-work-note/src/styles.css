@@ -1553,6 +1553,18 @@ h2 {
   padding: 10px;
 }
 
+.payment-row.advance-deduction-row {
+  grid-template-columns: 150px minmax(180px, 1.1fr) minmax(160px, 0.85fr) minmax(220px, 1.2fr) auto;
+}
+
+.settlement-summary-grid.advance-balance-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.advance-deduction-actions {
+  margin-top: 0;
+}
+
 .task-list {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -1844,7 +1856,9 @@ h2 {
   .attachment-editor-grid,
   .schedule-tool-grid,
   .payment-row,
-  .settlement-summary-grid {
+  .payment-row.advance-deduction-row,
+  .settlement-summary-grid,
+  .settlement-summary-grid.advance-balance-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -2045,7 +2059,9 @@ h2 {
   .attachment-editor-grid,
   .schedule-tool-grid,
   .payment-row,
-  .settlement-summary-grid {
+  .payment-row.advance-deduction-row,
+  .settlement-summary-grid,
+  .settlement-summary-grid.advance-balance-summary {
     grid-template-columns: 1fr;
   }
 
