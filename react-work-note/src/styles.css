@@ -2583,3 +2583,111 @@ h2 {
     text-align: left;
   }
 }
+
+/* Settlement editor desktop layout */
+.payment-row .field-title-row,
+.payment-row .field-option-row,
+.payment-row .inline-check,
+.payment-row .row-select-check,
+.payment-row .field > span,
+.payment-row button,
+.settlement-invoice-bulk-panel .field > span,
+.settlement-invoice-bulk-panel button,
+.settlement-select-all,
+.settlement-row-tax-invoice .field > span {
+  white-space: nowrap;
+  word-break: keep-all;
+}
+
+.payment-row .field-title-row {
+  flex-wrap: nowrap;
+}
+
+.payment-row .danger-button {
+  min-width: 72px;
+  padding-inline: 12px;
+}
+
+.payment-row-select {
+  min-width: 76px;
+}
+
+.invoice-row-toggle {
+  min-width: 210px;
+  white-space: nowrap;
+  line-height: 1.2;
+  padding-inline: 14px;
+}
+
+.settlement-invoice-bulk-panel > button {
+  min-width: 190px;
+}
+
+.settlement-row-tax-heading > span {
+  white-space: nowrap;
+}
+
+@media (min-width: 821px) {
+  .editor-drawer-backdrop {
+    padding: 12px;
+  }
+
+  .editor-drawer {
+    width: min(1760px, calc(100vw - 24px));
+  }
+
+  .editor-drawer .editor-panel {
+    padding: 20px;
+  }
+}
+
+@media (min-width: 1441px) {
+  .settlement-invoice-bulk-panel {
+    grid-template-columns: 180px minmax(220px, 0.8fr) 210px 210px minmax(190px, 0.7fr);
+    gap: 12px;
+  }
+
+  .payment-row.installment-payment-row {
+    grid-template-columns: 76px 80px 170px 180px minmax(280px, 1fr) 160px 210px 72px;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .payment-row.advance-deduction-row {
+    grid-template-columns: 76px 180px minmax(280px, 1.3fr) 190px minmax(260px, 1fr) 210px 72px;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .settlement-row-tax-invoice {
+    grid-template-columns: minmax(220px, 0.85fr) repeat(3, minmax(210px, 1fr));
+    gap: 12px;
+  }
+}
+
+@media (min-width: 821px) and (max-width: 1440px) {
+  .payment-row.installment-payment-row,
+  .payment-row.advance-deduction-row,
+  .settlement-invoice-bulk-panel,
+  .settlement-row-tax-invoice {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .invoice-row-toggle,
+  .payment-row .danger-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 820px) {
+  .invoice-row-toggle,
+  .payment-row .danger-button,
+  .settlement-invoice-bulk-panel > button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .settlement-row-tax-heading > span {
+    white-space: normal;
+  }
+}

@@ -68,9 +68,9 @@
   const controlValue = (panel, labelText) => text(getLabelControl(panel, labelText)?.value);
 
   const editorType = (panel) => {
-    const panelText = panel.textContent || "";
-    if (panelText.includes("MATERIAL / OTHER SALES") || panelText.includes("소재/소모품 영업건")) return "materialSalesNotes";
-    if (panelText.includes("SALES NOTE") || panelText.includes("영업 메모")) return "notes";
+    const marker = text(panel.querySelector(".section-title-row .eyebrow")?.textContent);
+    if (marker === "MATERIAL / OTHER SALES") return "materialSalesNotes";
+    if (marker === "SALES NOTE") return "notes";
     return "";
   };
 
