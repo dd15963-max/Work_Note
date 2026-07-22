@@ -460,8 +460,8 @@ function BackupCenter({
   };
 
   const exportCsv = () => {
-    downloadWorkNoteCsv(data);
-    setSaveMessage(`CSV 내보내기 완료 · ${formatDateTime(new Date().toISOString())}`);
+    downloadWorkNoteCsvZip(data);
+    setSaveMessage(`CSV ZIP 내보내기 완료 · ${formatDateTime(new Date().toISOString())}`);
   };
 
   const exportXlsx = () => {
@@ -642,9 +642,9 @@ function BackupCenter({
         </div>
         <div>
           <strong>관리</strong>
-          <button type="button" onClick={exportCsv} disabled={Boolean(busy)}>CSV 내보내기</button>
+          <button type="button" onClick={exportCsv} disabled={Boolean(busy)}>CSV ZIP 내보내기</button>
           <button type="button" onClick={exportXlsx} disabled={Boolean(busy)}>엑셀 내보내기</button>
-          <button className="danger" type="button" onClick={resetWorkspace} disabled={Boolean(busy)}>전체 초기화</button>
+          <button className="danger backup-reset-button" type="button" onClick={resetWorkspace} disabled={Boolean(busy)}>전체 메모장 초기화</button>
         </div>
         <small>{busy || "ZIP은 원본 파일까지, JSON은 기록만 저장합니다."}</small>
       </div>
@@ -3921,177 +3921,34 @@ function compareBackupCounts(expected: Record<string, number>, actual: Record<st
     .map((key) => `${key}: 예상 ${expected[key]}건 / 확인 ${actual[key]}건`);
 }
 
-function downloadWorkNoteCsv(data: WorkNoteData) {
-  const headers = [
-    "구분",
-    "제목/업체",
-    "담당자",
-    "연락처",
-    "이메일",
-    "상태",
-    "중요도",
-    "시작일",
-    "종료/다음일",
-    "금액/요약",
-    "관련 내용",
-    "첨부 수",
-    "최종 수정",
-    "메모"
-  ];
-  const rows: string[][] = [];
-  const addRow = (values: Array<string | number | boolean | null | undefined>) => {
-    rows.push(values.map((value) => clean(value)));
-  };
+const CSV_EXPORT_FILE_NAMES: Record<string, string> = {
+  "업체": "companies.csv",
+  "장비영업": "equipment-sales.csv",
+  "소재영업": "material-sales.csv",
+  "소재판매품목": "material-sales-items.csv",
+  "정산": "settlements.csv",
+  "정산일정_차감목록": "settlement-schedules.csv",
+  "출력": "output-tasks.csv",
+  "기타": "other-tasks.csv",
+  "계정": "accounts.csv",
+  "첨부파일목록": "attachments.csv"
+};
 
-  asArray(data.companies).forEach((company) => {
-    const contacts = asArray(company.contacts);
-    const primary = contacts.find((contact) => Boolean(contact.isPrimary)) || contacts[0] || {};
-    addRow([
-      "업체",
-      companyName(company),
-      firstText(primary, ["name", "contactName"]),
-      firstText(primary, ["phone", "contactPhone", "mobile"]) || firstText(company, ["mainPhone", "phone"]),
-      firstText(primary, ["email", "contactEmail"]) || firstText(company, ["mainEmail", "email"]),
-      firstText(company, ["status", "tradeStatus"]),
-      "",
-      "",
-      "",
-      firstText(company, ["businessType", "category"]),
-      firstText(company, ["address", "businessNumber"]),
-      asArray(company.attachments).length,
-      firstText(company, ["updatedAt"]),
-      summarizeForCsv(firstText(company, ["memo", "note"]))
-    ]);
-  });
-
-  asArray(data.notes).forEach((note) => {
-    addRow([
-      "영업",
-      salesCustomer(note),
-      firstText(note, ["contactName", "managerName"]),
-      firstText(note, ["contactPhone", "phone", "contact", "mobile"]),
-      firstText(note, ["contactEmail", "email"]),
-      firstText(note, ["status", "progressStatus"]),
-      firstText(note, ["priority", "importance"]),
-      firstText(note, ["lastContactDate"]),
-      firstText(note, ["meetingDate", "nextContactDate"]),
-      joinParts([
-        formatMoneyWithVat(firstText(note, ["expectedRevenueAmount"]), note.expectedRevenueVatIncluded),
-        formatMoneyWithVat(firstText(note, ["revenueAmount"]), note.revenueAmountVatIncluded),
-        firstText(note, ["revenueType"])
-      ], " / "),
-      joinParts([salesInterest(note), firstText(note, ["itemCategory"]), firstText(note, ["quoteStatus"]), firstText(note, ["purchasePossibility"]), firstText(note, ["nextAction"])], " / "),
-      asArray(note.attachments).length,
-      firstText(note, ["updatedAt"]),
-      summarizeForCsv(firstText(note, ["memo", "description", "note"]))
-    ]);
-  });
-
-  asArray(data.materialSalesNotes).forEach((record) => {
-    addRow([
-      "소재/기타 영업",
-      salesCustomer(record),
-      firstText(record, ["contactName", "managerName"]),
-      firstText(record, ["contactPhone", "phone", "contact", "mobile"]),
-      firstText(record, ["contactEmail", "email"]),
-      materialSalesStatus(record),
-      "",
-      "",
-      "",
-      joinParts([
-        formatMoney(firstText(record, ["expectedRevenueAmount"])),
-        formatMoney(firstText(record, ["revenueAmount"])),
-        firstText(record, ["revenueType"])
-      ], " / "),
-      joinParts([materialSalesQuoteStatus(record), materialSalesItemsSummary(record)], " / "),
-      "",
-      firstText(record, ["updatedAt"]),
-      summarizeForCsv(firstText(record, ["memo", "description", "note"]))
-    ]);
-  });
-  asArray(data.settlementTasks).forEach((record) => {
-    addRow([
-      "정산",
-      workTitle(record, "settlement"),
-      firstText(record, ["contactName", "requester", "assignee", "owner"]),
-      firstText(record, ["contactPhone", "phone", "mobile"]),
-      firstText(record, ["contactEmail", "email"]),
-      firstText(record, ["status", "progressStatus"]),
-      firstText(record, ["priority", "importance"]),
-      firstText(record, ["startDate"]),
-      firstText(record, ["nextActionDate", "endDate", "dueDate"]),
-      joinParts([
-        formatMoneyWithVat(firstText(record, ["totalAmount", "advanceAmount"]), record.totalAmountVatIncluded || record.advanceAmountVatIncluded),
-        formatMoneyWithVat(firstText(record, ["receivedAmount", "deductedAmount"]), record.receivedAmountVatIncluded || record.deductedAmountVatIncluded)
-      ], " / "),
-      joinParts([companyName(record), firstText(record, ["paymentType"]), firstText(record, ["nextAction"])], " / "),
-      asArray(record.attachments).length,
-      firstText(record, ["updatedAt"]),
-      summarizeForCsv(joinParts([firstText(record, ["memo", "description", "note"]), firstText(record, ["plan"])], "\n"))
-    ]);
-  });
-
-  asArray(data.outputTasks).forEach((record) => {
-    addRow([
-      "출력",
-      workTitle(record, "output"),
-      firstText(record, ["contactName", "requester", "assignee", "owner"]),
-      firstText(record, ["contactPhone", "phone", "mobile"]),
-      firstText(record, ["contactEmail", "email"]),
-      firstText(record, ["status", "progressStatus"]),
-      firstText(record, ["priority", "importance"]),
-      firstText(record, ["startDate", "dueStartDate"]),
-      firstText(record, ["endDate", "dueEndDate", "deadline", "dueDate"]),
-      firstText(record, ["outputType", "category", "taskType"]),
-      companyName(record),
-      asArray(record.attachments).length,
-      firstText(record, ["updatedAt"]),
-      summarizeForCsv(firstText(record, ["memo", "description", "note"]))
-    ]);
-  });
-
-  asArray(data.otherTasks).forEach((record) => {
-    addRow([
-      "기타",
-      workTitle(record, "other"),
-      firstText(record, ["contactName", "requester", "assignee", "owner"]),
-      firstText(record, ["contactPhone", "phone", "mobile"]),
-      firstText(record, ["contactEmail", "email"]),
-      firstText(record, ["status", "progressStatus"]),
-      firstText(record, ["priority", "importance"]),
-      firstText(record, ["startDate", "dueStartDate"]),
-      firstText(record, ["endDate", "dueEndDate", "deadline", "dueDate"]),
-      firstText(record, ["category", "taskType"]),
-      companyName(record),
-      asArray(record.attachments).length,
-      firstText(record, ["updatedAt"]),
-      summarizeForCsv(firstText(record, ["memo", "description", "note"]))
-    ]);
-  });
-
-  asArray(data.accounts).forEach((account) => {
-    addRow([
-      "계정",
-      firstText(account, ["siteName", "name"]),
-      firstText(account, ["owner"]),
-      "",
-      "",
-      "",
-      "",
-      firstText(account, ["accountCreatedDate", "createdDate"]),
-      firstText(account, ["passwordChangedDate"]),
-      firstText(account, ["purpose"]),
-      joinParts([firstText(account, ["siteUrl", "url"]), firstText(account, ["username", "id"])], " / "),
-      "",
-      firstText(account, ["updatedAt"]),
-      summarizeForCsv(firstText(account, ["memo", "note"]))
-    ]);
-  });
-
-  const csv = [headers, ...rows].map((row) => row.map(escapeCsv).join(",")).join("\r\n");
-  downloadBlob(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }), `work-note-export-${getFilenameTimestamp()}.csv`, "text/csv;charset=utf-8");
+function downloadWorkNoteCsvZip(data: WorkNoteData) {
+  const entries = createWorkNoteXlsxSheets(data).map((sheet, index) => ({
+    path: CSV_EXPORT_FILE_NAMES[sheet.name] || `sheet-${index + 1}.csv`,
+    data: createCsvText(sheet.rows)
+  }));
+  const blob = createZipBlob(entries);
+  downloadBlob(blob, `work-note-csv-${getFilenameTimestamp()}.zip`, "application/zip");
 }
 
+function createCsvText(rows: XlsxCellValue[][]): string {
+  const csv = rows
+    .map((row) => row.map((value) => escapeCsv(cleanXlsxText(value))).join(","))
+    .join("\r\n");
+  return `\uFEFF${csv}`;
+}
 type XlsxCellValue = string | number | boolean | null | undefined;
 type XlsxSheet = { name: string; rows: XlsxCellValue[][] };
 

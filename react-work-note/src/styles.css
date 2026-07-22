@@ -184,6 +184,11 @@ h2 {
   color: var(--red);
 }
 
+.backup-center-panel .backup-reset-button {
+  grid-column: 1 / -1;
+  width: 100%;
+  white-space: nowrap;
+}
 .backup-center-panel button.danger:hover {
   border-color: var(--red);
   color: var(--red);
