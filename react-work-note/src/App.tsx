@@ -12,6 +12,7 @@ import {
   Eye,
   ExternalLink,
   FileText,
+  FolderOpen,
   KeyRound,
   LayoutDashboard,
   ListChecks,
@@ -405,7 +406,9 @@ function MemoListControls({
 function EditorDrawer({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape") return;
+      if (document.querySelector(".inline-file-panel, .sales-detail-panel.file-modal-panel")) return;
+      onClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -415,6 +418,44 @@ function EditorDrawer({ children, onClose }: { children: React.ReactNode; onClos
     <div className="editor-drawer-backdrop" onMouseDown={onClose}>
       <div className="editor-drawer" onMouseDown={(event) => event.stopPropagation()}>
         {children}
+      </div>
+    </div>
+  );
+}
+
+function EditorActionBar({
+  onSave,
+  onCancel,
+  onOpenFiles,
+  fileAvailable = false
+}: {
+  onSave: () => void;
+  onCancel: () => void;
+  onOpenFiles?: () => void;
+  fileAvailable?: boolean;
+}) {
+  const disabledMessage = "메모를 먼저 저장하면 파일함을 사용할 수 있습니다.";
+  return (
+    <div className="editor-action-bar" aria-label="편집 작업">
+      <div className="editor-action-start">
+        {onOpenFiles && (
+          <span className="editor-file-button-wrap" title={fileAvailable ? "현재 메모의 파일함 열기" : disabledMessage}>
+            <button
+              type="button"
+              className="icon-text-button"
+              onClick={onOpenFiles}
+              disabled={!fileAvailable}
+              aria-label={fileAvailable ? "현재 메모의 파일함 열기" : disabledMessage}
+            >
+              <FolderOpen size={17} />
+              파일함
+            </button>
+          </span>
+        )}
+      </div>
+      <div className="editor-action-end">
+        <button type="button" className="icon-text-button" onClick={onCancel}>취소</button>
+        <button type="button" className="icon-text-button primary" onClick={onSave}>저장</button>
       </div>
     </div>
   );
@@ -1086,14 +1127,7 @@ function CompanyEditor({
           {!contacts.length && <EmptyState title="담당자 없음" detail="필요하면 담당자를 추가해 주세요." />}
         </div>
       </div>
-      <div className="form-actions">
-        <button type="button" className="icon-text-button primary" onClick={() => onSave(draft)}>
-          저장
-        </button>
-        <button type="button" className="icon-text-button" onClick={onCancel}>
-          취소
-        </button>
-      </div>
+      <EditorActionBar onSave={() => onSave(draft)} onCancel={onCancel} />
     </section>
   );
 }
@@ -1372,6 +1406,11 @@ function SalesPortal({
             data={data}
             onSave={saveNote}
             onCancel={() => setEditingNote(null)}
+            fileAvailable={data.notes.some((note, index) => recordId(note, index) === firstText(editingNote, ["id"]))}
+            onOpenFiles={() => {
+              const id = firstText(editingNote, ["id"]);
+              if (id) setSalesPanel({ id, mode: "files" });
+            }}
           />
         </EditorDrawer>
       )}
@@ -1675,6 +1714,11 @@ function MaterialSalesSection({
             data={data}
             onSave={saveRecord}
             onCancel={() => setEditingRecord(null)}
+            fileAvailable={data.materialSalesNotes.some((record, index) => recordId(record, index) === firstText(editingRecord, ["id"]))}
+            onOpenFiles={() => {
+              const id = firstText(editingRecord, ["id"]);
+              if (id) setFilePanel(id);
+            }}
           />
         </EditorDrawer>
       )}
@@ -1888,13 +1932,17 @@ function MaterialSalesEditor({
   setDraft,
   data,
   onSave,
-  onCancel
+  onCancel,
+  onOpenFiles,
+  fileAvailable
 }: {
   draft: AnyRecord;
   setDraft: (draft: AnyRecord) => void;
   data: WorkNoteData;
   onSave: (draft: AnyRecord) => void;
   onCancel: () => void;
+  onOpenFiles: () => void;
+  fileAvailable: boolean;
 }) {
   const selectedCompany = firstText(draft, ["companyId"])
     ? data.companies.find((company, index) => recordId(company, index) === firstText(draft, ["companyId"]))
@@ -1996,10 +2044,12 @@ function MaterialSalesEditor({
         </section>
         <TextAreaField label="상세 메모" value={rawText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="상세 내용" wide />
       </div>
-      <div className="form-actions">
-        <button type="button" className="icon-text-button primary" onClick={() => onSave(draft)}>저장</button>
-        <button type="button" className="icon-text-button" onClick={onCancel}>취소</button>
-      </div>
+      <EditorActionBar
+        onSave={() => onSave(draft)}
+        onCancel={onCancel}
+        onOpenFiles={onOpenFiles}
+        fileAvailable={fileAvailable}
+      />
     </section>
   );
 }
@@ -2009,13 +2059,17 @@ function SalesEditor({
   setDraft,
   data,
   onSave,
-  onCancel
+  onCancel,
+  onOpenFiles,
+  fileAvailable
 }: {
   draft: AnyRecord;
   setDraft: (draft: AnyRecord) => void;
   data: WorkNoteData;
   onSave: (draft: AnyRecord) => void;
   onCancel: () => void;
+  onOpenFiles: () => void;
+  fileAvailable: boolean;
 }) {
   const selectedCompany = firstText(draft, ["companyId"])
     ? data.companies.find((company, index) => recordId(company, index) === firstText(draft, ["companyId"]))
@@ -2114,14 +2168,12 @@ function SalesEditor({
         <TextAreaField label="다음 액션" value={rawText(draft, ["nextAction"])} onChange={(value) => updateField("nextAction", value)} placeholder="다음에 할 일" wide />
         <TextAreaField label="상세 메모" value={rawText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="상세 내용" wide />
       </div>
-      <div className="form-actions">
-        <button type="button" className="icon-text-button primary" onClick={() => onSave(draft)}>
-          저장
-        </button>
-        <button type="button" className="icon-text-button" onClick={onCancel}>
-          취소
-        </button>
-      </div>
+      <EditorActionBar
+        onSave={() => onSave(draft)}
+        onCancel={onCancel}
+        onOpenFiles={onOpenFiles}
+        fileAvailable={fileAvailable}
+      />
     </section>
   );
 }
@@ -2645,6 +2697,11 @@ function GenericWorkPortal({
             focusTaxInvoiceItemId={focusTarget?.portal === type ? focusTarget.taxInvoiceItemId : undefined}
             onSave={saveWorkRecord}
             onCancel={closeEditor}
+            fileAvailable={records.some((record, index) => recordId(record, index) === firstText(editingRecord, ["id"]))}
+            onOpenFiles={() => {
+              const id = firstText(editingRecord, ["id"]);
+              if (id) setFilePanel(id);
+            }}
           />
         </EditorDrawer>
       )}
@@ -2715,7 +2772,9 @@ function WorkEditor({
   data,
   focusTaxInvoiceItemId,
   onSave,
-  onCancel
+  onCancel,
+  onOpenFiles,
+  fileAvailable
 }: {
   draft: AnyRecord;
   setDraft: (draft: AnyRecord) => void;
@@ -2725,6 +2784,8 @@ function WorkEditor({
   focusTaxInvoiceItemId?: string;
   onSave: (draft: AnyRecord) => void;
   onCancel: () => void;
+  onOpenFiles: () => void;
+  fileAvailable: boolean;
 }) {
   const updateField = (key: string, value: string | boolean | AnyRecord[]) => setDraft({ ...draft, [key]: value });
   const updateFields = (values: AnyRecord) => setDraft({ ...draft, ...values });
@@ -2911,14 +2972,12 @@ function WorkEditor({
         {type === "output" && <TaxInvoiceFields draft={draft} updateField={updateField} />}
         <TextAreaField label="업무 메모" value={rawText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="업무 조건, 주의사항, 진행 내용" wide />
       </div>
-      <div className="form-actions">
-        <button type="button" className="icon-text-button primary" onClick={() => onSave(draft)}>
-          저장
-        </button>
-        <button type="button" className="icon-text-button" onClick={onCancel}>
-          취소
-        </button>
-      </div>
+      <EditorActionBar
+        onSave={() => onSave(draft)}
+        onCancel={onCancel}
+        onOpenFiles={onOpenFiles}
+        fileAvailable={fileAvailable}
+      />
     </section>
   );
 }
@@ -3696,14 +3755,7 @@ function AccountEditor({
         <TextField label="비밀번호 변경일" type="date" value={firstText(draft, ["passwordChangedDate"])} onChange={(value) => updateField("passwordChangedDate", value)} />
         <TextAreaField label="메모" value={rawText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="계정 관련 메모" wide />
       </div>
-      <div className="form-actions">
-        <button type="button" className="icon-text-button primary" onClick={() => onSave(draft)}>
-          저장
-        </button>
-        <button type="button" className="icon-text-button" onClick={onCancel}>
-          취소
-        </button>
-      </div>
+      <EditorActionBar onSave={() => onSave(draft)} onCancel={onCancel} />
     </section>
   );
 }
