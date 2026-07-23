@@ -1152,7 +1152,6 @@ function UnifiedTasksPage({
             <h2>업무</h2>
             <p>{describeTaskFilters(filters)}</p>
           </div>
-          <strong className="tasks-result-count">{filteredItems.length}건</strong>
         </div>
         <div className="tasks-page-stats" aria-label="검색 결과 요약">
           <span>검색 결과 <strong>{filteredItems.length}</strong></span>
