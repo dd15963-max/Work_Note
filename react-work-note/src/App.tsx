@@ -1,6 +1,7 @@
 import {
   Archive,
   ArrowDown,
+  ArrowLeft,
   ArrowUp,
   BriefcaseBusiness,
   Building2,
@@ -43,6 +44,11 @@ type AttachmentCollectionKey = "companies" | "notes" | "materialSalesNotes" | "s
 type AttachmentOwnerType = "company" | "sales" | "materialSales" | "settlement" | "output" | "other";
 type TaskCollectionKey = Exclude<AttachmentCollectionKey, "companies">;
 type ScheduleQuickFilter = "today" | "week" | "important" | "all";
+type SchedulePageId = "main" | ScheduleQuickFilter;
+type ScheduleTaskTypeFilter = "all" | "sales" | "settlement" | "output" | "other";
+type ScheduleStatusFilter = "all" | "pending" | "active" | "closed" | "hold";
+type ScheduleImportanceFilter = "all" | "important" | "normal";
+type ScheduleSortKey = "dateAsc" | "dateDesc" | "recent" | "oldest" | "important";
 
 type WorkNoteData = {
   version: string;
@@ -86,10 +92,17 @@ type UnifiedWorkItem = {
   title: string;
   contact: string;
   status: string;
+  statusGroup: Exclude<ScheduleStatusFilter, "all">;
   schedule: string;
+  scheduleDates: string[];
+  primaryDate: string;
+  startDate: string;
+  endDate: string;
   memo: string;
+  createdAt: string;
   updatedAt: string;
   isImportant: boolean;
+  isCompleted: boolean;
   isToday: boolean;
   isThisWeek: boolean;
 };
@@ -189,8 +202,19 @@ const SALES_SORT_OPTIONS: Array<{ id: SalesSortKey; label: string }> = [
   { id: "company", label: "고객사명" }
 ];
 
+function readSchedulePageFromLocation(): SchedulePageId {
+  const match = window.location.hash.match(/^#\/schedule(?:\/(today|week|important|all))?\/?$/);
+  if (!match) return "main";
+  return (match[1] as ScheduleQuickFilter | undefined) || "main";
+}
+
+function schedulePageHash(page: SchedulePageId): string {
+  return page === "main" ? "#/schedule" : `#/schedule/${page}`;
+}
+
 export function App() {
   const [activePortal, setActivePortal] = useState<PortalId>("schedule");
+  const [schedulePage, setSchedulePage] = useState<SchedulePageId>(() => readSchedulePageFromLocation());
   const [query, setQuery] = useState("");
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("month");
   const [calendarCursor, setCalendarCursor] = useState(() => startOfDay(new Date()));
@@ -206,6 +230,23 @@ export function App() {
     };
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  useEffect(() => {
+    const handleLocationChange = () => {
+      const nextPage = readSchedulePageFromLocation();
+      if (window.location.hash.startsWith("#/schedule")) {
+        setActivePortal("schedule");
+      }
+      setSchedulePage(nextPage);
+    };
+    window.addEventListener("popstate", handleLocationChange);
+    window.addEventListener("hashchange", handleLocationChange);
+    handleLocationChange();
+    return () => {
+      window.removeEventListener("popstate", handleLocationChange);
+      window.removeEventListener("hashchange", handleLocationChange);
+    };
   }, []);
 
   const scheduleItems = useMemo(() => collectScheduleItems(data), [data]);
@@ -224,11 +265,41 @@ export function App() {
   const globalResults = useMemo(() => collectGlobalResults(data, query), [data, query]);
 
   const refreshData = () => setData(loadWorkNoteData());
+  const clearScheduleRoute = () => {
+    if (window.location.hash.startsWith("#/schedule")) {
+      window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
+    }
+    setSchedulePage("main");
+  };
+  const navigateSchedulePage = (page: SchedulePageId, replace = false) => {
+    const hash = schedulePageHash(page);
+    const state = { ...(window.history.state || {}), workNoteSchedulePage: page !== "main" };
+    if (window.location.hash !== hash) {
+      window.history[replace ? "replaceState" : "pushState"](state, "", hash);
+    }
+    setFocusTarget(null);
+    setQuery("");
+    setActivePortal("schedule");
+    setSchedulePage(page);
+  };
+  const backToScheduleMain = () => {
+    if (window.history.state?.workNoteSchedulePage) {
+      window.history.back();
+      return;
+    }
+    navigateSchedulePage("main", true);
+  };
   const selectPortal = (portal: PortalId) => {
     setFocusTarget(null);
+    if (portal === "schedule") {
+      navigateSchedulePage("main");
+      return;
+    }
+    clearScheduleRoute();
     setActivePortal(portal);
   };
   const openScheduleItem = (item: ScheduleItem) => {
+    clearScheduleRoute();
     setQuery("");
     setFocusTarget({
       portal: item.sourceType,
@@ -240,6 +311,7 @@ export function App() {
     setActivePortal(item.sourceType);
   };
   const openUnifiedWorkItem = (item: UnifiedWorkItem) => {
+    clearScheduleRoute();
     setQuery("");
     setFocusTarget({
       portal: item.portal,
@@ -269,6 +341,14 @@ export function App() {
         recordId(record, index) === id ? { ...record, isImportant: !Boolean(record.isImportant) } : record
       )
     } as WorkNoteData), "중요 업무");
+  };
+  const toggleTaskCompleted = (collectionKey: TaskCollectionKey, id: string, completed: boolean) => {
+    persistData((current) => ({
+      ...current,
+      [collectionKey]: (current[collectionKey] as AnyRecord[]).map((record, index) =>
+        recordId(record, index) === id ? setRecordCompleted(record, collectionKey, completed) : record
+      )
+    } as WorkNoteData), completed ? "업무 완료" : "업무 완료 해제");
   };
 
   return (
@@ -340,6 +420,7 @@ export function App() {
       <main className="portal-content">
         {activePortal === "schedule" && (
           <SchedulePortal
+            page={schedulePage}
             items={filteredScheduleItems}
             todayItems={todayItems}
             workItems={unifiedWorkItems}
@@ -348,9 +429,12 @@ export function App() {
             setCalendarCursor={setCalendarCursor}
             calendarMode={calendarMode}
             setCalendarMode={setCalendarMode}
+            onNavigatePage={navigateSchedulePage}
+            onBack={backToScheduleMain}
             onOpenItem={openScheduleItem}
             onOpenWorkItem={openUnifiedWorkItem}
             onToggleImportant={toggleImportant}
+            onToggleCompleted={toggleTaskCompleted}
           />
         )}
         {activePortal === "company" && <CompanyPortal data={data} query={query} onPersist={persistData} />}
@@ -757,6 +841,7 @@ function BackupCenter({
 }
 
 function SchedulePortal({
+  page,
   items,
   todayItems,
   workItems,
@@ -765,10 +850,14 @@ function SchedulePortal({
   setCalendarCursor,
   calendarMode,
   setCalendarMode,
+  onNavigatePage,
+  onBack,
   onOpenItem,
   onOpenWorkItem,
-  onToggleImportant
+  onToggleImportant,
+  onToggleCompleted
 }: {
+  page: SchedulePageId;
   items: ScheduleItem[];
   todayItems: ScheduleItem[];
   workItems: UnifiedWorkItem[];
@@ -777,11 +866,13 @@ function SchedulePortal({
   setCalendarCursor: (date: Date) => void;
   calendarMode: CalendarMode;
   setCalendarMode: (mode: CalendarMode) => void;
+  onNavigatePage: (page: SchedulePageId, replace?: boolean) => void;
+  onBack: () => void;
   onOpenItem: (item: ScheduleItem) => void;
   onOpenWorkItem: (item: UnifiedWorkItem) => void;
   onToggleImportant: (collectionKey: TaskCollectionKey, id: string) => void;
+  onToggleCompleted: (collectionKey: TaskCollectionKey, id: string, completed: boolean) => void;
 }) {
-  const [quickFilter, setQuickFilter] = useState<ScheduleQuickFilter>("all");
   const counts = useMemo(
     () => ({
       today: workItems.filter((item) => item.isToday).length,
@@ -791,84 +882,30 @@ function SchedulePortal({
     }),
     [workItems]
   );
-  const filteredWorkItems = useMemo(
-    () =>
-      workItems
-        .filter((item) => matchesText(item, query))
-        .filter((item) => {
-          if (quickFilter === "today") return item.isToday;
-          if (quickFilter === "week") return item.isThisWeek;
-          if (quickFilter === "important") return item.isImportant;
-          return true;
-        })
-        .sort(compareUnifiedWorkItems),
-    [workItems, query, quickFilter]
-  );
   const quickCards: Array<{ id: ScheduleQuickFilter; label: string; value: number }> = [
     { id: "today", label: "오늘 업무", value: counts.today },
     { id: "week", label: "이번 주 일정", value: counts.week },
     { id: "important", label: "중요 업무", value: counts.important },
     { id: "all", label: "전체 업무", value: counts.all }
   ];
-  const emptyMessages: Record<ScheduleQuickFilter, string> = {
-    today: "오늘 예정된 업무가 없습니다.",
-    week: "이번 주 일정이 없습니다.",
-    important: "중요 업무가 없습니다.",
-    all: "등록된 업무가 없습니다."
-  };
+
+  if (page !== "main") {
+    return (
+      <ScheduleTaskPage
+        page={page}
+        workItems={workItems}
+        query={query}
+        onBack={onBack}
+        onOpenWorkItem={onOpenWorkItem}
+        onToggleImportant={onToggleImportant}
+        onToggleCompleted={onToggleCompleted}
+      />
+    );
+  }
 
   return (
     <div className="schedule-layout">
       <section className="schedule-main">
-        <div className="summary-grid" aria-label="업무 빠른 필터">
-          {quickCards.map((card) => (
-            <MetricCard
-              key={card.id}
-              label={card.label}
-              value={card.value}
-              active={quickFilter === card.id}
-              onClick={() => setQuickFilter(card.id)}
-            />
-          ))}
-        </div>
-        <section className="panel unified-work-panel">
-          <div className="section-title-row">
-            <div>
-              <p className="eyebrow">WORK LIST</p>
-              <h2>{quickCards.find((card) => card.id === quickFilter)?.label}</h2>
-            </div>
-            <span className="count-label">{filteredWorkItems.length}건</span>
-          </div>
-          <div className="unified-work-list">
-            {filteredWorkItems.map((item) => (
-              <article className={`unified-work-item ${item.isImportant ? "is-important" : ""}`} key={item.id} data-collection-key={item.collectionKey} data-source-id={item.sourceId}>
-                <button type="button" className="unified-work-main" onClick={() => onOpenWorkItem(item)}>
-                  <span className={`work-type-badge ${item.portal}`}>{item.badge}</span>
-                  <span className="unified-work-copy">
-                    <strong>{item.title}</strong>
-                    <small>{joinParts([item.subtype, item.contact], " · ") || "담당자 미입력"}</small>
-                    {item.memo && <p>{summarizeForList(item.memo, 110)}</p>}
-                  </span>
-                  <span className="unified-work-meta">
-                    <strong>{item.status || "상태 미정"}</strong>
-                    <small>{item.schedule || "일정 미정"}</small>
-                  </span>
-                </button>
-                <div className="unified-work-actions">
-                  <ImportantToggle
-                    active={item.isImportant}
-                    onToggle={() => onToggleImportant(item.collectionKey, item.sourceId)}
-                  />
-                  <button type="button" className="icon-text-button" onClick={() => onOpenWorkItem(item)}>
-                    <Pencil size={15} />
-                    수정
-                  </button>
-                </div>
-              </article>
-            ))}
-            {!filteredWorkItems.length && <EmptyState title={emptyMessages[quickFilter]} detail={query ? "현재 검색어와 카드 조건을 함께 적용한 결과입니다." : "필요한 업무를 등록하거나 별표를 설정해 주세요."} />}
-          </div>
-        </section>
         <div className="panel calendar-panel">
           <div className="section-title-row">
             <div>
@@ -886,24 +923,21 @@ function SchedulePortal({
                 다음
               </button>
               <div className="segmented">
-                <button
-                  type="button"
-                  className={calendarMode === "month" ? "is-active" : ""}
-                  onClick={() => setCalendarMode("month")}
-                >
+                <button type="button" className={calendarMode === "month" ? "is-active" : ""} onClick={() => setCalendarMode("month")}>
                   월간
                 </button>
-                <button
-                  type="button"
-                  className={calendarMode === "week" ? "is-active" : ""}
-                  onClick={() => setCalendarMode("week")}
-                >
+                <button type="button" className={calendarMode === "week" ? "is-active" : ""} onClick={() => setCalendarMode("week")}>
                   주간
                 </button>
               </div>
             </div>
           </div>
           <CalendarGrid cursor={calendarCursor} mode={calendarMode} items={items} onOpenItem={onOpenItem} />
+        </div>
+        <div className="summary-grid schedule-summary-grid" aria-label="업무 전용 페이지 바로가기">
+          {quickCards.map((card) => (
+            <MetricCard key={card.id} label={card.label} value={card.value} active={false} onClick={() => onNavigatePage(card.id)} />
+          ))}
         </div>
       </section>
       <aside className="today-panel panel">
@@ -925,6 +959,309 @@ function SchedulePortal({
   );
 }
 
+function ScheduleTaskPage({
+  page,
+  workItems,
+  query,
+  onBack,
+  onOpenWorkItem,
+  onToggleImportant,
+  onToggleCompleted
+}: {
+  page: ScheduleQuickFilter;
+  workItems: UnifiedWorkItem[];
+  query: string;
+  onBack: () => void;
+  onOpenWorkItem: (item: UnifiedWorkItem) => void;
+  onToggleImportant: (collectionKey: TaskCollectionKey, id: string) => void;
+  onToggleCompleted: (collectionKey: TaskCollectionKey, id: string, completed: boolean) => void;
+}) {
+  const [pageQuery, setPageQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState<ScheduleTaskTypeFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<ScheduleStatusFilter>("all");
+  const [importanceFilter, setImportanceFilter] = useState<ScheduleImportanceFilter>("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sortKey, setSortKey] = useState<ScheduleSortKey>(page === "week" ? "dateAsc" : "important");
+  const today = toDateKey(new Date());
+  const weekRange = getMondayWeekRange(new Date());
+
+  useEffect(() => {
+    setPageQuery("");
+    setTypeFilter("all");
+    setStatusFilter("all");
+    setImportanceFilter("all");
+    setDateFrom("");
+    setDateTo("");
+    setSortKey(page === "week" ? "dateAsc" : "important");
+  }, [page]);
+
+  const pageItems = useMemo(
+    () => workItems.filter((item) => taskMatchesSchedulePage(item, page)),
+    [workItems, page]
+  );
+  const filteredItems = useMemo(
+    () =>
+      pageItems
+        .filter((item) => !query || matchesText(item, query))
+        .filter((item) => !pageQuery || matchesText(item, pageQuery))
+        .filter((item) => typeFilter === "all" || item.portal === typeFilter)
+        .filter((item) => statusFilter === "all" || item.statusGroup === statusFilter)
+        .filter((item) => importanceFilter === "all" || (importanceFilter === "important" ? item.isImportant : !item.isImportant))
+        .filter((item) => taskOverlapsDateFilter(item, dateFrom, dateTo))
+        .sort((a, b) => compareSchedulePageTasks(a, b, sortKey)),
+    [pageItems, query, pageQuery, typeFilter, statusFilter, importanceFilter, dateFrom, dateTo, sortKey]
+  );
+  const completedCount = pageItems.filter((item) => item.isCompleted).length;
+  const pageTitle = schedulePageTitle(page);
+  const pagePeriod = page === "today"
+    ? formatKoreanFullDate(today)
+    : page === "week"
+      ? `${formatDateForDisplay(weekRange.start)} ~ ${formatDateForDisplay(weekRange.end)}`
+      : page === "important"
+        ? "별표로 지정한 모든 업무"
+        : "모든 포털의 통합 업무";
+  const weekGroups = useMemo(() => {
+    if (page !== "week") return [];
+    const groups = new Map<string, UnifiedWorkItem[]>();
+    filteredItems.forEach((item) => {
+      const date = taskDateWithinRange(item, weekRange.start, weekRange.end);
+      if (!date) return;
+      groups.set(date, [...(groups.get(date) || []), item]);
+    });
+    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [filteredItems, page, weekRange.start, weekRange.end]);
+  const emptyCopy = schedulePageEmptyCopy(page);
+
+  return (
+    <section className="schedule-task-page">
+      <header className="schedule-task-header panel">
+        <button type="button" className="schedule-back-button" onClick={onBack}>
+          <ArrowLeft size={18} />
+          뒤로가기
+        </button>
+        <div className="schedule-task-heading">
+          <div>
+            <p className="eyebrow">SCHEDULE</p>
+            <h2>{pageTitle}</h2>
+            <p>{pagePeriod}</p>
+          </div>
+          <span className="count-label">{pageItems.length}건</span>
+        </div>
+        <div className="schedule-page-stats" aria-label={`${pageTitle} 업무 현황`}>
+          <div><span>전체 업무</span><strong>{pageItems.length}</strong></div>
+          <div><span>완료 업무</span><strong>{completedCount}</strong></div>
+          <div><span>미완료 업무</span><strong>{pageItems.length - completedCount}</strong></div>
+        </div>
+      </header>
+
+      <TaskFilterBar
+        page={page}
+        query={pageQuery}
+        setQuery={setPageQuery}
+        typeFilter={typeFilter}
+        setTypeFilter={setTypeFilter}
+        statusFilter={statusFilter}
+        setStatusFilter={setStatusFilter}
+        importanceFilter={importanceFilter}
+        setImportanceFilter={setImportanceFilter}
+        dateFrom={dateFrom}
+        setDateFrom={setDateFrom}
+        dateTo={dateTo}
+        setDateTo={setDateTo}
+        sortKey={sortKey}
+        setSortKey={setSortKey}
+      />
+
+      {page === "week" ? (
+        <div className="schedule-week-groups">
+          {weekGroups.map(([date, groupedItems]) => (
+            <section className="schedule-date-group" key={date}>
+              <div className="schedule-date-heading">
+                <h3>{formatKoreanFullDate(date)}</h3>
+                <span>{groupedItems.length}건</span>
+              </div>
+              <div className="schedule-task-list">
+                {groupedItems.map((item) => (
+                  <UnifiedTaskCard key={item.id} item={item} onOpen={onOpenWorkItem} onToggleImportant={onToggleImportant} onToggleCompleted={onToggleCompleted} />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <div className="schedule-task-list">
+          {filteredItems.map((item) => (
+            <UnifiedTaskCard key={item.id} item={item} onOpen={onOpenWorkItem} onToggleImportant={onToggleImportant} onToggleCompleted={onToggleCompleted} />
+          ))}
+        </div>
+      )}
+
+      {!filteredItems.length && (
+        <div className="panel schedule-empty-panel">
+          <EmptyState title={emptyCopy.title} detail={pageQuery || query ? "검색어 또는 필터 조건을 변경해 보세요." : emptyCopy.detail} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TaskFilterBar({
+  page,
+  query,
+  setQuery,
+  typeFilter,
+  setTypeFilter,
+  statusFilter,
+  setStatusFilter,
+  importanceFilter,
+  setImportanceFilter,
+  dateFrom,
+  setDateFrom,
+  dateTo,
+  setDateTo,
+  sortKey,
+  setSortKey
+}: {
+  page: ScheduleQuickFilter;
+  query: string;
+  setQuery: (value: string) => void;
+  typeFilter: ScheduleTaskTypeFilter;
+  setTypeFilter: (value: ScheduleTaskTypeFilter) => void;
+  statusFilter: ScheduleStatusFilter;
+  setStatusFilter: (value: ScheduleStatusFilter) => void;
+  importanceFilter: ScheduleImportanceFilter;
+  setImportanceFilter: (value: ScheduleImportanceFilter) => void;
+  dateFrom: string;
+  setDateFrom: (value: string) => void;
+  dateTo: string;
+  setDateTo: (value: string) => void;
+  sortKey: ScheduleSortKey;
+  setSortKey: (value: ScheduleSortKey) => void;
+}) {
+  return (
+    <section className={`task-filter-bar panel ${page === "all" ? "is-expanded" : ""}`}>
+      <label className="task-filter-search">
+        <span>검색</span>
+        <span className="task-filter-input-wrap"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="업무명, 업체, 담당자, 상태, 메모" /></span>
+      </label>
+      {page === "all" && (
+        <>
+          <label><span>업무 유형</span><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as ScheduleTaskTypeFilter)}><option value="all">전체</option><option value="sales">영업</option><option value="settlement">정산</option><option value="output">출력</option><option value="other">기타</option></select></label>
+          <label><span>상태</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ScheduleStatusFilter)}><option value="all">전체</option><option value="pending">진행 전</option><option value="active">진행 중</option><option value="closed">완료</option><option value="hold">보류</option></select></label>
+          <label><span>중요 업무</span><select value={importanceFilter} onChange={(event) => setImportanceFilter(event.target.value as ScheduleImportanceFilter)}><option value="all">전체</option><option value="important">중요 업무만</option><option value="normal">일반 업무만</option></select></label>
+          <label><span>기간 시작</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label>
+          <label><span>기간 종료</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label>
+          <label><span>정렬</span><select value={sortKey} onChange={(event) => setSortKey(event.target.value as ScheduleSortKey)}><option value="dateAsc">날짜 빠른 순</option><option value="dateDesc">날짜 늦은 순</option><option value="recent">최근 등록 순</option><option value="oldest">오래된 등록 순</option><option value="important">중요 업무 우선</option></select></label>
+        </>
+      )}
+    </section>
+  );
+}
+
+function UnifiedTaskCard({
+  item,
+  onOpen,
+  onToggleImportant,
+  onToggleCompleted
+}: {
+  item: UnifiedWorkItem;
+  onOpen: (item: UnifiedWorkItem) => void;
+  onToggleImportant: (collectionKey: TaskCollectionKey, id: string) => void;
+  onToggleCompleted: (collectionKey: TaskCollectionKey, id: string, completed: boolean) => void;
+}) {
+  return (
+    <article className={`schedule-task-card ${item.isImportant ? "is-important" : ""} ${item.isCompleted ? "is-completed" : ""}`} data-collection-key={item.collectionKey} data-source-id={item.sourceId}>
+      <button type="button" className="schedule-task-card-main" onClick={() => onOpen(item)}>
+        <span className={`work-type-badge ${item.portal}`}>{item.badge}</span>
+        <span className="schedule-task-card-copy">
+          <strong>{item.title}</strong>
+          <small>{joinParts([item.subtype, item.contact], " · ") || "담당자 미입력"}</small>
+          {item.memo && <p>{summarizeForList(item.memo, 130)}</p>}
+        </span>
+        <span className="schedule-task-card-meta">
+          <span className={`task-status-badge ${item.statusGroup}`}>{item.status || "상태 미정"}</span>
+          <strong>{item.schedule || "일정 미정"}</strong>
+          {item.isCompleted && <small className="completed-label">완료</small>}
+        </span>
+      </button>
+      <div className="schedule-task-card-actions">
+        <ImportantToggle active={item.isImportant} onToggle={() => onToggleImportant(item.collectionKey, item.sourceId)} />
+        <button
+          type="button"
+          className={`task-complete-button ${item.isCompleted ? "is-completed" : ""}`}
+          title={item.isCompleted ? "완료 상태 해제" : "업무 완료 처리"}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleCompleted(item.collectionKey, item.sourceId, !item.isCompleted);
+          }}
+        >
+          <CheckCircle2 size={16} />
+          {item.isCompleted ? "완료 해제" : "완료"}
+        </button>
+        <button type="button" className="icon-text-button" onClick={() => onOpen(item)}><Pencil size={15} />수정</button>
+      </div>
+    </article>
+  );
+}
+
+function taskMatchesSchedulePage(item: UnifiedWorkItem, page: ScheduleQuickFilter): boolean {
+  if (page === "today") return item.isToday;
+  if (page === "week") return item.isThisWeek;
+  if (page === "important") return item.isImportant;
+  return true;
+}
+
+function schedulePageTitle(page: ScheduleQuickFilter): string {
+  if (page === "today") return "오늘 업무";
+  if (page === "week") return "이번 주 일정";
+  if (page === "important") return "중요 업무";
+  return "전체 업무";
+}
+
+function schedulePageEmptyCopy(page: ScheduleQuickFilter): { title: string; detail: string } {
+  if (page === "today") return { title: "오늘 등록된 업무가 없습니다.", detail: "오늘 날짜에 수행할 업무가 등록되면 이곳에 표시됩니다." };
+  if (page === "week") return { title: "이번 주 일정이 없습니다.", detail: "이번 주에 겹치는 일정이 등록되면 날짜별로 표시됩니다." };
+  if (page === "important") return { title: "중요 업무가 없습니다.", detail: "업무 카드의 별표를 선택하면 이곳에서 확인할 수 있습니다." };
+  return { title: "등록된 업무가 없습니다.", detail: "각 업무 포털에서 새 업무를 등록해 주세요." };
+}
+
+function taskDateWithinRange(item: UnifiedWorkItem, start: string, end: string): string {
+  const scheduled = item.scheduleDates.filter((date) => start <= date && date <= end).sort()[0];
+  if (scheduled) return scheduled;
+  if (item.startDate && item.endDate && item.startDate <= end && item.endDate >= start) {
+    return item.startDate < start ? start : item.startDate;
+  }
+  return "";
+}
+
+function taskOverlapsDateFilter(item: UnifiedWorkItem, from: string, to: string): boolean {
+  if (!from && !to) return true;
+  const start = from || "0000-01-01";
+  const end = to || "9999-12-31";
+  if (item.scheduleDates.some((date) => start <= date && date <= end)) return true;
+  return Boolean(item.startDate && item.endDate && item.startDate <= end && item.endDate >= start);
+}
+
+function compareSchedulePageTasks(a: UnifiedWorkItem, b: UnifiedWorkItem, sortKey: ScheduleSortKey): number {
+  const aDate = a.primaryDate || "9999-12-31";
+  const bDate = b.primaryDate || "9999-12-31";
+  if (sortKey === "dateAsc") return aDate.localeCompare(bDate) || compareUnifiedWorkItems(a, b);
+  if (sortKey === "dateDesc") {
+    if (!a.primaryDate && b.primaryDate) return 1;
+    if (a.primaryDate && !b.primaryDate) return -1;
+    return bDate.localeCompare(aDate) || compareUnifiedWorkItems(a, b);
+  }
+  if (sortKey === "recent") return compareDate(b.createdAt || b.updatedAt, a.createdAt || a.updatedAt) || compareUnifiedWorkItems(a, b);
+  if (sortKey === "oldest") return compareDate(a.createdAt || a.updatedAt, b.createdAt || b.updatedAt) || compareUnifiedWorkItems(a, b);
+  return compareUnifiedWorkItems(a, b);
+}
+
+function formatKoreanFullDate(dateKey: string): string {
+  const date = parseDate(dateKey);
+  if (!date) return formatDateForDisplay(dateKey);
+  return new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "long" }).format(date);
+}
 function CalendarGrid({ cursor, mode, items, onOpenItem }: { cursor: Date; mode: CalendarMode; items: ScheduleItem[]; onOpenItem: (item: ScheduleItem) => void }) {
   const days = mode === "month" ? getCalendarMonthDays(cursor) : getCalendarWeekDays(cursor);
   const itemsByDate = groupByDate(items);
@@ -6300,6 +6637,50 @@ function isRecordLinkedToCompany(record: AnyRecord, company: AnyRecord, companyI
   const recordName = normalizeMergeText(salesLike ? salesCustomer(record) : companyName(record));
   return Boolean(recordName && recordName !== normalizeMergeText("고객 미정") && recordName === targetName);
 }
+function isUnifiedTaskCompleted(record: AnyRecord, collectionKey: TaskCollectionKey): boolean {
+  const status = firstText(record, ["status", "progressStatus"]);
+  if (collectionKey === "materialSalesNotes") return status === "입금 확인 완료";
+  return status === "완료";
+}
+
+function unifiedTaskStatusGroup(status: string, completed: boolean): Exclude<ScheduleStatusFilter, "all"> {
+  if (completed) return "closed";
+  if (status.includes("보류")) return "hold";
+  if (!status || /신규|예정|대기|문의/.test(status)) return "pending";
+  return "active";
+}
+
+function completedStatusForCollection(collectionKey: TaskCollectionKey): string {
+  return collectionKey === "materialSalesNotes" ? "입금 확인 완료" : "완료";
+}
+
+function defaultActiveStatusForCollection(collectionKey: TaskCollectionKey): string {
+  if (collectionKey === "notes" || collectionKey === "materialSalesNotes") return "검토 중";
+  if (collectionKey === "settlementTasks") return "예정";
+  return "진행 중";
+}
+
+function setRecordCompleted(record: AnyRecord, collectionKey: TaskCollectionKey, completed: boolean): AnyRecord {
+  const currentStatus = firstText(record, ["status", "progressStatus"]);
+  if (completed) {
+    return {
+      ...record,
+      schedulePreviousStatus: isUnifiedTaskCompleted(record, collectionKey) ? firstText(record, ["schedulePreviousStatus"]) : currentStatus,
+      status: completedStatusForCollection(collectionKey),
+      updatedAt: new Date().toISOString()
+    };
+  }
+  const previousStatus = firstText(record, ["schedulePreviousStatus"]);
+  return {
+    ...record,
+    schedulePreviousStatus: "",
+    status: previousStatus && previousStatus !== completedStatusForCollection(collectionKey)
+      ? previousStatus
+      : defaultActiveStatusForCollection(collectionKey),
+    updatedAt: new Date().toISOString()
+  };
+}
+
 function collectUnifiedWorkItems(data: WorkNoteData, scheduleItems: ScheduleItem[]): UnifiedWorkItem[] {
   const today = toDateKey(new Date());
   const { start: weekStart, end: weekEnd } = getMondayWeekRange(new Date());
@@ -6328,18 +6709,28 @@ function collectUnifiedWorkItems(data: WorkNoteData, scheduleItems: ScheduleItem
     const sourceId = recordId(record, index);
     const key = `${collectionKey}:${sourceId}`;
     const dates = [...(scheduleDates.get(key) || [])];
-    if (collectionKey === "notes" || collectionKey === "materialSalesNotes") {
-      const billingDate = firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]);
-      if (firstText(record, ["taxInvoiceStatus", "invoiceStatus"]) === "발행 예정" && parseDateKey(billingDate)) {
-        dates.push(parseDateKey(billingDate));
+    if (collectionKey !== "settlementTasks") {
+      const billingDate = parseDateKey(firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]));
+      if (firstText(record, ["taxInvoiceStatus", "invoiceStatus"]) === "발행 예정" && billingDate) {
+        dates.push(billingDate);
       }
     }
+    if (collectionKey === "settlementTasks") {
+      normalizePaymentSchedule(asArray(record.paymentSchedule)).forEach((row) => {
+        dates.push(parseDateKey(firstText(row, ["dueDate"])));
+        if (firstText(row, ["taxInvoiceStatus"]) === "발행 예정") {
+          dates.push(parseDateKey(firstText(row, ["taxInvoicePlannedDate"])));
+        }
+      });
+    }
+    const normalizedDates = [...new Set(dates.map(parseDateKey).filter(Boolean))].sort();
     const startDate = parseDateKey(firstText(record, ["startDate", "dueStartDate"]));
     const endDate = parseDateKey(firstText(record, ["endDate", "dueEndDate", "deadline", "dueDate"])) || startDate;
-    const hasRange = (collectionKey === "outputTasks" || collectionKey === "otherTasks") && !isClosed(firstText(record, ["status", "progressStatus"])) && Boolean(startDate && endDate);
-    const isToday = dates.includes(today) || Boolean(hasRange && startDate <= today && today <= endDate);
-    const isThisWeek = dates.some((date) => weekStart <= date && date <= weekEnd)
+    const hasRange = (collectionKey === "outputTasks" || collectionKey === "otherTasks") && Boolean(startDate && endDate);
+    const isToday = normalizedDates.includes(today) || Boolean(hasRange && startDate <= today && today <= endDate);
+    const isThisWeek = normalizedDates.some((date) => weekStart <= date && date <= weekEnd)
       || Boolean(hasRange && startDate <= weekEnd && endDate >= weekStart);
+    const isCompleted = isUnifiedTaskCompleted(record, collectionKey);
 
     return {
       id: key,
@@ -6352,10 +6743,17 @@ function collectUnifiedWorkItems(data: WorkNoteData, scheduleItems: ScheduleItem
       title,
       contact: contactBundle(record),
       status,
+      statusGroup: unifiedTaskStatusGroup(status, isCompleted),
       schedule,
+      scheduleDates: normalizedDates,
+      primaryDate: normalizedDates[0] || startDate || endDate,
+      startDate,
+      endDate,
       memo,
+      createdAt: firstText(record, ["createdAt", "registeredAt", "inquiryDate", "updatedAt", "modifiedAt"]),
       updatedAt: firstText(record, ["updatedAt", "modifiedAt", "createdAt"]),
       isImportant: Boolean(record.isImportant),
+      isCompleted,
       isToday,
       isThisWeek
     };
