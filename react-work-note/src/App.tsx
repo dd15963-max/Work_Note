@@ -504,7 +504,16 @@ export function App() {
 
       <nav className="portal-nav" aria-label="업무 포탈">
         <div className="portal-nav-group schedule-group">
-          <PortalButton id="schedule" activePortal={activePortal} setActivePortal={selectPortal} />
+          <PortalButton id="schedule" activePortal={activePortal} setActivePortal={selectPortal} suppressActive={tasksOpen} />
+          <button
+            className={`portal-button ${tasksOpen ? "is-active" : ""}`}
+            type="button"
+            aria-current={tasksOpen ? "page" : undefined}
+            onClick={() => navigateTaskPreset("all")}
+          >
+            <ListChecks size={17} />
+            업무
+          </button>
         </div>
         <div className="portal-nav-group work-group">
           {(["sales", "settlement", "output", "other"] as PortalId[]).map((id) => (
@@ -622,17 +631,19 @@ export function App() {
 function PortalButton({
   id,
   activePortal,
-  setActivePortal
+  setActivePortal,
+  suppressActive = false
 }: {
   id: PortalId;
   activePortal: PortalId;
   setActivePortal: (id: PortalId) => void;
+  suppressActive?: boolean;
 }) {
   const portal = portals.find((item) => item.id === id)!;
   const Icon = portal.icon;
   return (
     <button
-      className={`portal-button ${activePortal === id ? "is-active" : ""}`}
+      className={`portal-button ${activePortal === id && !suppressActive ? "is-active" : ""}`}
       type="button"
       onClick={() => setActivePortal(id)}
     >
