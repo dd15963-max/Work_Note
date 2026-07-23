@@ -1802,7 +1802,6 @@ function CustomerCompanyPortal({
   );
 }
 
-const INTERNAL_DEPARTMENT_OPTIONS = ["영업1팀", "영업2팀", "기술지원팀", "생산팀", "연구소", "품질팀", "구매팀", "경영지원팀"];
 const INTERNAL_DUTY_SUGGESTIONS = ["장비 설치", "A/S", "출력 테스트", "샘플 제작", "기술 지원", "견적 검토", "계약 검토"];
 const CUSTOMER_OWNER_FIELDS = [
   { key: "salesOwnerId", label: "담당 영업", shortLabel: "영업" },
@@ -1824,9 +1823,13 @@ function InternalContactPortal({
   const [departmentFilter, setDepartmentFilter] = useState("all");
   const [internalQuery, setInternalQuery] = useState("");
   const departments = useMemo(
-    () => [...new Set([...INTERNAL_DEPARTMENT_OPTIONS, ...data.internalContacts.map((contact) => firstText(contact, ["department"])).filter(Boolean)])],
+    () => [...new Set(data.internalContacts.map((contact) => firstText(contact, ["department"])).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, "ko")),
     [data.internalContacts]
   );
+  useEffect(() => {
+    if (departmentFilter !== "all" && !departments.includes(departmentFilter)) setDepartmentFilter("all");
+  }, [departmentFilter, departments]);
   const contacts = data.internalContacts
     .map((contact, index) => ({ contact, index, id: recordId(contact, index) }))
     .filter(({ contact }) => departmentFilter === "all" || firstText(contact, ["department"]) === departmentFilter)
@@ -1907,7 +1910,7 @@ function InternalContactPortal({
 
       {editingContact && (
         <EditorDrawer onClose={() => setEditingContact(null)}>
-          <InternalContactEditor draft={editingContact} setDraft={setEditingContact} onSave={saveContact} onCancel={() => setEditingContact(null)} />
+          <InternalContactEditor draft={editingContact} setDraft={setEditingContact} departmentOptions={departments} onSave={saveContact} onCancel={() => setEditingContact(null)} />
         </EditorDrawer>
       )}
 
@@ -1943,11 +1946,13 @@ function InternalContactPortal({
 function InternalContactEditor({
   draft,
   setDraft,
+  departmentOptions,
   onSave,
   onCancel
 }: {
   draft: AnyRecord;
   setDraft: (draft: AnyRecord) => void;
+  departmentOptions: string[];
   onSave: (draft: AnyRecord) => void;
   onCancel: () => void;
 }) {
@@ -1977,7 +1982,7 @@ function InternalContactEditor({
         <label className="field">
           <span>부서</span>
           <input list="internal-department-options" value={firstText(draft, ["department"])} onChange={(event) => updateField("department", event.target.value)} placeholder="선택 또는 직접 입력" />
-          <datalist id="internal-department-options">{INTERNAL_DEPARTMENT_OPTIONS.map((department) => <option key={department} value={department} />)}</datalist>
+          <datalist id="internal-department-options">{departmentOptions.map((department) => <option key={department} value={department} />)}</datalist>
         </label>
         <TextField label="휴대폰" value={firstText(draft, ["mobile"])} onChange={(value) => updateField("mobile", value)} placeholder="010-0000-0000" />
         <TextField label="내선번호" value={firstText(draft, ["extension"])} onChange={(value) => updateField("extension", value)} placeholder="예: 1234" />
