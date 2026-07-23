@@ -23,6 +23,7 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  SlidersHorizontal,
   Trash2,
   Upload,
   WalletCards,
@@ -43,12 +44,23 @@ type AnyRecord = Record<string, unknown>;
 type AttachmentCollectionKey = "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks";
 type AttachmentOwnerType = "company" | "sales" | "materialSales" | "settlement" | "output" | "other";
 type TaskCollectionKey = Exclude<AttachmentCollectionKey, "companies">;
-type ScheduleQuickFilter = "today" | "week" | "important" | "all";
-type SchedulePageId = "main" | ScheduleQuickFilter;
-type ScheduleTaskTypeFilter = "all" | "sales" | "settlement" | "output" | "other";
-type ScheduleStatusFilter = "all" | "pending" | "active" | "closed" | "hold";
-type ScheduleImportanceFilter = "all" | "important" | "normal";
-type ScheduleSortKey = "dateAsc" | "dateDesc" | "recent" | "oldest" | "important";
+type TaskPreset = "today" | "week" | "important" | "all";
+type TaskPeriodFilter = "today" | "week" | "month" | "all" | "custom";
+type TaskTypeFilter = "sales" | "settlement" | "output" | "other";
+type TaskStatusFilter = "all" | "active" | "completed" | "incomplete" | "hold";
+type TaskStatusGroup = "pending" | "active" | "completed" | "hold";
+type TaskSortKey = "default" | "dateAsc" | "dateDesc" | "recent" | "oldest" | "important" | "incomplete";
+type TaskFilters = {
+  period: TaskPeriodFilter;
+  types: TaskTypeFilter[];
+  status: TaskStatusFilter;
+  importantOnly: boolean;
+  assignee: string;
+  query: string;
+  startDate: string;
+  endDate: string;
+  sort: TaskSortKey;
+};
 
 type WorkNoteData = {
   version: string;
@@ -91,8 +103,11 @@ type UnifiedWorkItem = {
   subtype: string;
   title: string;
   contact: string;
+  assignee: string;
+  searchText: string;
+  hasAttachments: boolean;
   status: string;
-  statusGroup: Exclude<ScheduleStatusFilter, "all">;
+  statusGroup: TaskStatusGroup;
   schedule: string;
   scheduleDates: string[];
   primaryDate: string;
@@ -134,6 +149,7 @@ type AttachmentRecord = AnyRecord & {
 
 const STORAGE_KEY = "salesNoteAppDataV1";
 const REACT_AUTOSNAPSHOT_KEY = "workNoteReactAutoSnapshotsV1";
+const TASKS_SCROLL_KEY = "workNoteTasksScrollY";
 const LEGACY_APP_PATH = "../sales-note-app/";
 const ATTACHMENT_DB_NAME = "salesNoteAttachmentDbV1";
 const ATTACHMENT_STORE_NAME = "files";
@@ -202,19 +218,94 @@ const SALES_SORT_OPTIONS: Array<{ id: SalesSortKey; label: string }> = [
   { id: "company", label: "고객사명" }
 ];
 
-function readSchedulePageFromLocation(): SchedulePageId {
-  const match = window.location.hash.match(/^#\/schedule(?:\/(today|week|important|all))?\/?$/);
-  if (!match) return "main";
-  return (match[1] as ScheduleQuickFilter | undefined) || "main";
+const DEFAULT_TASK_FILTERS: TaskFilters = {
+  period: "all",
+  types: [],
+  status: "all",
+  importantOnly: false,
+  assignee: "",
+  query: "",
+  startDate: "",
+  endDate: "",
+  sort: "default"
+};
+
+function getTaskPreset(preset: TaskPreset): TaskFilters {
+  if (preset === "today") return { ...DEFAULT_TASK_FILTERS, period: "today", status: "incomplete" };
+  if (preset === "week") return { ...DEFAULT_TASK_FILTERS, period: "week" };
+  if (preset === "important") return { ...DEFAULT_TASK_FILTERS, importantOnly: true };
+  return { ...DEFAULT_TASK_FILTERS };
 }
 
-function schedulePageHash(page: SchedulePageId): string {
-  return page === "main" ? "#/schedule" : `#/schedule/${page}`;
+function isTasksLocation(): boolean {
+  return /^#\/tasks(?:\?|$)/.test(window.location.hash);
 }
 
+function legacyTaskPresetFromLocation(): TaskPreset | null {
+  const match = window.location.hash.match(/^#\/schedule\/(today|week|important|all)\/?$/);
+  return match ? match[1] as TaskPreset : null;
+}
+
+function readTaskFiltersFromLocation(): TaskFilters {
+  if (!isTasksLocation()) return { ...DEFAULT_TASK_FILTERS };
+  const queryString = window.location.hash.split("?")[1] || "";
+  const params = new URLSearchParams(queryString);
+  const periodValue = params.get("period") || "all";
+  const period = (["today", "week", "month", "all", "custom"] as TaskPeriodFilter[]).includes(periodValue as TaskPeriodFilter)
+    ? periodValue as TaskPeriodFilter
+    : "all";
+  const statusValue = params.get("status") || "all";
+  const status = (["all", "active", "completed", "incomplete", "hold"] as TaskStatusFilter[]).includes(statusValue as TaskStatusFilter)
+    ? statusValue as TaskStatusFilter
+    : "all";
+  const sortValue = params.get("sort") || "default";
+  const sort = (["default", "dateAsc", "dateDesc", "recent", "oldest", "important", "incomplete"] as TaskSortKey[]).includes(sortValue as TaskSortKey)
+    ? sortValue as TaskSortKey
+    : "default";
+  const validTypes = new Set<TaskTypeFilter>(["sales", "settlement", "output", "other"]);
+  const types = (params.get("types") || "").split(",").filter((value): value is TaskTypeFilter => validTypes.has(value as TaskTypeFilter));
+  return {
+    period,
+    types,
+    status,
+    importantOnly: params.get("important") === "true",
+    assignee: params.get("assignee") || "",
+    query: params.get("q") || "",
+    startDate: parseDateKey(params.get("from") || ""),
+    endDate: parseDateKey(params.get("to") || ""),
+    sort
+  };
+}
+
+function taskFiltersHash(filters: TaskFilters): string {
+  const params = new URLSearchParams();
+  if (filters.period !== "all") params.set("period", filters.period);
+  if (filters.types.length) params.set("types", filters.types.join(","));
+  if (filters.status !== "all") params.set("status", filters.status);
+  if (filters.importantOnly) params.set("important", "true");
+  if (filters.assignee) params.set("assignee", filters.assignee);
+  if (filters.query) params.set("q", filters.query);
+  if (filters.period === "custom" && filters.startDate) params.set("from", filters.startDate);
+  if (filters.period === "custom" && filters.endDate) params.set("to", filters.endDate);
+  if (filters.sort !== "default") params.set("sort", filters.sort);
+  const query = params.toString();
+  return `#/tasks${query ? `?${query}` : ""}`;
+}
+
+function readTaskDetailFromLocation(): { portal: UnifiedWorkItem["portal"]; id: string; salesKind?: "equipment" | "material" } | null {
+  const match = window.location.hash.match(/^#\/task\/(sales|settlement|output|other)\/([^?]+)(?:\?(.*))?$/);
+  if (!match) return null;
+  const params = new URLSearchParams(match[3] || "");
+  return {
+    portal: match[1] as UnifiedWorkItem["portal"],
+    id: decodeURIComponent(match[2]),
+    salesKind: match[1] === "sales" ? (params.get("kind") === "material" ? "material" : "equipment") : undefined
+  };
+}
 export function App() {
   const [activePortal, setActivePortal] = useState<PortalId>("schedule");
-  const [schedulePage, setSchedulePage] = useState<SchedulePageId>(() => readSchedulePageFromLocation());
+  const [tasksOpen, setTasksOpen] = useState(() => isTasksLocation());
+  const [taskFilters, setTaskFilters] = useState<TaskFilters>(() => readTaskFiltersFromLocation());
   const [query, setQuery] = useState("");
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("month");
   const [calendarCursor, setCalendarCursor] = useState(() => startOfDay(new Date()));
@@ -234,11 +325,36 @@ export function App() {
 
   useEffect(() => {
     const handleLocationChange = () => {
-      const nextPage = readSchedulePageFromLocation();
-      if (window.location.hash.startsWith("#/schedule")) {
+      const legacyPreset = legacyTaskPresetFromLocation();
+      if (legacyPreset) {
+        const filters = getTaskPreset(legacyPreset);
+        window.history.replaceState({ workNoteTasks: true, restoreTasksScroll: false }, "", taskFiltersHash(filters));
+        setTaskFilters(filters);
+        setTasksOpen(true);
+        setActivePortal("schedule");
+        return;
+      }
+      if (isTasksLocation()) {
+        setTaskFilters(readTaskFiltersFromLocation());
+        setTasksOpen(true);
+        setActivePortal("schedule");
+        if (window.history.state?.restoreTasksScroll) {
+          const scrollY = Number(window.sessionStorage.getItem(TASKS_SCROLL_KEY) || 0);
+          window.setTimeout(() => window.scrollTo({ top: scrollY, behavior: "auto" }), 120);
+        }
+        return;
+      }
+      const detail = readTaskDetailFromLocation();
+      if (detail) {
+        setTasksOpen(false);
+        setActivePortal(detail.portal);
+        setFocusTarget({ portal: detail.portal, id: detail.id, salesKind: detail.salesKind, openEditor: true, nonce: Date.now() });
+        return;
+      }
+      setTasksOpen(false);
+      if (!window.location.hash || window.location.hash === "#/schedule") {
         setActivePortal("schedule");
       }
-      setSchedulePage(nextPage);
     };
     window.addEventListener("popstate", handleLocationChange);
     window.addEventListener("hashchange", handleLocationChange);
@@ -265,41 +381,54 @@ export function App() {
   const globalResults = useMemo(() => collectGlobalResults(data, query), [data, query]);
 
   const refreshData = () => setData(loadWorkNoteData());
-  const clearScheduleRoute = () => {
-    if (window.location.hash.startsWith("#/schedule")) {
+  const clearTaskRoute = () => {
+    if (/^#\/(tasks|schedule|task\/)/.test(window.location.hash)) {
       window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
     }
-    setSchedulePage("main");
+    setTasksOpen(false);
   };
-  const navigateSchedulePage = (page: SchedulePageId, replace = false) => {
-    const hash = schedulePageHash(page);
-    const state = { ...(window.history.state || {}), workNoteSchedulePage: page !== "main" };
-    if (window.location.hash !== hash) {
-      window.history[replace ? "replaceState" : "pushState"](state, "", hash);
-    }
+  const navigateTaskPreset = (preset: TaskPreset) => {
+    const filters = getTaskPreset(preset);
+    window.sessionStorage.setItem(TASKS_SCROLL_KEY, "0");
+    window.history.pushState({ workNoteTasks: true, restoreTasksScroll: false }, "", taskFiltersHash(filters));
     setFocusTarget(null);
     setQuery("");
+    setTaskFilters(filters);
+    setTasksOpen(true);
     setActivePortal("schedule");
-    setSchedulePage(page);
+    window.scrollTo({ top: 0, behavior: "auto" });
+  };
+  const updateTaskFilters = (filters: TaskFilters) => {
+    window.history.replaceState({ workNoteTasks: true, restoreTasksScroll: false }, "", taskFiltersHash(filters));
+    setTaskFilters(filters);
   };
   const backToScheduleMain = () => {
-    if (window.history.state?.workNoteSchedulePage) {
+    if (window.history.state?.workNoteTasks) {
       window.history.back();
       return;
     }
-    navigateSchedulePage("main", true);
+    window.history.replaceState({}, "", "#/schedule");
+    setTasksOpen(false);
+    setActivePortal("schedule");
   };
   const selectPortal = (portal: PortalId) => {
     setFocusTarget(null);
     if (portal === "schedule") {
-      navigateSchedulePage("main");
+      if (window.location.hash !== "#/schedule") window.history.pushState({}, "", "#/schedule");
+      setTasksOpen(false);
+      setActivePortal("schedule");
       return;
     }
-    clearScheduleRoute();
+    clearTaskRoute();
     setActivePortal(portal);
   };
+  const addTaskFromTasksPage = () => {
+    clearTaskRoute();
+    setFocusTarget(null);
+    setActivePortal("sales");
+  };
   const openScheduleItem = (item: ScheduleItem) => {
-    clearScheduleRoute();
+    clearTaskRoute();
     setQuery("");
     setFocusTarget({
       portal: item.sourceType,
@@ -311,7 +440,15 @@ export function App() {
     setActivePortal(item.sourceType);
   };
   const openUnifiedWorkItem = (item: UnifiedWorkItem) => {
-    clearScheduleRoute();
+    if (tasksOpen || isTasksLocation()) {
+      window.sessionStorage.setItem(TASKS_SCROLL_KEY, String(window.scrollY));
+      window.history.replaceState({ workNoteTasks: true, restoreTasksScroll: true }, "", window.location.hash);
+      const kind = item.salesKind ? `?kind=${item.salesKind}` : "";
+      window.history.pushState({ workNoteTaskDetail: true }, "", `#/task/${item.portal}/${encodeURIComponent(item.sourceId)}${kind}`);
+      setTasksOpen(false);
+    } else {
+      clearTaskRoute();
+    }
     setQuery("");
     setFocusTarget({
       portal: item.portal,
@@ -420,17 +557,19 @@ export function App() {
       <main className="portal-content">
         {activePortal === "schedule" && (
           <SchedulePortal
-            page={schedulePage}
+            tasksOpen={tasksOpen}
+            taskFilters={taskFilters}
             items={filteredScheduleItems}
             todayItems={todayItems}
             workItems={unifiedWorkItems}
-            query={query}
             calendarCursor={calendarCursor}
             setCalendarCursor={setCalendarCursor}
             calendarMode={calendarMode}
             setCalendarMode={setCalendarMode}
-            onNavigatePage={navigateSchedulePage}
+            onNavigatePreset={navigateTaskPreset}
+            onChangeFilters={updateTaskFilters}
             onBack={backToScheduleMain}
+            onAddTask={addTaskFromTasksPage}
             onOpenItem={openScheduleItem}
             onOpenWorkItem={openUnifiedWorkItem}
             onToggleImportant={toggleImportant}
@@ -841,33 +980,37 @@ function BackupCenter({
 }
 
 function SchedulePortal({
-  page,
+  tasksOpen,
+  taskFilters,
   items,
   todayItems,
   workItems,
-  query,
   calendarCursor,
   setCalendarCursor,
   calendarMode,
   setCalendarMode,
-  onNavigatePage,
+  onNavigatePreset,
+  onChangeFilters,
   onBack,
+  onAddTask,
   onOpenItem,
   onOpenWorkItem,
   onToggleImportant,
   onToggleCompleted
 }: {
-  page: SchedulePageId;
+  tasksOpen: boolean;
+  taskFilters: TaskFilters;
   items: ScheduleItem[];
   todayItems: ScheduleItem[];
   workItems: UnifiedWorkItem[];
-  query: string;
   calendarCursor: Date;
   setCalendarCursor: (date: Date) => void;
   calendarMode: CalendarMode;
   setCalendarMode: (mode: CalendarMode) => void;
-  onNavigatePage: (page: SchedulePageId, replace?: boolean) => void;
+  onNavigatePreset: (preset: TaskPreset) => void;
+  onChangeFilters: (filters: TaskFilters) => void;
   onBack: () => void;
+  onAddTask: () => void;
   onOpenItem: (item: ScheduleItem) => void;
   onOpenWorkItem: (item: UnifiedWorkItem) => void;
   onToggleImportant: (collectionKey: TaskCollectionKey, id: string) => void;
@@ -875,27 +1018,28 @@ function SchedulePortal({
 }) {
   const counts = useMemo(
     () => ({
-      today: workItems.filter((item) => item.isToday).length,
-      week: workItems.filter((item) => item.isThisWeek).length,
-      important: workItems.filter((item) => item.isImportant).length,
+      today: filterUnifiedTasks(workItems, getTaskPreset("today")).length,
+      week: filterUnifiedTasks(workItems, getTaskPreset("week")).length,
+      important: filterUnifiedTasks(workItems, getTaskPreset("important")).length,
       all: workItems.length
     }),
     [workItems]
   );
-  const quickCards: Array<{ id: ScheduleQuickFilter; label: string; value: number }> = [
+  const quickCards: Array<{ id: TaskPreset; label: string; value: number }> = [
     { id: "today", label: "오늘 업무", value: counts.today },
     { id: "week", label: "이번 주 일정", value: counts.week },
     { id: "important", label: "중요 업무", value: counts.important },
     { id: "all", label: "전체 업무", value: counts.all }
   ];
 
-  if (page !== "main") {
+  if (tasksOpen) {
     return (
-      <ScheduleTaskPage
-        page={page}
+      <UnifiedTasksPage
+        filters={taskFilters}
         workItems={workItems}
-        query={query}
+        onChangeFilters={onChangeFilters}
         onBack={onBack}
+        onAddTask={onAddTask}
         onOpenWorkItem={onOpenWorkItem}
         onToggleImportant={onToggleImportant}
         onToggleCompleted={onToggleCompleted}
@@ -906,9 +1050,9 @@ function SchedulePortal({
   return (
     <div className="schedule-layout">
       <section className="schedule-main">
-        <div className="summary-grid schedule-summary-grid" aria-label="업무 전용 페이지 바로가기">
+        <div className="summary-grid schedule-summary-grid" aria-label="업무 통합 페이지 바로가기">
           {quickCards.map((card) => (
-            <MetricCard key={card.id} label={card.label} value={card.value} active={false} onClick={() => onNavigatePage(card.id)} />
+            <MetricCard key={card.id} label={card.label} value={card.value} active={false} onClick={() => onNavigatePreset(card.id)} />
           ))}
         </div>
         <div className="panel calendar-panel">
@@ -918,22 +1062,12 @@ function SchedulePortal({
               <h2>{formatMonthTitle(calendarCursor)}</h2>
             </div>
             <div className="toolbar-cluster">
-              <button type="button" onClick={() => setCalendarCursor(moveCalendar(calendarCursor, calendarMode, -1))}>
-                이전
-              </button>
-              <button type="button" onClick={() => setCalendarCursor(startOfDay(new Date()))}>
-                오늘
-              </button>
-              <button type="button" onClick={() => setCalendarCursor(moveCalendar(calendarCursor, calendarMode, 1))}>
-                다음
-              </button>
+              <button type="button" onClick={() => setCalendarCursor(moveCalendar(calendarCursor, calendarMode, -1))}>이전</button>
+              <button type="button" onClick={() => setCalendarCursor(startOfDay(new Date()))}>오늘</button>
+              <button type="button" onClick={() => setCalendarCursor(moveCalendar(calendarCursor, calendarMode, 1))}>다음</button>
               <div className="segmented">
-                <button type="button" className={calendarMode === "month" ? "is-active" : ""} onClick={() => setCalendarMode("month")}>
-                  월간
-                </button>
-                <button type="button" className={calendarMode === "week" ? "is-active" : ""} onClick={() => setCalendarMode("week")}>
-                  주간
-                </button>
+                <button type="button" className={calendarMode === "month" ? "is-active" : ""} onClick={() => setCalendarMode("month")}>월간</button>
+                <button type="button" className={calendarMode === "week" ? "is-active" : ""} onClick={() => setCalendarMode("week")}>주간</button>
               </div>
             </div>
           </div>
@@ -959,204 +1093,198 @@ function SchedulePortal({
   );
 }
 
-function ScheduleTaskPage({
-  page,
+function UnifiedTasksPage({
+  filters,
   workItems,
-  query,
+  onChangeFilters,
   onBack,
+  onAddTask,
   onOpenWorkItem,
   onToggleImportant,
   onToggleCompleted
 }: {
-  page: ScheduleQuickFilter;
+  filters: TaskFilters;
   workItems: UnifiedWorkItem[];
-  query: string;
+  onChangeFilters: (filters: TaskFilters) => void;
   onBack: () => void;
+  onAddTask: () => void;
   onOpenWorkItem: (item: UnifiedWorkItem) => void;
   onToggleImportant: (collectionKey: TaskCollectionKey, id: string) => void;
   onToggleCompleted: (collectionKey: TaskCollectionKey, id: string, completed: boolean) => void;
 }) {
-  const [pageQuery, setPageQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState<ScheduleTaskTypeFilter>("all");
-  const [statusFilter, setStatusFilter] = useState<ScheduleStatusFilter>("all");
-  const [importanceFilter, setImportanceFilter] = useState<ScheduleImportanceFilter>("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [sortKey, setSortKey] = useState<ScheduleSortKey>(page === "week" ? "dateAsc" : "important");
-  const today = toDateKey(new Date());
-  const weekRange = getMondayWeekRange(new Date());
-
-  useEffect(() => {
-    setPageQuery("");
-    setTypeFilter("all");
-    setStatusFilter("all");
-    setImportanceFilter("all");
-    setDateFrom("");
-    setDateTo("");
-    setSortKey(page === "week" ? "dateAsc" : "important");
-  }, [page]);
-
-  const pageItems = useMemo(
-    () => workItems.filter((item) => taskMatchesSchedulePage(item, page)),
-    [workItems, page]
-  );
   const filteredItems = useMemo(
-    () =>
-      pageItems
-        .filter((item) => !query || matchesText(item, query))
-        .filter((item) => !pageQuery || matchesText(item, pageQuery))
-        .filter((item) => typeFilter === "all" || item.portal === typeFilter)
-        .filter((item) => statusFilter === "all" || item.statusGroup === statusFilter)
-        .filter((item) => importanceFilter === "all" || (importanceFilter === "important" ? item.isImportant : !item.isImportant))
-        .filter((item) => taskOverlapsDateFilter(item, dateFrom, dateTo))
-        .sort((a, b) => compareSchedulePageTasks(a, b, sortKey)),
-    [pageItems, query, pageQuery, typeFilter, statusFilter, importanceFilter, dateFrom, dateTo, sortKey]
+    () => sortUnifiedTasks(filterUnifiedTasks(workItems, filters), filters.sort),
+    [workItems, filters]
   );
-  const completedCount = pageItems.filter((item) => item.isCompleted).length;
-  const pageTitle = schedulePageTitle(page);
-  const pagePeriod = page === "today"
-    ? formatKoreanFullDate(today)
-    : page === "week"
-      ? `${formatDateForDisplay(weekRange.start)} ~ ${formatDateForDisplay(weekRange.end)}`
-      : page === "important"
-        ? "별표로 지정한 모든 업무"
-        : "모든 포털의 통합 업무";
-  const weekGroups = useMemo(() => {
-    if (page !== "week") return [];
-    const groups = new Map<string, UnifiedWorkItem[]>();
-    filteredItems.forEach((item) => {
-      const date = taskDateWithinRange(item, weekRange.start, weekRange.end);
-      if (!date) return;
-      groups.set(date, [...(groups.get(date) || []), item]);
-    });
-    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [filteredItems, page, weekRange.start, weekRange.end]);
-  const emptyCopy = schedulePageEmptyCopy(page);
+  const assignees = useMemo(
+    () => [...new Set(workItems.map((item) => item.assignee.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko")),
+    [workItems]
+  );
+  const completedCount = filteredItems.filter((item) => item.isCompleted).length;
+  const importantCount = filteredItems.filter((item) => item.isImportant).length;
 
   return (
-    <section className="schedule-task-page">
-      <header className="schedule-task-header panel">
+    <section className="unified-tasks-page">
+      <header className="tasks-page-header panel">
         <button type="button" className="schedule-back-button" onClick={onBack}>
           <ArrowLeft size={18} />
-          뒤로가기
+          일정으로
         </button>
-        <div className="schedule-task-heading">
+        <div className="tasks-page-heading">
           <div>
-            <p className="eyebrow">SCHEDULE</p>
-            <h2>{pageTitle}</h2>
-            <p>{pagePeriod}</p>
+            <p className="eyebrow">TASKS</p>
+            <h2>업무</h2>
+            <p>{describeTaskFilters(filters)}</p>
           </div>
-          <span className="count-label">{pageItems.length}건</span>
+          <strong className="tasks-result-count">{filteredItems.length}건</strong>
         </div>
-        <div className="schedule-page-stats" aria-label={`${pageTitle} 업무 현황`}>
-          <div><span>전체 업무</span><strong>{pageItems.length}</strong></div>
-          <div><span>완료 업무</span><strong>{completedCount}</strong></div>
-          <div><span>미완료 업무</span><strong>{pageItems.length - completedCount}</strong></div>
+        <div className="tasks-page-stats" aria-label="검색 결과 요약">
+          <span>검색 결과 <strong>{filteredItems.length}</strong></span>
+          <span>미완료 <strong>{filteredItems.length - completedCount}</strong></span>
+          <span>완료 <strong>{completedCount}</strong></span>
+          <span>중요 <strong>{importantCount}</strong></span>
         </div>
       </header>
 
-      <TaskFilterBar
-        page={page}
-        query={pageQuery}
-        setQuery={setPageQuery}
-        typeFilter={typeFilter}
-        setTypeFilter={setTypeFilter}
-        statusFilter={statusFilter}
-        setStatusFilter={setStatusFilter}
-        importanceFilter={importanceFilter}
-        setImportanceFilter={setImportanceFilter}
-        dateFrom={dateFrom}
-        setDateFrom={setDateFrom}
-        dateTo={dateTo}
-        setDateTo={setDateTo}
-        sortKey={sortKey}
-        setSortKey={setSortKey}
-      />
+      <TaskFilterPanel filters={filters} assignees={assignees} resultCount={filteredItems.length} onChange={onChangeFilters} />
 
-      {page === "week" ? (
-        <div className="schedule-week-groups">
-          {weekGroups.map(([date, groupedItems]) => (
-            <section className="schedule-date-group" key={date}>
-              <div className="schedule-date-heading">
-                <h3>{formatKoreanFullDate(date)}</h3>
-                <span>{groupedItems.length}건</span>
-              </div>
-              <div className="schedule-task-list">
-                {groupedItems.map((item) => (
-                  <UnifiedTaskCard key={item.id} item={item} onOpen={onOpenWorkItem} onToggleImportant={onToggleImportant} onToggleCompleted={onToggleCompleted} />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      ) : (
-        <div className="schedule-task-list">
-          {filteredItems.map((item) => (
-            <UnifiedTaskCard key={item.id} item={item} onOpen={onOpenWorkItem} onToggleImportant={onToggleImportant} onToggleCompleted={onToggleCompleted} />
-          ))}
-        </div>
-      )}
+      <div className="unified-task-list" aria-live="polite">
+        {filteredItems.map((item) => (
+          <UnifiedTaskCard
+            key={item.id}
+            item={item}
+            onOpen={onOpenWorkItem}
+            onToggleImportant={onToggleImportant}
+            onToggleCompleted={onToggleCompleted}
+          />
+        ))}
+      </div>
 
       {!filteredItems.length && (
-        <div className="panel schedule-empty-panel">
-          <EmptyState title={emptyCopy.title} detail={pageQuery || query ? "검색어 또는 필터 조건을 변경해 보세요." : emptyCopy.detail} />
+        <div className="panel tasks-empty-panel">
+          <EmptyState title="조건에 맞는 업무가 없습니다." detail="필터를 초기화하거나 새 업무를 등록해 보세요." />
+          <div className="tasks-empty-actions">
+            <button type="button" onClick={() => onChangeFilters(getTaskPreset("all"))}>필터 초기화</button>
+            <button type="button" className="primary-button" onClick={onAddTask}><Plus size={16} />새 업무 등록</button>
+          </div>
         </div>
       )}
     </section>
   );
 }
 
-function TaskFilterBar({
-  page,
-  query,
-  setQuery,
-  typeFilter,
-  setTypeFilter,
-  statusFilter,
-  setStatusFilter,
-  importanceFilter,
-  setImportanceFilter,
-  dateFrom,
-  setDateFrom,
-  dateTo,
-  setDateTo,
-  sortKey,
-  setSortKey
+function TaskFilterPanel({
+  filters,
+  assignees,
+  resultCount,
+  onChange
 }: {
-  page: ScheduleQuickFilter;
-  query: string;
-  setQuery: (value: string) => void;
-  typeFilter: ScheduleTaskTypeFilter;
-  setTypeFilter: (value: ScheduleTaskTypeFilter) => void;
-  statusFilter: ScheduleStatusFilter;
-  setStatusFilter: (value: ScheduleStatusFilter) => void;
-  importanceFilter: ScheduleImportanceFilter;
-  setImportanceFilter: (value: ScheduleImportanceFilter) => void;
-  dateFrom: string;
-  setDateFrom: (value: string) => void;
-  dateTo: string;
-  setDateTo: (value: string) => void;
-  sortKey: ScheduleSortKey;
-  setSortKey: (value: ScheduleSortKey) => void;
+  filters: TaskFilters;
+  assignees: string[];
+  resultCount: number;
+  onChange: (filters: TaskFilters) => void;
 }) {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const update = (patch: Partial<TaskFilters>) => onChange({ ...filters, ...patch });
+  const toggleType = (type: TaskTypeFilter) => {
+    const types = filters.types.includes(type)
+      ? filters.types.filter((value) => value !== type)
+      : [...filters.types, type];
+    update({ types });
+  };
+  const activeChips = taskFilterChips(filters);
+
   return (
-    <section className={`task-filter-bar panel ${page === "all" ? "is-expanded" : ""}`}>
-      <label className="task-filter-search">
-        <span>검색</span>
-        <span className="task-filter-input-wrap"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="업무명, 업체, 담당자, 상태, 메모" /></span>
-      </label>
-      {page === "all" && (
-        <>
-          <label><span>업무 유형</span><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as ScheduleTaskTypeFilter)}><option value="all">전체</option><option value="sales">영업</option><option value="settlement">정산</option><option value="output">출력</option><option value="other">기타</option></select></label>
-          <label><span>상태</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ScheduleStatusFilter)}><option value="all">전체</option><option value="pending">진행 전</option><option value="active">진행 중</option><option value="closed">완료</option><option value="hold">보류</option></select></label>
-          <label><span>중요 업무</span><select value={importanceFilter} onChange={(event) => setImportanceFilter(event.target.value as ScheduleImportanceFilter)}><option value="all">전체</option><option value="important">중요 업무만</option><option value="normal">일반 업무만</option></select></label>
-          <label><span>기간 시작</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label>
-          <label><span>기간 종료</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label>
-          <label><span>정렬</span><select value={sortKey} onChange={(event) => setSortKey(event.target.value as ScheduleSortKey)}><option value="dateAsc">날짜 빠른 순</option><option value="dateDesc">날짜 늦은 순</option><option value="recent">최근 등록 순</option><option value="oldest">오래된 등록 순</option><option value="important">중요 업무 우선</option></select></label>
-        </>
+    <section className="task-filter-shell panel">
+      <div className="task-filter-search-row">
+        <label className="task-filter-search">
+          <Search size={18} />
+          <input
+            value={filters.query}
+            onChange={(event) => update({ query: event.target.value })}
+            placeholder="업무명, 업체, 담당자, 품목, 상태, 메모 검색"
+          />
+        </label>
+        <span className="task-filter-result-summary">{resultCount}건</span>
+        <button type="button" className="task-filter-mobile-button" onClick={() => setMobileOpen(true)}>
+          <SlidersHorizontal size={17} />필터{activeChips.length ? ` ${activeChips.length}` : ""}
+        </button>
+      </div>
+
+      <div className={`task-filter-details ${mobileOpen ? "is-open" : ""}`} role={mobileOpen ? "dialog" : undefined} aria-modal={mobileOpen || undefined} aria-label="업무 필터">
+        <div className="task-filter-mobile-heading">
+          <strong>필터</strong>
+          <button type="button" className="icon-button" title="닫기" onClick={() => setMobileOpen(false)}><X size={19} /></button>
+        </div>
+        <div className="task-filter-section">
+          <span className="task-filter-label">기간</span>
+          <div className="task-filter-button-group">
+            {(["today", "week", "month", "all", "custom"] as TaskPeriodFilter[]).map((period) => (
+              <button key={period} type="button" className={filters.period === period ? "is-active" : ""} onClick={() => update({ period })}>
+                {taskPeriodLabel(period)}
+              </button>
+            ))}
+          </div>
+        </div>
+        {filters.period === "custom" && (
+          <div className="task-custom-dates">
+            <label><span>시작일</span><input type="date" value={filters.startDate} onChange={(event) => update({ startDate: event.target.value })} /></label>
+            <span>~</span>
+            <label><span>종료일</span><input type="date" value={filters.endDate} onChange={(event) => update({ endDate: event.target.value })} /></label>
+          </div>
+        )}
+        <div className="task-filter-section">
+          <span className="task-filter-label">업무 유형</span>
+          <div className="task-filter-button-group type-group">
+            {(["sales", "settlement", "output", "other"] as TaskTypeFilter[]).map((type) => (
+              <button key={type} type="button" className={filters.types.includes(type) ? "is-active" : ""} aria-pressed={filters.types.includes(type)} onClick={() => toggleType(type)}>
+                {taskTypeLabel(type)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="task-filter-select-grid">
+          <label><span>상태</span><select value={filters.status} onChange={(event) => update({ status: event.target.value as TaskStatusFilter })}><option value="all">전체</option><option value="active">진행 중</option><option value="completed">완료</option><option value="incomplete">미완료</option><option value="hold">보류</option></select></label>
+          <label><span>중요 업무</span><select value={filters.importantOnly ? "important" : "all"} onChange={(event) => update({ importantOnly: event.target.value === "important" })}><option value="all">전체</option><option value="important">중요 업무만</option></select></label>
+          {assignees.length > 0 && <label><span>담당자</span><select value={filters.assignee} onChange={(event) => update({ assignee: event.target.value })}><option value="">전체</option>{assignees.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>}
+          <label><span>정렬</span><select value={filters.sort} onChange={(event) => update({ sort: event.target.value as TaskSortKey })}><option value="default">기본 정렬</option><option value="dateAsc">날짜 빠른 순</option><option value="dateDesc">날짜 늦은 순</option><option value="recent">최근 등록 순</option><option value="oldest">오래된 등록 순</option><option value="important">중요 업무 우선</option><option value="incomplete">미완료 우선</option></select></label>
+        </div>
+        <div className="task-filter-sheet-actions">
+          <button type="button" onClick={() => onChange(getTaskPreset("all"))}>전체 초기화</button>
+          <button type="button" className="primary-button" onClick={() => setMobileOpen(false)}>{resultCount}건 보기</button>
+        </div>
+      </div>
+      {mobileOpen && <button type="button" className="task-filter-backdrop" aria-label="필터 닫기" onClick={() => setMobileOpen(false)} />}
+
+      {activeChips.length > 0 && (
+        <div className="active-filter-chips" aria-label="적용된 필터">
+          {activeChips.map((chip) => (
+            <button type="button" key={chip.id} onClick={() => onChange(chip.remove(filters))} title={`${chip.label} 필터 해제`}>
+              {chip.label}<X size={13} />
+            </button>
+          ))}
+          <button type="button" className="reset-chip" onClick={() => onChange(getTaskPreset("all"))}>전체 초기화</button>
+        </div>
       )}
     </section>
   );
+}
+
+type TaskFilterChip = { id: string; label: string; remove: (filters: TaskFilters) => TaskFilters };
+
+function taskFilterChips(filters: TaskFilters): TaskFilterChip[] {
+  const chips: TaskFilterChip[] = [];
+  if (filters.period !== "all") {
+    const customLabel = filters.period === "custom" ? `${filters.startDate || "시작 미정"} ~ ${filters.endDate || "종료 미정"}` : taskPeriodLabel(filters.period);
+    chips.push({ id: "period", label: `기간: ${customLabel}`, remove: (current) => ({ ...current, period: "all", startDate: "", endDate: "" }) });
+  }
+  filters.types.forEach((type) => chips.push({ id: `type-${type}`, label: taskTypeLabel(type), remove: (current) => ({ ...current, types: current.types.filter((value) => value !== type) }) }));
+  if (filters.status !== "all") chips.push({ id: "status", label: `상태: ${taskStatusFilterLabel(filters.status)}`, remove: (current) => ({ ...current, status: "all" }) });
+  if (filters.importantOnly) chips.push({ id: "important", label: "중요 업무", remove: (current) => ({ ...current, importantOnly: false }) });
+  if (filters.assignee) chips.push({ id: "assignee", label: `담당자: ${filters.assignee}`, remove: (current) => ({ ...current, assignee: "" }) });
+  if (filters.query) chips.push({ id: "query", label: `검색: ${filters.query}`, remove: (current) => ({ ...current, query: "" }) });
+  if (filters.sort !== "default") chips.push({ id: "sort", label: taskSortLabel(filters.sort), remove: (current) => ({ ...current, sort: "default" }) });
+  return chips;
 }
 
 function UnifiedTaskCard({
@@ -1176,13 +1304,16 @@ function UnifiedTaskCard({
         <span className={`work-type-badge ${item.portal}`}>{item.badge}</span>
         <span className="schedule-task-card-copy">
           <strong>{item.title}</strong>
-          <small>{joinParts([item.subtype, item.contact], " · ") || "담당자 미입력"}</small>
+          <small>{joinParts([item.subtype, item.contact], " · ") || "담당자 미지정"}</small>
           {item.memo && <p>{summarizeForList(item.memo, 130)}</p>}
         </span>
         <span className="schedule-task-card-meta">
           <span className={`task-status-badge ${item.statusGroup}`}>{item.status || "상태 미정"}</span>
           <strong>{item.schedule || "일정 미정"}</strong>
-          {item.isCompleted && <small className="completed-label">완료</small>}
+          <span className="task-card-indicators">
+            {item.hasAttachments && <small><FolderOpen size={14} />첨부파일</small>}
+            {item.isCompleted && <small className="completed-label">완료</small>}
+          </span>
         </span>
       </button>
       <div className="schedule-task-card-actions">
@@ -1205,58 +1336,117 @@ function UnifiedTaskCard({
   );
 }
 
-function taskMatchesSchedulePage(item: UnifiedWorkItem, page: ScheduleQuickFilter): boolean {
-  if (page === "today") return item.isToday;
-  if (page === "week") return item.isThisWeek;
-  if (page === "important") return item.isImportant;
-  return true;
+function taskPeriodLabel(period: TaskPeriodFilter): string {
+  if (period === "today") return "오늘";
+  if (period === "week") return "이번 주";
+  if (period === "month") return "이번 달";
+  if (period === "custom") return "직접 지정";
+  return "전체";
 }
 
-function schedulePageTitle(page: ScheduleQuickFilter): string {
-  if (page === "today") return "오늘 업무";
-  if (page === "week") return "이번 주 일정";
-  if (page === "important") return "중요 업무";
-  return "전체 업무";
+function taskTypeLabel(type: TaskTypeFilter): string {
+  if (type === "sales") return "영업";
+  if (type === "settlement") return "정산";
+  if (type === "output") return "출력";
+  return "기타";
 }
 
-function schedulePageEmptyCopy(page: ScheduleQuickFilter): { title: string; detail: string } {
-  if (page === "today") return { title: "오늘 등록된 업무가 없습니다.", detail: "오늘 날짜에 수행할 업무가 등록되면 이곳에 표시됩니다." };
-  if (page === "week") return { title: "이번 주 일정이 없습니다.", detail: "이번 주에 겹치는 일정이 등록되면 날짜별로 표시됩니다." };
-  if (page === "important") return { title: "중요 업무가 없습니다.", detail: "업무 카드의 별표를 선택하면 이곳에서 확인할 수 있습니다." };
-  return { title: "등록된 업무가 없습니다.", detail: "각 업무 포털에서 새 업무를 등록해 주세요." };
+function taskStatusFilterLabel(status: TaskStatusFilter): string {
+  if (status === "active") return "진행 중";
+  if (status === "completed") return "완료";
+  if (status === "incomplete") return "미완료";
+  if (status === "hold") return "보류";
+  return "전체";
 }
 
-function taskDateWithinRange(item: UnifiedWorkItem, start: string, end: string): string {
-  const scheduled = item.scheduleDates.filter((date) => start <= date && date <= end).sort()[0];
-  if (scheduled) return scheduled;
-  if (item.startDate && item.endDate && item.startDate <= end && item.endDate >= start) {
-    return item.startDate < start ? start : item.startDate;
+function taskSortLabel(sort: TaskSortKey): string {
+  if (sort === "dateAsc") return "날짜 빠른 순";
+  if (sort === "dateDesc") return "날짜 늦은 순";
+  if (sort === "recent") return "최근 등록 순";
+  if (sort === "oldest") return "오래된 등록 순";
+  if (sort === "important") return "중요 업무 우선";
+  if (sort === "incomplete") return "미완료 우선";
+  return "기본 정렬";
+}
+
+function describeTaskFilters(filters: TaskFilters): string {
+  if (filters.period === "all" && !filters.types.length && filters.status === "all" && !filters.importantOnly && !filters.assignee && !filters.query) {
+    return "전체 업무를 확인합니다.";
   }
-  return "";
+  const parts: string[] = [];
+  if (filters.period === "today") parts.push("오늘 예정된");
+  else if (filters.period === "week") parts.push("이번 주");
+  else if (filters.period === "month") parts.push("이번 달");
+  else if (filters.period === "custom") parts.push(`${filters.startDate || "시작 미정"}부터 ${filters.endDate || "종료 미정"}까지`);
+  if (filters.types.length) parts.push(filters.types.map(taskTypeLabel).join(", "));
+  if (filters.importantOnly) parts.push("중요");
+  if (filters.status !== "all") parts.push(taskStatusFilterLabel(filters.status));
+  if (filters.assignee) parts.push(`${filters.assignee} 담당`);
+  parts.push("업무를 확인합니다.");
+  return parts.join(" ");
 }
 
-function taskOverlapsDateFilter(item: UnifiedWorkItem, from: string, to: string): boolean {
-  if (!from && !to) return true;
-  const start = from || "0000-01-01";
-  const end = to || "9999-12-31";
-  if (item.scheduleDates.some((date) => start <= date && date <= end)) return true;
-  return Boolean(item.startDate && item.endDate && item.startDate <= end && item.endDate >= start);
-}
-
-function compareSchedulePageTasks(a: UnifiedWorkItem, b: UnifiedWorkItem, sortKey: ScheduleSortKey): number {
-  const aDate = a.primaryDate || "9999-12-31";
-  const bDate = b.primaryDate || "9999-12-31";
-  if (sortKey === "dateAsc") return aDate.localeCompare(bDate) || compareUnifiedWorkItems(a, b);
-  if (sortKey === "dateDesc") {
-    if (!a.primaryDate && b.primaryDate) return 1;
-    if (a.primaryDate && !b.primaryDate) return -1;
-    return bDate.localeCompare(aDate) || compareUnifiedWorkItems(a, b);
+function taskPeriodRange(filters: TaskFilters): { start: string; end: string } | null {
+  const today = startOfDay(new Date());
+  if (filters.period === "all") return null;
+  if (filters.period === "today") {
+    const key = toDateKey(today);
+    return { start: key, end: key };
   }
-  if (sortKey === "recent") return compareDate(b.createdAt || b.updatedAt, a.createdAt || a.updatedAt) || compareUnifiedWorkItems(a, b);
-  if (sortKey === "oldest") return compareDate(a.createdAt || a.updatedAt, b.createdAt || b.updatedAt) || compareUnifiedWorkItems(a, b);
-  return compareUnifiedWorkItems(a, b);
+  if (filters.period === "week") return getMondayWeekRange(today);
+  if (filters.period === "month") {
+    return {
+      start: toDateKey(new Date(today.getFullYear(), today.getMonth(), 1)),
+      end: toDateKey(new Date(today.getFullYear(), today.getMonth() + 1, 0))
+    };
+  }
+  return { start: filters.startDate || "0000-01-01", end: filters.endDate || "9999-12-31" };
 }
 
+function taskOverlapsPeriod(item: UnifiedWorkItem, filters: TaskFilters): boolean {
+  const range = taskPeriodRange(filters);
+  if (!range) return true;
+  if (item.scheduleDates.some((date) => range.start <= date && date <= range.end)) return true;
+  return Boolean(item.startDate && item.endDate && item.startDate <= range.end && item.endDate >= range.start);
+}
+
+function filterUnifiedTasks(items: UnifiedWorkItem[], filters: TaskFilters): UnifiedWorkItem[] {
+  const query = filters.query.trim().toLocaleLowerCase("ko");
+  return items.filter((item) => {
+    if (!taskOverlapsPeriod(item, filters)) return false;
+    if (filters.types.length && !filters.types.includes(item.portal)) return false;
+    if (filters.status === "completed" && !item.isCompleted) return false;
+    if (filters.status === "incomplete" && item.isCompleted) return false;
+    if (filters.status === "hold" && item.statusGroup !== "hold") return false;
+    if (filters.status === "active" && !["pending", "active"].includes(item.statusGroup)) return false;
+    if (filters.importantOnly && !item.isImportant) return false;
+    if (filters.assignee && item.assignee !== filters.assignee) return false;
+    if (query && !item.searchText.toLocaleLowerCase("ko").includes(query)) return false;
+    return true;
+  });
+}
+
+function sortUnifiedTasks(items: UnifiedWorkItem[], sort: TaskSortKey): UnifiedWorkItem[] {
+  const dateValue = (item: UnifiedWorkItem) => item.primaryDate || "9999-12-31";
+  const updatedValue = (item: UnifiedWorkItem) => item.createdAt || item.updatedAt || "";
+  const base = (a: UnifiedWorkItem, b: UnifiedWorkItem) => Number(a.isCompleted) - Number(b.isCompleted)
+    || Number(b.isImportant) - Number(a.isImportant)
+    || dateValue(a).localeCompare(dateValue(b))
+    || compareDate(b.updatedAt, a.updatedAt);
+  return [...items].sort((a, b) => {
+    if (sort === "dateAsc") return dateValue(a).localeCompare(dateValue(b)) || base(a, b);
+    if (sort === "dateDesc") {
+      if (!a.primaryDate && b.primaryDate) return 1;
+      if (a.primaryDate && !b.primaryDate) return -1;
+      return dateValue(b).localeCompare(dateValue(a)) || base(a, b);
+    }
+    if (sort === "recent") return compareDate(updatedValue(b), updatedValue(a)) || base(a, b);
+    if (sort === "oldest") return compareDate(updatedValue(a), updatedValue(b)) || base(a, b);
+    if (sort === "important") return Number(b.isImportant) - Number(a.isImportant) || base(a, b);
+    if (sort === "incomplete") return Number(a.isCompleted) - Number(b.isCompleted) || base(a, b);
+    return base(a, b);
+  });
+}
 function formatKoreanFullDate(dateKey: string): string {
   const date = parseDate(dateKey);
   if (!date) return formatDateForDisplay(dateKey);
@@ -6643,8 +6833,8 @@ function isUnifiedTaskCompleted(record: AnyRecord, collectionKey: TaskCollection
   return status === "완료";
 }
 
-function unifiedTaskStatusGroup(status: string, completed: boolean): Exclude<ScheduleStatusFilter, "all"> {
-  if (completed) return "closed";
+function unifiedTaskStatusGroup(status: string, completed: boolean): TaskStatusGroup {
+  if (completed) return "completed";
   if (status.includes("보류")) return "hold";
   if (!status || /신규|예정|대기|문의/.test(status)) return "pending";
   return "active";
@@ -6681,6 +6871,13 @@ function setRecordCompleted(record: AnyRecord, collectionKey: TaskCollectionKey,
   };
 }
 
+function safeRecordSearchText(record: AnyRecord): string {
+  try {
+    return JSON.stringify(record);
+  } catch {
+    return Object.values(record).filter((value) => typeof value === "string" || typeof value === "number").join(" ");
+  }
+}
 function collectUnifiedWorkItems(data: WorkNoteData, scheduleItems: ScheduleItem[]): UnifiedWorkItem[] {
   const today = toDateKey(new Date());
   const { start: weekStart, end: weekEnd } = getMondayWeekRange(new Date());
@@ -6742,6 +6939,9 @@ function collectUnifiedWorkItems(data: WorkNoteData, scheduleItems: ScheduleItem
       subtype,
       title,
       contact: contactBundle(record),
+      assignee: firstText(record, ["contactName", "managerName", "requester", "requesterName", "owner", "assignee"]),
+      searchText: [title, subtype, status, schedule, memo, contactBundle(record), safeRecordSearchText(record)].filter(Boolean).join(" "),
+      hasAttachments: asArray(record.attachments).length > 0,
       status,
       statusGroup: unifiedTaskStatusGroup(status, isCompleted),
       schedule,
