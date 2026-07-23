@@ -5161,3 +5161,26 @@ h2 {
   background: var(--surface-hover);
   color: var(--text);
 }
+/* Inline form validation */
+.field.has-error input,
+.field.has-error select,
+.field.has-error textarea {
+  border-color: var(--red);
+  background: #fffafa;
+}
+
+.field.has-error input:focus,
+.field.has-error select:focus,
+.field.has-error textarea:focus {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.13);
+}
+
+.field-error {
+  display: block;
+  margin: 0;
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}

@@ -2856,13 +2856,15 @@ function CompanyCombobox({
   setDraft,
   companies,
   companyLabel = "업체명",
-  contactLabel = "담당자 선택"
+  contactLabel = "담당자 선택",
+  allowNoCompany = false
 }: {
   draft: AnyRecord;
   setDraft: (draft: AnyRecord) => void;
   companies: AnyRecord[];
   companyLabel?: string;
   contactLabel?: string;
+  allowNoCompany?: boolean;
 }) {
   const selectedCompany = firstText(draft, ["companyId"])
     ? companies.find((company, index) => recordId(company, index) === firstText(draft, ["companyId"]))
@@ -2948,8 +2950,8 @@ function CompanyCombobox({
       {open && (
         <div className="combo-options" role="listbox">
           <button type="button" role="option" onMouseDown={(event) => event.preventDefault()} onClick={() => selectCompany("")}>
-            <strong>직접 입력 / 연결 안 함</strong>
-            <span>업체 목록과 연결하지 않고 직접 작성</span>
+            <strong>{allowNoCompany ? "관련 업체 없음" : "직접 입력 / 연결 안 함"}</strong>
+            <span>{allowNoCompany ? "업체를 연결하지 않고 업무를 등록" : "업체 목록과 연결하지 않고 직접 작성"}</span>
           </button>
           <button type="button" role="option" onMouseDown={(event) => event.preventDefault()} onClick={() => selectCompany("__unknown")}>
             <strong>미정</strong>
@@ -2969,7 +2971,7 @@ function CompanyCombobox({
         </div>
       )}
       <div className="selection-summary">
-        <strong>{selectedCompany ? companyName(selectedCompany) : (draft.companyUnknown ? "업체 미정" : "직접 입력")}</strong>
+        <strong>{selectedCompany ? companyName(selectedCompany) : (draft.companyUnknown ? "업체 미정" : allowNoCompany && !firstText(draft, ["company"]) ? "관련 업체 없음" : "직접 입력")}</strong>
         <span>{[firstText(draft, ["contactName"]), firstText(draft, ["contactPhone"]), firstText(draft, ["contactEmail"])].filter(Boolean).join(" · ") || "담당자 정보 없음"}</span>
       </div>
       <TextField label={companyLabel} value={firstText(draft, ["company"])} onChange={(value) => setDraft({ ...draft, company: value, companyUnknown: false })} placeholder="업체명 또는 고객명" />
@@ -3685,7 +3687,7 @@ function GenericWorkPortal({
   const saveWorkRecord = (draft: AnyRecord) => {
     const normalized = normalizeWorkDraft(draft, type, data);
     if (!isWorkDraftValid(normalized, type)) {
-      alert(type === "other" ? "업무명 또는 메모를 입력해 주세요." : "관련 업체, 업무 내용, 메모 중 하나는 입력해 주세요.");
+      if (type === "settlement") alert("관련 업체, 결제 내용, 메모 중 하나는 입력해 주세요.");
       return;
     }
     if (!isValidDateRange(firstText(normalized, ["startDate"]), firstText(normalized, ["endDate"]))) {
@@ -3779,7 +3781,7 @@ function GenericWorkPortal({
                   <ImportantToggle active={Boolean(record.isImportant)} onToggle={() => persistImportantToggle(onPersist, workAttachmentCollectionKey(type), id)} />
                   <div>
                     <strong>{workTitle(record, type)}</strong>
-                    <small>{linkedSales ? `관련 영업: ${salesCustomer(linkedSales)}` : relatedSalesFallback(record)}</small>
+                    <small>{type === "settlement" ? (linkedSales ? `관련 영업: ${salesCustomer(linkedSales)}` : relatedSalesFallback(record)) : joinParts([`관련 업체: ${workCompanyDisplay(record, linkedSales)}`, linkedSales ? `관련 영업: ${salesCustomer(linkedSales)}` : relatedSalesFallback(record)], " · ")}</small>
                   </div>
                 </div>
                 <div className="badge-stack">
@@ -3889,6 +3891,16 @@ function WorkEditor({
     () => linkedSalesOptions.filter((option) => matchesText(option.note, salesSearch) || matchesText({ type: option.type === "material" ? "소재 소모품 기타" : "장비" }, salesSearch)).slice(0, 80),
     [linkedSalesOptions, salesSearch]
   );
+  const [titleError, setTitleError] = useState("");
+  const requiresTaskTitle = type === "output" || type === "other";
+  const handleSave = () => {
+    if (requiresTaskTitle && !firstText(draft, ["title"])) {
+      setTitleError("업무 제목을 입력해 주세요.");
+      return;
+    }
+    setTitleError("");
+    onSave(draft);
+  };
 
   const selectCompany = (value: string) => {
     if (value === "__unknown") {
@@ -3955,12 +3967,26 @@ function WorkEditor({
       </div>
 
       <div className="form-grid">
+        {requiresTaskTitle && (
+          <TextField
+            label="업무 제목"
+            value={firstText(draft, ["title"])}
+            onChange={(value) => {
+              updateField("title", value);
+              if (clean(value)) setTitleError("");
+            }}
+            placeholder={type === "output" ? "예: IML16K 샘플 출력" : "예: 전시회 준비"}
+            error={titleError}
+            wide
+          />
+        )}
         <CompanyCombobox
           draft={draft}
           setDraft={setDraft}
           companies={data.companies}
-          companyLabel="업체명"
+          companyLabel={requiresTaskTitle ? "관련 업체 (선택)" : "업체명"}
           contactLabel="담당자 선택"
+          allowNoCompany={requiresTaskTitle}
         />
         <TextField label={type === "output" ? "담당자(요청자)" : "담당자"} value={firstText(draft, ["contactName"])} onChange={(value) => updateField("contactName", value)} placeholder="담당자명" />
         <TextField label="담당자 연락처" value={firstText(draft, ["contactPhone"])} onChange={(value) => updateField("contactPhone", value)} placeholder="010-0000-0000" />
@@ -4018,7 +4044,6 @@ function WorkEditor({
 
         {type === "other" && (
           <>
-            <TextField label="업무명" value={firstText(draft, ["title"])} onChange={(value) => updateField("title", value)} placeholder="예: 사내 요청사항 확인" />
             <TextField label="구분" value={firstText(draft, ["category"])} onChange={(value) => updateField("category", value)} placeholder="예: 내부, 구매, 행정" />
             <TextField label="담당/요청자" value={firstText(draft, ["owner"])} onChange={(value) => updateField("owner", value)} placeholder="담당자 또는 요청자" />
             <TextField label="기한 시작" type="date" value={firstText(draft, ["startDate"])} onChange={(value) => updateField("startDate", value)} />
@@ -4038,7 +4063,7 @@ function WorkEditor({
         <TextAreaField label="업무 메모" value={rawText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="업무 조건, 주의사항, 진행 내용" wide />
       </div>
       <EditorActionBar
-        onSave={() => onSave(draft)}
+        onSave={handleSave}
         onCancel={onCancel}
         onOpenFiles={onOpenFiles}
         fileAvailable={fileAvailable}
@@ -4499,7 +4524,7 @@ function WorkTaskDetails({
     return (
       <>
         <div className="task-card-grid">
-          <InfoLine label="업체" value={companyName(record) || (linkedSales ? salesCustomer(linkedSales) : "")} />
+          <InfoLine label="관련 업체" value={workCompanyDisplay(record, linkedSales)} />
           <InfoLine label="요청자" value={contactBundle(record)} />
           <InfoLine label="기한" value={deadlineText(record)} />
           <InfoLine label="출력" value={firstText(record, ["outputType", "category", "taskType"])} />
@@ -4517,7 +4542,7 @@ function WorkTaskDetails({
   return (
     <>
       <div className="task-card-grid">
-        <InfoLine label="업체" value={companyName(record) || (linkedSales ? salesCustomer(linkedSales) : "")} />
+        <InfoLine label="관련 업체" value={workCompanyDisplay(record, linkedSales)} />
         <InfoLine label="담당" value={contactBundle(record) || firstText(record, ["owner", "assignee", "managerName"])} />
         <InfoLine label="분류" value={firstText(record, ["category", "taskType"])} />
         <InfoLine label="기한" value={deadlineText(record)} />
@@ -4876,7 +4901,8 @@ function TextField({
   type = "text",
   wide = false,
   disabled = false,
-  option
+  option,
+  error = ""
 }: {
   label: string;
   value: string;
@@ -4886,14 +4912,16 @@ function TextField({
   wide?: boolean;
   disabled?: boolean;
   option?: React.ReactNode;
+  error?: string;
 }) {
   return (
-    <label className={`field ${wide ? "wide-field" : ""}`}>
+    <label className={`field ${wide ? "wide-field" : ""} ${error ? "has-error" : ""}`}>
       <span className="field-title-row">
         <span>{label}</span>
         {option && <span className="field-option-row">{option}</span>}
       </span>
-      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} disabled={disabled} />
+      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} disabled={disabled} aria-invalid={Boolean(error)} />
+      {error && <small className="field-error" role="alert">{error}</small>}
     </label>
   );
 }
@@ -5032,7 +5060,7 @@ function loadWorkNoteData(): WorkNoteData {
 }
 
 function migrateWorkNoteData(data: WorkNoteData): WorkNoteData {
-  return migrateImportantFlags(migrateSettlementTaxInvoiceRows(migrateLegacyMaterialSalesNotes(migrateInternalContacts(data))));
+  return migrateImportantFlags(migrateWorkTaskTitles(migrateSettlementTaxInvoiceRows(migrateLegacyMaterialSalesNotes(migrateInternalContacts(data)))));
 }
 
 function migrateInternalContacts(data: WorkNoteData): WorkNoteData {
@@ -5051,6 +5079,30 @@ function migrateInternalContacts(data: WorkNoteData): WorkNoteData {
       memo: firstText(contact, ["memo"])
     }))
   };
+}
+
+function migrateWorkTaskTitles(data: WorkNoteData): WorkNoteData {
+  let changed = false;
+  const migrate = (records: AnyRecord[], type: "output" | "other") => records.map((record) => {
+    if (firstText(record, ["title"])) return record;
+    changed = true;
+    return { ...record, title: deriveWorkTaskTitle(record, type) };
+  });
+  const outputTasks = migrate(asArray(data.outputTasks), "output");
+  const otherTasks = migrate(asArray(data.otherTasks), "other");
+  return changed ? { ...data, outputTasks, otherTasks } : data;
+}
+
+function deriveWorkTaskTitle(record: AnyRecord, type: "output" | "other"): string {
+  const legacyTitle = type === "output"
+    ? firstText(record, ["taskName", "workName", "outputName", "subject", "outputType"])
+    : firstText(record, ["taskName", "workName", "subject", "name"]);
+  if (legacyTitle) return legacyTitle;
+  const memo = firstText(record, ["memo", "description", "note"]).replace(/\s+/g, " ").trim();
+  if (memo) return memo.length > 40 ? `${memo.slice(0, 40).trim()}…` : memo;
+  const company = companyName(record);
+  if (company) return `${company} ${type === "output" ? "출력 업무" : "기타 업무"}`;
+  return type === "output" ? "제목 없는 출력 업무" : "제목 없는 기타 업무";
 }
 
 function migrateImportantFlags(data: WorkNoteData): WorkNoteData {
@@ -5646,11 +5698,12 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
   ]);
 
   addSheet("출력", [
-    ["업체명/업무명", "요청자", "연락처", "이메일", "관련 영업", "진행상태", "중요도", "중요 업무", "기한 시작", "기한 종료", "출력 종류", "주말 포함", "결제/증빙 방식", "처리 상태", "발행/결제 예정일", "첨부 수", "최종 수정", "메모"],
+    ["업무 제목", "관련 업체", "요청자", "연락처", "이메일", "관련 영업", "진행상태", "중요도", "중요 업무", "기한 시작", "기한 종료", "출력 종류", "주말 포함", "결제/증빙 방식", "처리 상태", "발행/결제 예정일", "첨부 수", "최종 수정", "메모"],
     ...asArray(data.outputTasks).map((record) => {
       const linkedSales = getLinkedSalesForWork(record, data.notes, data.materialSalesNotes);
       return [
         workTitle(record, "output"),
+        workCompanyDisplay(record, linkedSales),
         firstText(record, ["contactName", "requester", "assignee", "owner"]),
         firstText(record, ["contactPhone", "phone", "mobile"]),
         firstText(record, ["contactEmail", "email"]),
@@ -5676,7 +5729,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
     ["업무명", "관련 업체", "담당/요청자", "연락처", "이메일", "분류", "진행상태", "중요도", "중요 업무", "기한 시작", "기한 종료", "주말 포함", "첨부 수", "최종 수정", "메모"],
     ...asArray(data.otherTasks).map((record) => [
       workTitle(record, "other"),
-      companyName(record),
+      workCompanyDisplay(record),
       firstText(record, ["contactName", "requester", "assignee", "owner"]),
       firstText(record, ["contactPhone", "phone", "mobile"]),
       firstText(record, ["contactEmail", "email"]),
@@ -6955,6 +7008,7 @@ function createBlankWorkTask(type: "settlement" | "output" | "other"): AnyRecord
   if (type === "output") {
     return {
       ...common,
+      title: "",
       salesNoteId: "",
       salesNoteType: "",
       salesLinkUnknown: false,
@@ -6984,6 +7038,7 @@ function prepareWorkDraft(record: AnyRecord, index: number, type: "settlement" |
     status: firstText(record, ["status", "progressStatus"]) || firstText(blank, ["status"]),
     priority: firstText(record, ["priority", "importance"]) || "보통",
     memo: firstText(record, ["memo", "description", "note"]),
+    title: type === "settlement" ? firstText(record, ["title"]) : firstText(record, ["title"]) || deriveWorkTaskTitle(record, type),
     billingMethod: billingMethodFor(record),
     taxInvoiceIssueDate: firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]),
     taxInvoiceStatus: firstText(record, ["taxInvoiceStatus", "invoiceStatus"]),
@@ -7052,6 +7107,7 @@ function normalizeWorkDraft(draft: AnyRecord, type: "settlement" | "output" | "o
       salesNoteId: Boolean(draft.salesLinkUnknown) ? "" : firstText(draft, ["salesNoteId"]),
       salesNoteType: Boolean(draft.salesLinkUnknown) ? "" : firstText(draft, ["salesNoteType"]),
       salesLinkUnknown: Boolean(draft.salesLinkUnknown),
+      title: firstText(draft, ["title"]),
       status: WORK_STATUS_OPTIONS.includes(firstText(draft, ["status"])) ? firstText(draft, ["status"]) : "대기",
       priority: PRIORITY_OPTIONS.includes(firstText(draft, ["priority"])) ? firstText(draft, ["priority"]) : "보통",
       outputType: firstText(draft, ["outputType"])
@@ -7187,10 +7243,10 @@ function isWorkDraftValid(record: AnyRecord, type: "settlement" | "output" | "ot
   if (type === "settlement") {
     return Boolean(companyName(record) || record.companyUnknown || firstText(record, ["paymentType", "totalAmount", "advanceAmount", "nextAction", "memo"]));
   }
-  if (type === "output") {
-    return Boolean(companyName(record) || record.companyUnknown || firstText(record, ["outputType", "memo"]));
+  if (type === "output" || type === "other") {
+    return Boolean(firstText(record, ["title"]));
   }
-  return Boolean(firstText(record, ["title", "memo"]));
+  return false;
 }
 
 function countLinkedCompanyRecords(data: WorkNoteData, companyId: string): number {
@@ -7290,7 +7346,7 @@ function collectCompanyHistoryItems(data: WorkNoteData, company: AnyRecord, comp
   add("장비", "blue", "sales", data.notes, (record) => salesInterest(record) || firstText(record, ["nextAction"]) || "장비 영업건", (record) => joinParts([firstText(record, ["quoteStatus"]), firstText(record, ["purchasePossibility"]), formatMoneyWithVat(firstText(record, ["expectedRevenueAmount"]), record.expectedRevenueVatIncluded)], " / "), salesStatus);
   add("소재", "green", "material", data.materialSalesNotes, (record) => materialSalesItemsSummary(record) || firstText(record, ["revenueType"]) || "소재 영업건", (record) => joinParts([materialSalesQuoteStatus(record), formatMoney(firstText(record, ["revenueAmount", "expectedRevenueAmount"]))], " / "), materialSalesStatus);
   add("정산", "orange", "settlement", data.settlementTasks, (record) => workTitle(record, "settlement"), (record) => joinParts([firstText(record, ["paymentType"]), settlementRemainingText(record)], " / "), (record) => firstText(record, ["status", "progressStatus"]));
-  add("출력", "blue", "output", data.outputTasks, (record) => firstText(record, ["outputType"]) || workTitle(record, "output"), deadlineText, (record) => firstText(record, ["status", "progressStatus"]));
+  add("출력", "blue", "output", data.outputTasks, (record) => workTitle(record, "output"), (record) => joinParts([firstText(record, ["outputType"]), deadlineText(record)], " · "), (record) => firstText(record, ["status", "progressStatus"]));
   add("기타", "neutral", "other", data.otherTasks, (record) => workTitle(record, "other"), deadlineText, (record) => firstText(record, ["status", "progressStatus"]));
 
   return items.sort((a, b) => compareDate(a.date, b.date) * -1 || a.kind.localeCompare(b.kind, "ko"));
@@ -7415,7 +7471,9 @@ function collectUnifiedWorkItems(data: WorkNoteData, scheduleItems: ScheduleItem
       badge,
       subtype,
       title,
-      contact: contactBundle(record),
+      contact: collectionKey === "outputTasks" || collectionKey === "otherTasks"
+        ? joinParts([workCompanyDisplay(record), contactBundle(record)], " · ")
+        : contactBundle(record),
       assignee: firstText(record, ["contactName", "managerName", "requester", "requesterName", "owner", "assignee"]),
       searchText: [title, subtype, status, schedule, memo, contactBundle(record), safeRecordSearchText(record)].filter(Boolean).join(" "),
       hasAttachments: asArray(record.attachments).length > 0,
@@ -7626,13 +7684,13 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
   });
   data.outputTasks.forEach((task, index) => {
     if (isClosed(firstText(task, ["status", "progressStatus"]))) return;
-    addWorkDateRangeItems(items, task, index, "output", `[출력] ${firstText(task, ["outputType"]) || workTitle(task, "output")}`, firstText(task, ["memo", "description"]));
+    addWorkDateRangeItems(items, task, index, "output", `[출력] ${workTitle(task, "output")}`, joinParts([companyName(task) ? `업체: ${companyName(task)}` : task.companyUnknown ? "업체 미정" : "", firstText(task, ["outputType"]), firstText(task, ["memo", "description"])], " · "));
     addTaxInvoiceScheduleItem(items, task, index, "output", `[출력] ${workTitle(task, "output")}`, firstText(task, ["status", "progressStatus"]), firstText(task, ["priority", "importance"]));
   });
 
   data.otherTasks.forEach((task, index) => {
     if (isClosed(firstText(task, ["status", "progressStatus"]))) return;
-    addWorkDateRangeItems(items, task, index, "other", `[기타] ${workTitle(task, "other")}`, firstText(task, ["memo", "description"]));
+    addWorkDateRangeItems(items, task, index, "other", `[기타] ${workTitle(task, "other")}`, joinParts([companyName(task) ? `업체: ${companyName(task)}` : task.companyUnknown ? "업체 미정" : "", firstText(task, ["memo", "description"])], " · "));
   });
 
   return items.sort((a, b) => a.date.localeCompare(b.date) || Number(b.isImportant) - Number(a.isImportant) || priorityScoreFromText(b.priority) - priorityScoreFromText(a.priority));
@@ -7852,10 +7910,13 @@ function workTitle(record: AnyRecord, type: "settlement" | "output" | "other"): 
   if (type === "settlement") {
     return companyName(record) || firstText(record, ["title", "taskName"]) || "정산 업무";
   }
-  if (type === "output") {
-    return firstText(record, ["title", "taskName", "outputName"]) || companyName(record) || "출력 업무";
-  }
-  return firstText(record, ["title", "taskName", "name"]) || companyName(record) || "기타 업무";
+  return firstText(record, ["title"]) || deriveWorkTaskTitle(record, type);
+}
+
+function workCompanyDisplay(record: AnyRecord, linkedSales: AnyRecord | null = null): string {
+  const company = companyName(record) || (linkedSales ? salesCustomer(linkedSales) : "");
+  if (company && company !== "고객 미정") return company;
+  return record.companyUnknown ? "업체 미정" : "관련 업체 없음";
 }
 
 function matchesRecord(record: AnyRecord, query: string): boolean {
