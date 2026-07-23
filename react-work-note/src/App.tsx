@@ -906,6 +906,11 @@ function SchedulePortal({
   return (
     <div className="schedule-layout">
       <section className="schedule-main">
+        <div className="summary-grid schedule-summary-grid" aria-label="업무 전용 페이지 바로가기">
+          {quickCards.map((card) => (
+            <MetricCard key={card.id} label={card.label} value={card.value} active={false} onClick={() => onNavigatePage(card.id)} />
+          ))}
+        </div>
         <div className="panel calendar-panel">
           <div className="section-title-row">
             <div>
@@ -933,11 +938,6 @@ function SchedulePortal({
             </div>
           </div>
           <CalendarGrid cursor={calendarCursor} mode={calendarMode} items={items} onOpenItem={onOpenItem} />
-        </div>
-        <div className="summary-grid schedule-summary-grid" aria-label="업무 전용 페이지 바로가기">
-          {quickCards.map((card) => (
-            <MetricCard key={card.id} label={card.label} value={card.value} active={false} onClick={() => onNavigatePage(card.id)} />
-          ))}
         </div>
       </section>
       <aside className="today-panel panel">
