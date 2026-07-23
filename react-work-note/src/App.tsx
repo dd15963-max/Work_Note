@@ -66,6 +66,7 @@ type WorkNoteData = {
   version: string;
   updatedAt: string;
   companies: AnyRecord[];
+  internalContacts: AnyRecord[];
   notes: AnyRecord[];
   materialSalesNotes: AnyRecord[];
   settlementTasks: AnyRecord[];
@@ -304,6 +305,7 @@ function readTaskDetailFromLocation(): { portal: UnifiedWorkItem["portal"]; id: 
 }
 export function App() {
   const [activePortal, setActivePortal] = useState<PortalId>("schedule");
+  const [companyView, setCompanyView] = useState<"customer" | "headquarters">("customer");
   const [tasksOpen, setTasksOpen] = useState(() => isTasksLocation());
   const [taskFilters, setTaskFilters] = useState<TaskFilters>(() => readTaskFiltersFromLocation());
   const [query, setQuery] = useState("");
@@ -522,7 +524,7 @@ export function App() {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="업체, 영업, 계정, 일정, 담당자, 메모 통합 검색"
+            placeholder="고객사, 본사 담당자, 영업, 계정, 일정, 메모 통합 검색"
           />
         </label>
         <div className="command-meta">
@@ -543,7 +545,10 @@ export function App() {
                 type="button"
                 className="result-card"
                 key={result.id}
-                onClick={() => selectPortal(result.portal)}
+                onClick={() => {
+                  if (result.companyView) setCompanyView(result.companyView);
+                  selectPortal(result.portal);
+                }}
               >
                 <strong>{result.title}</strong>
                 <span>{result.meta}</span>
@@ -576,7 +581,7 @@ export function App() {
             onToggleCompleted={toggleTaskCompleted}
           />
         )}
-        {activePortal === "company" && <CompanyPortal data={data} query={query} onPersist={persistData} />}
+        {activePortal === "company" && <CompanyPortal data={data} query={query} view={companyView} setView={setCompanyView} onPersist={persistData} />}
         {activePortal === "sales" && <SalesPortal data={data} query={query} onPersist={persistData} focusTarget={focusTarget} />}
         {activePortal === "settlement" && <GenericWorkPortal title="정산" records={data.settlementTasks} query={query} type="settlement" data={data} onPersist={persistData} focusTarget={focusTarget} onClearFocusTarget={() => setFocusTarget(null)} />}
         {activePortal === "output" && <GenericWorkPortal title="출력" records={data.outputTasks} query={query} type="output" data={data} onPersist={persistData} focusTarget={focusTarget} onClearFocusTarget={() => setFocusTarget(null)} />}
@@ -845,7 +850,7 @@ function BackupCenter({
   };
 
   const resetWorkspace = async () => {
-    const ok = confirm("전체 메모장을 초기화할까요?\n\n영업, 정산, 출력, 기타, 업체, 계정 기록과 이 브라우저에 저장된 첨부 원본 파일이 모두 삭제됩니다.\n필요한 자료가 있으면 먼저 전체 ZIP 백업을 만들어 주세요.");
+    const ok = confirm("전체 메모장을 초기화할까요?\n\n영업, 정산, 출력, 기타, 고객사, 본사 담당자, 계정 기록과 이 브라우저에 저장된 첨부 원본 파일이 모두 삭제됩니다.\n필요한 자료가 있으면 먼저 전체 ZIP 백업을 만들어 주세요.");
     if (!ok) return;
 
     setBusy("전체 초기화 중");
@@ -1558,6 +1563,43 @@ function persistImportantToggle(
 function CompanyPortal({
   data,
   query,
+  view,
+  setView,
+  onPersist
+}: {
+  data: WorkNoteData;
+  query: string;
+  view: "customer" | "headquarters";
+  setView: (view: "customer" | "headquarters") => void;
+  onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
+}) {
+  return (
+    <div className="company-master-portal">
+      <section className="company-master-nav panel" aria-label="업체 관리 구분">
+        <div>
+          <p className="eyebrow">COMPANY MASTER</p>
+          <h2>업체</h2>
+        </div>
+        <div className="segmented company-master-tabs">
+          <button type="button" className={view === "customer" ? "is-active" : ""} onClick={() => setView("customer")}>
+            <Building2 size={16} />고객사
+          </button>
+          <button type="button" className={view === "headquarters" ? "is-active" : ""} onClick={() => setView("headquarters")}>
+            <BriefcaseBusiness size={16} />본사
+          </button>
+        </div>
+      </section>
+      {view === "customer" ? (
+        <CustomerCompanyPortal data={data} query={query} onPersist={onPersist} />
+      ) : (
+        <InternalContactPortal data={data} query={query} onPersist={onPersist} />
+      )}
+    </div>
+  );
+}
+function CustomerCompanyPortal({
+  data,
+  query,
   onPersist
 }: {
   data: WorkNoteData;
@@ -1640,13 +1682,13 @@ function CompanyPortal({
       <div className="section-title-row">
         <div>
           <p className="eyebrow">COMPANIES</p>
-          <h2>업체 관리</h2>
+          <h2>고객사 관리</h2>
         </div>
         <div className="toolbar-cluster">
           <span className="count-label">{companies.length}개</span>
           <button type="button" onClick={() => setEditingCompany(createBlankCompany())}>
             <Plus size={16} />
-            새 업체
+            새 고객사
           </button>
         </div>
       </div>
@@ -1655,6 +1697,7 @@ function CompanyPortal({
           <CompanyEditor
             draft={editingCompany}
             setDraft={setEditingCompany}
+            internalContacts={data.internalContacts}
             onSave={saveCompany}
             onCancel={() => setEditingCompany(null)}
           />
@@ -1683,12 +1726,13 @@ function CompanyPortal({
               <InfoLine label="주소" value={firstText(company, ["address"])} />
               <InfoLine label="서류" value={attachments.length ? `${attachments.length}개` : ""} />
               <InfoLine label="담당자" value={primaryContact ? companyContactSummary(primaryContact) : ""} />
+              {primaryContact && <CustomerInternalOwners contact={primaryContact} internalContacts={data.internalContacts} />}
               {extraContacts.length > 0 && (
                 <details className="company-contact-details">
                   <summary>추가 담당자 {extraContacts.length}명</summary>
                   <div>
                     {extraContacts.map((contact, contactIndex) => (
-                      <span key={recordId(contact, contactIndex)}>{companyContactSummary(contact) || "담당자"}</span>
+                      <span key={recordId(contact, contactIndex)}>{companyContactSummary(contact) || "담당자"}{internalOwnerInlineSummary(contact, data.internalContacts) ? ` · 본사: ${internalOwnerInlineSummary(contact, data.internalContacts)}` : ""}</span>
                     ))}
                   </div>
                 </details>
@@ -1742,13 +1786,151 @@ function CompanyPortal({
             </article>
           );
         })}
-        {!companies.length && <EmptyState title="업체 없음" detail="검색 조건에 맞는 업체가 없습니다." />}
+        {!companies.length && <EmptyState title="고객사 없음" detail="검색 조건에 맞는 고객사가 없습니다." />}
       </div>
     </section>
   );
 }
 
-function CompanyEditor({
+const INTERNAL_DEPARTMENT_OPTIONS = ["영업1팀", "영업2팀", "기술지원팀", "생산팀", "연구소", "품질팀", "구매팀", "경영지원팀"];
+const INTERNAL_DUTY_SUGGESTIONS = ["장비 설치", "A/S", "출력 테스트", "샘플 제작", "기술 지원", "견적 검토", "계약 검토"];
+const CUSTOMER_OWNER_FIELDS = [
+  { key: "salesOwnerId", label: "담당 영업", shortLabel: "영업" },
+  { key: "technicalOwnerId", label: "기술 담당", shortLabel: "기술" },
+  { key: "printOwnerId", label: "출력 담당", shortLabel: "출력" },
+  { key: "otherOwnerId", label: "기타 담당", shortLabel: "기타" }
+] as const;
+
+function InternalContactPortal({
+  data,
+  query,
+  onPersist
+}: {
+  data: WorkNoteData;
+  query: string;
+  onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
+}) {
+  const [editingContact, setEditingContact] = useState<AnyRecord | null>(null);
+  const [departmentFilter, setDepartmentFilter] = useState("all");
+  const [internalQuery, setInternalQuery] = useState("");
+  const departments = useMemo(
+    () => [...new Set([...INTERNAL_DEPARTMENT_OPTIONS, ...data.internalContacts.map((contact) => firstText(contact, ["department"])).filter(Boolean)])],
+    [data.internalContacts]
+  );
+  const contacts = data.internalContacts
+    .map((contact, index) => ({ contact, index, id: recordId(contact, index) }))
+    .filter(({ contact }) => departmentFilter === "all" || firstText(contact, ["department"]) === departmentFilter)
+    .filter(({ contact }) => !query || matchesRecord(contact, query))
+    .filter(({ contact }) => !internalQuery || matchesRecord(contact, internalQuery))
+    .sort((a, b) => firstText(a.contact, ["department"]).localeCompare(firstText(b.contact, ["department"]), "ko") || firstText(a.contact, ["name"]).localeCompare(firstText(b.contact, ["name"]), "ko"));
+
+  const saveContact = (draft: AnyRecord) => {
+    const normalized = normalizeInternalContactDraft(draft);
+    if (!firstText(normalized, ["name"])) {
+      alert("이름을 입력해 주세요.");
+      return;
+    }
+    onPersist((current) => {
+      const now = new Date().toISOString();
+      const previous = current.internalContacts.find((contact, index) => recordId(contact, index) === normalized.id);
+      const contact = {
+        ...previous,
+        ...normalized,
+        createdAt: firstText(previous || {}, ["createdAt"]) || now,
+        updatedAt: now
+      };
+      const exists = current.internalContacts.some((item, index) => recordId(item, index) === normalized.id);
+      return {
+        ...current,
+        internalContacts: exists
+          ? current.internalContacts.map((item, index) => recordId(item, index) === normalized.id ? contact : item)
+          : [contact, ...current.internalContacts]
+      };
+    }, firstText(draft, ["id"]) ? "본사 담당자 수정" : "본사 담당자 등록");
+    setEditingContact(null);
+  };
+
+  const deleteContact = (contact: AnyRecord, index: number) => {
+    const id = recordId(contact, index);
+    const label = internalContactLabel(contact) || "선택한 담당자";
+    const linkedCount = countInternalContactLinks(data.companies, id);
+    const message = linkedCount
+      ? `${label} 담당자를 삭제할까요?\n\n고객사 담당자 연결 ${linkedCount}건도 함께 해제됩니다.`
+      : `${label} 담당자를 삭제할까요?`;
+    if (!confirm(message)) return;
+    onPersist((current) => ({
+      ...current,
+      internalContacts: current.internalContacts.filter((item, itemIndex) => recordId(item, itemIndex) !== id),
+      companies: clearInternalContactLinks(current.companies, id)
+    }), "본사 담당자 삭제");
+  };
+
+  return (
+    <section className="panel internal-contact-portal">
+      <div className="section-title-row">
+        <div>
+          <p className="eyebrow">HEADQUARTERS CONTACTS</p>
+          <h2>본사 담당자</h2>
+        </div>
+        <div className="toolbar-cluster">
+          <span className="count-label">{contacts.length}/{data.internalContacts.length}명</span>
+          <button type="button" onClick={() => setEditingContact(createBlankInternalContact())}>
+            <Plus size={16} />담당자 등록
+          </button>
+        </div>
+      </div>
+
+      <div className="internal-contact-filters">
+        <label className="task-filter-search">
+          <Search size={17} />
+          <input value={internalQuery} onChange={(event) => setInternalQuery(event.target.value)} placeholder="이름, 부서, 직급, 담당 업무, 메모 검색" />
+        </label>
+        <div className="department-filter-row" aria-label="부서 필터">
+          <button type="button" className={departmentFilter === "all" ? "is-active" : ""} onClick={() => setDepartmentFilter("all")}>전체</button>
+          {departments.map((department) => (
+            <button type="button" key={department} className={departmentFilter === department ? "is-active" : ""} onClick={() => setDepartmentFilter(department)}>
+              {department}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {editingContact && (
+        <EditorDrawer onClose={() => setEditingContact(null)}>
+          <InternalContactEditor draft={editingContact} setDraft={setEditingContact} onSave={saveContact} onCancel={() => setEditingContact(null)} />
+        </EditorDrawer>
+      )}
+
+      <div className="internal-contact-grid">
+        {contacts.map(({ contact, index, id }) => {
+          const duties = asTextArray(contact.duties);
+          const linkedCount = countInternalContactLinks(data.companies, id);
+          return (
+            <article className="internal-contact-card" key={id}>
+              <div className="card-heading">
+                <strong>{internalContactLabel(contact) || "이름 미입력"}</strong>
+                <Badge tone="blue">{firstText(contact, ["department"]) || "부서 미지정"}</Badge>
+              </div>
+              <InfoLine label="휴대폰" value={firstText(contact, ["mobile", "phone"])} />
+              <InfoLine label="내선" value={firstText(contact, ["extension"])} />
+              <InfoLine label="이메일" value={firstText(contact, ["email"])} />
+              <InfoLine label="고객사 연결" value={linkedCount ? `${linkedCount}건` : ""} />
+              {duties.length > 0 && <div className="internal-duty-chips">{duties.map((duty) => <span key={duty}>{duty}</span>)}</div>}
+              {firstText(contact, ["memo"]) && <p className="muted-preview">{firstText(contact, ["memo"])}</p>}
+              <div className="card-actions">
+                <button type="button" onClick={() => setEditingContact(prepareInternalContactDraft(contact, index))}><Pencil size={15} />수정</button>
+                <button type="button" className="danger-button" onClick={() => deleteContact(contact, index)}><Trash2 size={15} />삭제</button>
+              </div>
+            </article>
+          );
+        })}
+        {!contacts.length && <EmptyState title="본사 담당자 없음" detail="검색 또는 부서 조건에 맞는 담당자가 없습니다." />}
+      </div>
+    </section>
+  );
+}
+
+function InternalContactEditor({
   draft,
   setDraft,
   onSave,
@@ -1756,6 +1938,123 @@ function CompanyEditor({
 }: {
   draft: AnyRecord;
   setDraft: (draft: AnyRecord) => void;
+  onSave: (draft: AnyRecord) => void;
+  onCancel: () => void;
+}) {
+  const [dutyInput, setDutyInput] = useState("");
+  const duties = asTextArray(draft.duties);
+  const updateField = (key: string, value: string) => setDraft({ ...draft, [key]: value });
+  const addDuty = (value = dutyInput) => {
+    const duty = clean(value);
+    if (!duty || duties.includes(duty)) return;
+    setDraft({ ...draft, duties: [...duties, duty] });
+    setDutyInput("");
+  };
+  const removeDuty = (duty: string) => setDraft({ ...draft, duties: duties.filter((item) => item !== duty) });
+
+  return (
+    <section className="editor-panel internal-contact-editor">
+      <div className="section-title-row">
+        <div>
+          <p className="eyebrow">HEADQUARTERS CONTACT</p>
+          <h2>{firstText(draft, ["id"]) ? "본사 담당자 수정" : "본사 담당자 등록"}</h2>
+        </div>
+        <button type="button" onClick={onCancel} aria-label="본사 담당자 편집 닫기"><X size={17} /></button>
+      </div>
+      <div className="form-grid">
+        <TextField label="이름" value={firstText(draft, ["name"])} onChange={(value) => updateField("name", value)} placeholder="예: 홍길동" />
+        <TextField label="직급" value={firstText(draft, ["title"])} onChange={(value) => updateField("title", value)} placeholder="예: 책임" />
+        <label className="field">
+          <span>부서</span>
+          <input list="internal-department-options" value={firstText(draft, ["department"])} onChange={(event) => updateField("department", event.target.value)} placeholder="선택 또는 직접 입력" />
+          <datalist id="internal-department-options">{INTERNAL_DEPARTMENT_OPTIONS.map((department) => <option key={department} value={department} />)}</datalist>
+        </label>
+        <TextField label="휴대폰" value={firstText(draft, ["mobile"])} onChange={(value) => updateField("mobile", value)} placeholder="010-0000-0000" />
+        <TextField label="내선번호" value={firstText(draft, ["extension"])} onChange={(value) => updateField("extension", value)} placeholder="예: 1234" />
+        <TextField label="이메일" value={firstText(draft, ["email"])} onChange={(value) => updateField("email", value)} placeholder="name@example.com" />
+        <TextAreaField label="메모" value={rawText(draft, ["memo"])} onChange={(value) => updateField("memo", value)} placeholder="담당 범위, 협업 시 참고사항" wide />
+      </div>
+      <div className="editor-subsection internal-duty-editor">
+        <div className="section-title-row">
+          <div><p className="eyebrow">RESPONSIBILITIES</p><h2>담당 업무</h2></div>
+          <span className="count-label">{duties.length}개</span>
+        </div>
+        <div className="duty-input-row">
+          <input
+            list="internal-duty-options"
+            value={dutyInput}
+            onChange={(event) => setDutyInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              addDuty();
+            }}
+            placeholder="담당 업무를 선택하거나 직접 입력"
+          />
+          <datalist id="internal-duty-options">{INTERNAL_DUTY_SUGGESTIONS.map((duty) => <option key={duty} value={duty} />)}</datalist>
+          <button type="button" onClick={() => addDuty()}><Plus size={16} />추가</button>
+        </div>
+        <div className="internal-duty-chips editable">
+          {duties.map((duty) => <button type="button" key={duty} onClick={() => removeDuty(duty)} title={`${duty} 제거`}>{duty}<X size={13} /></button>)}
+          {!duties.length && <span className="duty-empty-copy">등록된 담당 업무가 없습니다.</span>}
+        </div>
+      </div>
+      <EditorActionBar onSave={() => onSave(draft)} onCancel={onCancel} />
+    </section>
+  );
+}
+
+function CustomerInternalOwners({ contact, internalContacts }: { contact: AnyRecord; internalContacts: AnyRecord[] }) {
+  const owners = CUSTOMER_OWNER_FIELDS.map((field) => ({
+    ...field,
+    contact: internalContacts.find((item, index) => recordId(item, index) === firstText(contact, [field.key])) || null
+  })).filter((item) => item.contact);
+  if (!owners.length) return null;
+  return (
+    <div className="customer-internal-owners">
+      <strong>본사 담당자</strong>
+      <div>
+        {owners.map((owner) => <span key={owner.key}><small>{owner.shortLabel}</small>{internalContactLabel(owner.contact || {})}</span>)}
+      </div>
+    </div>
+  );
+}
+
+function InternalOwnerSelect({
+  label,
+  value,
+  internalContacts,
+  onChange
+}: {
+  label: string;
+  value: string;
+  internalContacts: AnyRecord[];
+  onChange: (value: string) => void;
+}) {
+  const sorted = [...internalContacts].sort((a, b) => firstText(a, ["department"]).localeCompare(firstText(b, ["department"]), "ko") || firstText(a, ["name"]).localeCompare(firstText(b, ["name"]), "ko"));
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">미지정</option>
+        {sorted.map((contact, index) => {
+          const id = recordId(contact, index);
+          return <option key={id} value={id}>{joinParts([firstText(contact, ["department"]), internalContactLabel(contact)], " · ")}</option>;
+        })}
+      </select>
+    </label>
+  );
+}
+function CompanyEditor({
+  draft,
+  setDraft,
+  internalContacts,
+  onSave,
+  onCancel
+}: {
+  draft: AnyRecord;
+  setDraft: (draft: AnyRecord) => void;
+  internalContacts: AnyRecord[];
   onSave: (draft: AnyRecord) => void;
   onCancel: () => void;
 }) {
@@ -1770,7 +2069,7 @@ function CompanyEditor({
   const addContact = () => {
     setDraft({
       ...draft,
-      contacts: [...contacts, { id: createId("contact_"), name: "", department: "", title: "", phone: "", email: "", memo: "" }]
+      contacts: [...contacts, { id: createId("contact_"), name: "", department: "", title: "", phone: "", email: "", memo: "", salesOwnerId: "", technicalOwnerId: "", printOwnerId: "", otherOwnerId: "" }]
     });
   };
   const removeContact = (index: number) => {
@@ -1826,6 +2125,18 @@ function CompanyEditor({
               <TextField label="연락처" value={firstText(contact, ["phone"])} onChange={(value) => updateContact(index, "phone", value)} placeholder="010-0000-0000" />
               <TextField label="이메일" value={firstText(contact, ["email"])} onChange={(value) => updateContact(index, "email", value)} placeholder="name@example.com" />
               <TextField label="메모" value={firstText(contact, ["memo"])} onChange={(value) => updateContact(index, "memo", value)} placeholder="역할, 주의사항" />
+              <div className="internal-owner-selector-grid">
+                <strong className="internal-owner-selector-title">본사 담당자 연결</strong>
+                {CUSTOMER_OWNER_FIELDS.map((field) => (
+                  <InternalOwnerSelect
+                    key={field.key}
+                    label={field.label}
+                    value={firstText(contact, [field.key])}
+                    internalContacts={internalContacts}
+                    onChange={(value) => updateContact(index, field.key, value)}
+                  />
+                ))}
+              </div>
               <button type="button" className="danger-button contact-remove-button" onClick={() => removeContact(index)}>
                 <Trash2 size={15} />
                 삭제
@@ -4668,6 +4979,7 @@ function loadWorkNoteData(): WorkNoteData {
     version: "unknown",
     updatedAt: "",
     companies: [],
+    internalContacts: [],
     notes: [],
     materialSalesNotes: [],
     settlementTasks: [],
@@ -4688,6 +5000,7 @@ function loadWorkNoteData(): WorkNoteData {
       version: firstText(parsed, ["version"]) || "unknown",
       updatedAt: firstText(parsed, ["updatedAt"]),
       companies: asArray(parsed.companies),
+      internalContacts: asArray(parsed.internalContacts),
       notes: asArray(parsed.notes),
       materialSalesNotes: asArray(parsed.materialSalesNotes),
       settlementTasks: asArray(parsed.settlementTasks),
@@ -4704,7 +5017,25 @@ function loadWorkNoteData(): WorkNoteData {
 }
 
 function migrateWorkNoteData(data: WorkNoteData): WorkNoteData {
-  return migrateImportantFlags(migrateSettlementTaxInvoiceRows(migrateLegacyMaterialSalesNotes(data)));
+  return migrateImportantFlags(migrateSettlementTaxInvoiceRows(migrateLegacyMaterialSalesNotes(migrateInternalContacts(data))));
+}
+
+function migrateInternalContacts(data: WorkNoteData): WorkNoteData {
+  return {
+    ...data,
+    internalContacts: asArray(data.internalContacts).map((contact, index) => ({
+      ...contact,
+      id: firstText(contact, ["id"]) || `internal_contact_legacy_${index}`,
+      name: firstText(contact, ["name"]),
+      title: firstText(contact, ["title"]),
+      department: firstText(contact, ["department"]),
+      mobile: firstText(contact, ["mobile", "phone"]),
+      extension: firstText(contact, ["extension"]),
+      email: firstText(contact, ["email"]),
+      duties: asTextArray(contact.duties),
+      memo: firstText(contact, ["memo"])
+    }))
+  };
 }
 
 function migrateImportantFlags(data: WorkNoteData): WorkNoteData {
@@ -4899,6 +5230,7 @@ function saveWorkNoteData(data: WorkNoteData, reason: string): WorkNoteData {
     version: data.version && data.version !== "unknown" ? data.version : "react-work-note-v1",
     updatedAt: now,
     companies: asArray(data.companies),
+    internalContacts: asArray(data.internalContacts),
     notes: asArray(data.notes),
     materialSalesNotes: asArray(data.materialSalesNotes),
     settlementTasks: asArray(data.settlementTasks),
@@ -4945,7 +5277,7 @@ function createReactAutoSnapshot(reason: string) {
 }
 
 function validateWorkNotePayload(payload: AnyRecord) {
-  const arrayKeys = ["companies", "notes", "materialSalesNotes", "settlementTasks", "outputTasks", "otherTasks", "accounts"];
+  const arrayKeys = ["companies", "internalContacts", "notes", "materialSalesNotes", "settlementTasks", "outputTasks", "otherTasks", "accounts"];
   const invalidKey = arrayKeys.find((key) => !Array.isArray(payload[key]));
   if (invalidKey) {
     throw new Error(`${invalidKey} 데이터 형식이 올바르지 않습니다.`);
@@ -4958,6 +5290,7 @@ function createEmptyWorkNoteData(): WorkNoteData {
     version: "react-work-note-v1",
     updatedAt: now,
     companies: [],
+    internalContacts: [],
     notes: [],
     materialSalesNotes: [],
     settlementTasks: [],
@@ -4981,6 +5314,7 @@ function createBackupPayload(data: WorkNoteData, reason: string, options: AnyRec
     fileOriginalsIncluded: Boolean(options.fileOriginalsIncluded),
     missingFileOriginals: Number(options.missingFileOriginals) || 0,
     companies: Array.isArray(options.companies) ? options.companies : state.companies,
+    internalContacts: Array.isArray(options.internalContacts) ? options.internalContacts : state.internalContacts,
     notes: Array.isArray(options.notes) ? options.notes : state.notes,
     materialSalesNotes: Array.isArray(options.materialSalesNotes) ? options.materialSalesNotes : state.materialSalesNotes,
     settlementTasks: Array.isArray(options.settlementTasks) ? options.settlementTasks : state.settlementTasks,
@@ -4990,9 +5324,10 @@ function createBackupPayload(data: WorkNoteData, reason: string, options: AnyRec
   };
 }
 
-function cloneBackupState(data: WorkNoteData): Pick<WorkNoteData, "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts"> {
+function cloneBackupState(data: WorkNoteData): Pick<WorkNoteData, "companies" | "internalContacts" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts"> {
   return {
     companies: JSON.parse(JSON.stringify(asArray(data.companies))),
+    internalContacts: JSON.parse(JSON.stringify(asArray(data.internalContacts))),
     notes: JSON.parse(JSON.stringify(asArray(data.notes))),
     materialSalesNotes: JSON.parse(JSON.stringify(asArray(data.materialSalesNotes))),
     settlementTasks: JSON.parse(JSON.stringify(asArray(data.settlementTasks))),
@@ -5064,9 +5399,10 @@ function attachmentOwnerTitle(type: AttachmentOwnerType, owner: AnyRecord): stri
   return workTitle(owner, "other");
 }
 
-function getBackupRecordCounts(data: Pick<WorkNoteData, "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts">): Record<string, number> {
+function getBackupRecordCounts(data: Pick<WorkNoteData, "companies" | "internalContacts" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts">): Record<string, number> {
   return {
     companies: asArray(data.companies).length,
+    internalContacts: asArray(data.internalContacts).length,
     notes: asArray(data.notes).length,
     materialSalesNotes: asArray(data.materialSalesNotes).length,
     settlementTasks: asArray(data.settlementTasks).length,
@@ -5084,6 +5420,7 @@ function compareBackupCounts(expected: Record<string, number>, actual: Record<st
 
 const CSV_EXPORT_FILE_NAMES: Record<string, string> = {
   "업체": "companies.csv",
+  "본사담당자": "internal-contacts.csv",
   "장비영업": "equipment-sales.csv",
   "소재영업": "material-sales.csv",
   "소재판매품목": "material-sales-items.csv",
@@ -5126,7 +5463,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
   };
 
   addSheet("업체", [
-    ["업체명", "사업자번호", "대표자", "업종/분류", "거래상태", "주소", "대표 연락처", "대표 이메일", "기본 담당자", "담당자 연락처", "담당자 이메일", "담당자 수", "첨부 수", "최종 수정", "메모"],
+    ["업체명", "사업자번호", "대표자", "업종/분류", "거래상태", "주소", "대표 연락처", "대표 이메일", "기본 담당자", "담당자 연락처", "담당자 이메일", "담당 영업", "기술 담당", "출력 담당", "기타 담당", "담당자 수", "첨부 수", "최종 수정", "메모"],
     ...asArray(data.companies).map((company) => {
       const contacts = asArray(company.contacts);
       const primary = contacts.find((contact) => Boolean(contact.isPrimary)) || contacts[0] || {};
@@ -5142,6 +5479,10 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
         firstText(primary, ["name", "contactName"]),
         firstText(primary, ["phone", "contactPhone", "mobile"]),
         firstText(primary, ["email", "contactEmail"]),
+        internalOwnerLabelById(firstText(primary, ["salesOwnerId"]), data.internalContacts),
+        internalOwnerLabelById(firstText(primary, ["technicalOwnerId"]), data.internalContacts),
+        internalOwnerLabelById(firstText(primary, ["printOwnerId"]), data.internalContacts),
+        internalOwnerLabelById(firstText(primary, ["otherOwnerId"]), data.internalContacts),
         contacts.length,
         asArray(company.attachments).length,
         formatDateTime(firstText(company, ["updatedAt"])),
@@ -5150,6 +5491,20 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
     })
   ]);
 
+  addSheet("본사담당자", [
+    ["이름", "직급", "부서", "휴대폰", "내선번호", "이메일", "담당 업무", "최종 수정", "메모"],
+    ...asArray(data.internalContacts).map((contact) => [
+      firstText(contact, ["name"]),
+      firstText(contact, ["title"]),
+      firstText(contact, ["department"]),
+      firstText(contact, ["mobile", "phone"]),
+      firstText(contact, ["extension"]),
+      firstText(contact, ["email"]),
+      asTextArray(contact.duties).join(", "),
+      formatDateTime(firstText(contact, ["updatedAt"])),
+      summarizeForCsv(firstText(contact, ["memo"]))
+    ])
+  ]);
   addSheet("장비영업", [
     ["업체명", "담당자", "연락처", "이메일", "진행상태", "구분", "중요도", "중요 업무", "관심 장비", "견적 여부", "구매 가능성", "예상매출", "예상매출 VAT", "매출", "매출 VAT", "매출 구분", "다음 연락", "미팅 일정", "최근 연락", "결제/증빙 방식", "처리 상태", "발행/결제 예정일", "첨부 수", "최종 수정", "다음 액션", "메모"],
     ...asArray(data.notes).map((note) => [
@@ -5542,6 +5897,7 @@ async function createFullBackupZipBlob(data: WorkNoteData): Promise<{ blob: Blob
     fileOriginalsIncluded: missingCount === 0,
     missingFileOriginals: missingCount,
     companies: backupState.companies,
+    internalContacts: backupState.internalContacts,
     notes: backupState.notes,
     materialSalesNotes: backupState.materialSalesNotes,
     settlementTasks: backupState.settlementTasks,
@@ -5794,6 +6150,7 @@ function normalizeBackupToWorkNote(backupData: AnyRecord): WorkNoteData {
     version: firstText(backupData, ["version"]) || "react-work-note-v1",
     updatedAt: firstText(backupData, ["updatedAt", "backupCreatedAt"]) || new Date().toISOString(),
     companies: asArray(backupData.companies),
+    internalContacts: asArray(backupData.internalContacts),
     notes: asArray(backupData.notes),
     materialSalesNotes: asArray(backupData.materialSalesNotes),
     settlementTasks: asArray(backupData.settlementTasks),
@@ -5857,7 +6214,8 @@ function mergeBackupData(current: WorkNoteData, incomingRaw: AnyRecord): WorkNot
     ...normalizeBackupToWorkNote(current),
     version: incoming.version || current.version || "react-work-note-v1",
     updatedAt: new Date().toISOString(),
-    companies: mergeRecordList("company", current.companies, incoming.companies),
+    companies: [],
+    internalContacts: mergeRecordList("internalContact", current.internalContacts, incoming.internalContacts),
     notes: [],
     materialSalesNotes: [],
     settlementTasks: [],
@@ -5867,6 +6225,9 @@ function mergeBackupData(current: WorkNoteData, incomingRaw: AnyRecord): WorkNot
     loadedAt: new Date().toISOString()
   };
 
+  const internalContactIdMap = createIdMap(current.internalContacts, incoming.internalContacts, next.internalContacts, "internalContact");
+  remapInternalContactLinks(incoming.companies, internalContactIdMap);
+  next.companies = mergeRecordList("company", current.companies, incoming.companies);
   const companyIdMap = createIdMap(current.companies, incoming.companies, next.companies, "company");
   remapCompanyLinks(incoming.notes, companyIdMap);
   remapCompanyLinks(incoming.materialSalesNotes, companyIdMap);
@@ -5900,6 +6261,19 @@ function createIdMap(current: AnyRecord[], incoming: AnyRecord[], merged: AnyRec
   return map;
 }
 
+function remapInternalContactLinks(companies: AnyRecord[], internalContactIdMap: Map<string, string>) {
+  const keys = ["salesOwnerId", "technicalOwnerId", "printOwnerId", "otherOwnerId"];
+  companies.forEach((company) => {
+    company.contacts = asArray(company.contacts).map((contact) => {
+      const next = { ...contact };
+      keys.forEach((key) => {
+        const id = firstText(next, [key]);
+        if (id && internalContactIdMap.has(id)) next[key] = internalContactIdMap.get(id);
+      });
+      return next;
+    });
+  });
+}
 function remapCompanyLinks(records: AnyRecord[], companyIdMap: Map<string, string>) {
   records.forEach((record) => {
     const companyId = firstText(record, ["companyId"]);
@@ -5956,6 +6330,7 @@ function mergeRecordList(type: string, currentList: AnyRecord[], incomingList: A
 }
 
 function createMergeKey(type: string, item: AnyRecord, index: number): string {
+  if (type === "internalContact") return normalizeMergeText([firstText(item, ["name"]), firstText(item, ["department"]), firstText(item, ["mobile", "phone"]), firstText(item, ["email"])].join("|"));
   if (type === "company") return normalizeMergeText(companyName(item));
   if (type === "account") {
     return normalizeMergeText([firstText(item, ["siteUrl", "url"]), firstText(item, ["siteName", "name"]), firstText(item, ["username", "id"])].join("|"));
@@ -6319,6 +6694,85 @@ function normalizeAmountString(value: string): string {
   return Number.isInteger(number) ? String(number) : String(Number(number.toFixed(2)));
 }
 
+function createBlankInternalContact(): AnyRecord {
+  return {
+    id: "",
+    name: "",
+    title: "",
+    department: "",
+    mobile: "",
+    extension: "",
+    email: "",
+    duties: [],
+    memo: ""
+  };
+}
+
+function prepareInternalContactDraft(contact: AnyRecord, index: number): AnyRecord {
+  return {
+    ...createBlankInternalContact(),
+    ...contact,
+    id: recordId(contact, index),
+    name: firstText(contact, ["name"]),
+    title: firstText(contact, ["title"]),
+    department: firstText(contact, ["department"]),
+    mobile: firstText(contact, ["mobile", "phone"]),
+    extension: firstText(contact, ["extension"]),
+    email: firstText(contact, ["email"]),
+    duties: asTextArray(contact.duties),
+    memo: firstText(contact, ["memo"])
+  };
+}
+
+function normalizeInternalContactDraft(draft: AnyRecord): AnyRecord {
+  return {
+    id: firstText(draft, ["id"]) || createId("internal_contact_"),
+    name: firstText(draft, ["name"]),
+    title: firstText(draft, ["title"]),
+    department: firstText(draft, ["department"]),
+    mobile: firstText(draft, ["mobile", "phone"]),
+    extension: firstText(draft, ["extension"]),
+    email: firstText(draft, ["email"]),
+    duties: [...new Set(asTextArray(draft.duties))],
+    memo: firstText(draft, ["memo"])
+  };
+}
+
+function internalContactLabel(contact: AnyRecord): string {
+  return joinParts([firstText(contact, ["name"]), firstText(contact, ["title"])], " ");
+}
+
+function countInternalContactLinks(companies: AnyRecord[], internalContactId: string): number {
+  return companies.reduce((count, company) => count + asArray(company.contacts).reduce((contactCount, contact) => (
+    contactCount + CUSTOMER_OWNER_FIELDS.filter((field) => firstText(contact, [field.key]) === internalContactId).length
+  ), 0), 0);
+}
+
+function clearInternalContactLinks(companies: AnyRecord[], internalContactId: string): AnyRecord[] {
+  return companies.map((company) => ({
+    ...company,
+    contacts: asArray(company.contacts).map((contact) => {
+      const next = { ...contact };
+      CUSTOMER_OWNER_FIELDS.forEach((field) => {
+        if (firstText(next, [field.key]) === internalContactId) next[field.key] = "";
+      });
+      return next;
+    })
+  }));
+}
+
+function internalOwnerLabelById(id: string, internalContacts: AnyRecord[]): string {
+  if (!id) return "";
+  const contact = internalContacts.find((item, index) => recordId(item, index) === id);
+  return contact ? joinParts([firstText(contact, ["department"]), internalContactLabel(contact)], " · ") : "";
+}
+function internalOwnerInlineSummary(contact: AnyRecord, internalContacts: AnyRecord[]): string {
+  return CUSTOMER_OWNER_FIELDS.map((field) => {
+    const id = firstText(contact, [field.key]);
+    const owner = internalContacts.find((item, index) => recordId(item, index) === id);
+    return owner ? `${field.shortLabel} ${internalContactLabel(owner)}` : "";
+  }).filter(Boolean).join(", ");
+}
 function createBlankCompany(): AnyRecord {
   return {
     id: "",
@@ -6352,6 +6806,10 @@ function prepareCompanyDraft(company: AnyRecord, index: number): AnyRecord {
       phone: firstText(contact, ["phone", "contactPhone"]),
       email: firstText(contact, ["email", "contactEmail"]),
       memo: firstText(contact, ["memo"]),
+      salesOwnerId: firstText(contact, ["salesOwnerId"]),
+      technicalOwnerId: firstText(contact, ["technicalOwnerId"]),
+      printOwnerId: firstText(contact, ["printOwnerId"]),
+      otherOwnerId: firstText(contact, ["otherOwnerId"]),
       isPrimary: Boolean(contact.isPrimary)
     }))
   };
@@ -6367,6 +6825,10 @@ function normalizeCompanyDraft(draft: AnyRecord): AnyRecord {
       phone: firstText(contact, ["phone"]),
       email: firstText(contact, ["email"]),
       memo: firstText(contact, ["memo"]),
+      salesOwnerId: firstText(contact, ["salesOwnerId"]),
+      technicalOwnerId: firstText(contact, ["technicalOwnerId"]),
+      printOwnerId: firstText(contact, ["printOwnerId"]),
+      otherOwnerId: firstText(contact, ["otherOwnerId"]),
       isPrimary: index === 0
     }))
     .filter((contact) => ["name", "department", "title", "phone", "email", "memo"].some((key) => firstText(contact, [key])));
@@ -7247,8 +7709,9 @@ function scrollTaxInvoiceItemIntoView(id: string) {
 }
 function collectGlobalResults(data: WorkNoteData, query: string) {
   if (!query.trim()) return [];
-  const groups: Array<{ portal: PortalId; records: AnyRecord[]; title: (record: AnyRecord) => string; meta: (record: AnyRecord) => string }> = [
-    { portal: "company", records: data.companies, title: companyName, meta: (record) => firstText(record, ["status", "tradeStatus", "phone", "email"]) },
+  const groups: Array<{ portal: PortalId; companyView?: "customer" | "headquarters"; records: AnyRecord[]; title: (record: AnyRecord) => string; meta: (record: AnyRecord) => string }> = [
+    { portal: "company", companyView: "customer", records: data.companies, title: companyName, meta: (record) => firstText(record, ["status", "tradeStatus", "phone", "email"]) },
+    { portal: "company", companyView: "headquarters", records: data.internalContacts, title: (record) => firstText(record, ["name"]) || "본사 담당자", meta: (record) => joinParts([firstText(record, ["department"]), firstText(record, ["title"]), asTextArray(record.duties).join(", ")], " · ") },
     { portal: "sales", records: data.notes, title: salesCustomer, meta: (record) => firstText(record, ["nextAction", "status", "product"]) },
     { portal: "sales", records: data.materialSalesNotes, title: salesCustomer, meta: (record) => materialSalesItemsSummary(record) || materialSalesStatus(record) },
     { portal: "settlement", records: data.settlementTasks, title: (record) => workTitle(record, "settlement"), meta: deadlineText },
@@ -7261,14 +7724,19 @@ function collectGlobalResults(data: WorkNoteData, query: string) {
     group.records
       .filter((record) => matchesRecord(record, query))
       .map((record, index) => ({
-        id: `${group.portal}-${recordId(record, index)}`,
+        id: `${group.portal}-${group.companyView || "main"}-${recordId(record, index)}`,
         portal: group.portal,
+        companyView: group.companyView,
         title: group.title(record),
         meta: group.meta(record) || portals.find((portal) => portal.id === group.portal)?.label || ""
       }))
   );
 }
 
+function asTextArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(clean).filter(Boolean);
+}
 function asArray(value: unknown): AnyRecord[] {
   return Array.isArray(value) ? value.filter((item): item is AnyRecord => Boolean(item) && typeof item === "object" && !Array.isArray(item)) : [];
 }
