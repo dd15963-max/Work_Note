@@ -5184,3 +5184,9 @@ h2 {
   font-weight: 700;
   line-height: 1.35;
 }
+.tasks-period-label {
+  margin: 4px 0 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+}

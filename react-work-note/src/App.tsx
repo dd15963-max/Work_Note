@@ -1129,7 +1129,7 @@ function UnifiedTasksPage({
   onToggleCompleted: (collectionKey: TaskCollectionKey, id: string, completed: boolean) => void;
 }) {
   const filteredItems = useMemo(
-    () => sortUnifiedTasks(filterUnifiedTasks(workItems, filters), filters.sort),
+    () => sortUnifiedTasks(filterUnifiedTasks(workItems, filters), filters.sort, filters.period),
     [workItems, filters]
   );
   const assignees = useMemo(
@@ -1150,6 +1150,7 @@ function UnifiedTasksPage({
           <div>
             <p className="eyebrow">TASKS</p>
             <h2>업무</h2>
+            {(filters.period === "week" || filters.period === "month") && <p className="tasks-period-label">{formatTaskPeriodRangeLabel(filters.period)}</p>}
             <p>{describeTaskFilters(filters)}</p>
           </div>
         </div>
@@ -1408,13 +1409,8 @@ function taskPeriodRange(filters: TaskFilters): { start: string; end: string } |
     const key = toDateKey(today);
     return { start: key, end: key };
   }
-  if (filters.period === "week") return getMondayWeekRange(today);
-  if (filters.period === "month") {
-    return {
-      start: toDateKey(new Date(today.getFullYear(), today.getMonth(), 1)),
-      end: toDateKey(new Date(today.getFullYear(), today.getMonth() + 1, 0))
-    };
-  }
+  if (filters.period === "week") return getCurrentWeekRange(today);
+  if (filters.period === "month") return getCurrentMonthRange(today);
   return { start: filters.startDate || "0000-01-01", end: filters.endDate || "9999-12-31" };
 }
 
@@ -1441,7 +1437,7 @@ function filterUnifiedTasks(items: UnifiedWorkItem[], filters: TaskFilters): Uni
   });
 }
 
-function sortUnifiedTasks(items: UnifiedWorkItem[], sort: TaskSortKey): UnifiedWorkItem[] {
+function sortUnifiedTasks(items: UnifiedWorkItem[], sort: TaskSortKey, period: TaskPeriodFilter = "all"): UnifiedWorkItem[] {
   const dateValue = (item: UnifiedWorkItem) => item.primaryDate || "9999-12-31";
   const updatedValue = (item: UnifiedWorkItem) => item.createdAt || item.updatedAt || "";
   const base = (a: UnifiedWorkItem, b: UnifiedWorkItem) => Number(a.isCompleted) - Number(b.isCompleted)
@@ -1449,6 +1445,14 @@ function sortUnifiedTasks(items: UnifiedWorkItem[], sort: TaskSortKey): UnifiedW
     || dateValue(a).localeCompare(dateValue(b))
     || compareDate(b.updatedAt, a.updatedAt);
   return [...items].sort((a, b) => {
+    if (sort === "default" && period === "week") {
+      return dateValue(a).localeCompare(dateValue(b))
+        || Number(b.isImportant) - Number(a.isImportant)
+        || weeklyTaskTypeRank(a) - weeklyTaskTypeRank(b)
+        || Number(a.isCompleted) - Number(b.isCompleted)
+        || compareDate(b.updatedAt, a.updatedAt)
+        || a.title.localeCompare(b.title, "ko");
+    }
     if (sort === "dateAsc") return dateValue(a).localeCompare(dateValue(b)) || base(a, b);
     if (sort === "dateDesc") {
       if (!a.primaryDate && b.primaryDate) return 1;
@@ -1462,6 +1466,14 @@ function sortUnifiedTasks(items: UnifiedWorkItem[], sort: TaskSortKey): UnifiedW
     return base(a, b);
   });
 }
+
+function weeklyTaskTypeRank(item: UnifiedWorkItem): number {
+  if (item.portal === "sales" && `${item.subtype} ${item.schedule}`.includes("미팅")) return 0;
+  if (item.portal === "sales") return 1;
+  if (item.portal === "settlement") return 2;
+  if (item.portal === "output") return 3;
+  return 4;
+}
 function formatKoreanFullDate(dateKey: string): string {
   const date = parseDate(dateKey);
   if (!date) return formatDateForDisplay(dateKey);
@@ -1470,9 +1482,10 @@ function formatKoreanFullDate(dateKey: string): string {
 function CalendarGrid({ cursor, mode, items, onOpenItem }: { cursor: Date; mode: CalendarMode; items: ScheduleItem[]; onOpenItem: (item: ScheduleItem) => void }) {
   const days = mode === "month" ? getCalendarMonthDays(cursor) : getCalendarWeekDays(cursor);
   const itemsByDate = groupByDate(items);
+  const weekdayLabels = mode === "week" ? ["월", "화", "수", "목", "금", "토", "일"] : ["일", "월", "화", "수", "목", "금", "토"];
   return (
     <div className={`calendar-grid ${mode === "week" ? "week-mode" : ""}`}>
-      {["일", "월", "화", "수", "목", "금", "토"].map((day) => (
+      {weekdayLabels.map((day) => (
         <div className="calendar-weekday" key={day}>
           {day}
         </div>
@@ -7413,7 +7426,7 @@ function safeRecordSearchText(record: AnyRecord): string {
 }
 function collectUnifiedWorkItems(data: WorkNoteData, scheduleItems: ScheduleItem[]): UnifiedWorkItem[] {
   const today = toDateKey(new Date());
-  const { start: weekStart, end: weekEnd } = getMondayWeekRange(new Date());
+  const { start: weekStart, end: weekEnd } = getCurrentWeekRange(new Date());
   const scheduleDates = new Map<string, string[]>();
 
   scheduleItems.forEach((item) => {
@@ -7596,13 +7609,32 @@ function settlementUnifiedScheduleText(record: AnyRecord, dates: string[]): stri
   return formatOptionalDate(firstText(record, ["nextActionDate", "endDate"])) || "일정 미정";
 }
 
-function getMondayWeekRange(date: Date): { start: string; end: string } {
-  const current = startOfDay(date);
+function getCurrentWeekRange(baseDate = new Date()): { start: string; end: string } {
+  const current = startOfDay(baseDate);
   const monday = new Date(current);
   monday.setDate(current.getDate() - ((current.getDay() + 6) % 7));
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
   return { start: toDateKey(monday), end: toDateKey(sunday) };
+}
+
+function getCurrentMonthRange(baseDate = new Date()): { start: string; end: string } {
+  const current = startOfDay(baseDate);
+  return {
+    start: toDateKey(new Date(current.getFullYear(), current.getMonth(), 1)),
+    end: toDateKey(new Date(current.getFullYear(), current.getMonth() + 1, 0))
+  };
+}
+
+function formatTaskPeriodRangeLabel(period: TaskPeriodFilter, baseDate = new Date()): string {
+  const range = period === "month" ? getCurrentMonthRange(baseDate) : getCurrentWeekRange(baseDate);
+  return `${formatWeekDateLabel(range.start)} ~ ${formatWeekDateLabel(range.end)}`;
+}
+
+function formatWeekDateLabel(dateKey: string): string {
+  const date = parseDate(dateKey);
+  const weekday = ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
+  return `${formatDateForDisplay(dateKey)}(${weekday})`;
 }
 
 function compareUnifiedWorkItems(a: UnifiedWorkItem, b: UnifiedWorkItem): number {
@@ -8390,8 +8422,7 @@ function getCalendarMonthDays(cursor: Date): Date[] {
 }
 
 function getCalendarWeekDays(cursor: Date): Date[] {
-  const start = new Date(cursor);
-  start.setDate(cursor.getDate() - cursor.getDay());
+  const start = parseDate(getCurrentWeekRange(cursor).start);
   return Array.from({ length: 7 }, (_, index) => {
     const day = new Date(start);
     day.setDate(start.getDate() + index);
@@ -8423,11 +8454,7 @@ function moveCalendar(cursor: Date, mode: CalendarMode, amount: number): Date {
 
 function isSameWeek(a: Date, b: Date): boolean {
   if (a.getTime() <= 0) return false;
-  const aStart = new Date(a);
-  aStart.setDate(a.getDate() - a.getDay());
-  const bStart = new Date(b);
-  bStart.setDate(b.getDate() - b.getDay());
-  return toDateKey(aStart) === toDateKey(bStart);
+  return getCurrentWeekRange(a).start === getCurrentWeekRange(b).start;
 }
 
 function groupByDate(items: ScheduleItem[]): Map<string, ScheduleItem[]> {
