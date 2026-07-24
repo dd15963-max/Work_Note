@@ -3657,6 +3657,7 @@ function GenericWorkPortal({
 }) {
   const [filePanel, setFilePanel] = useState<string | null>(null);
   const [editingRecord, setEditingRecord] = useState<AnyRecord | null>(null);
+  const [focusedSettlementRowId, setFocusedSettlementRowId] = useState("");
   const [workMode, setWorkMode] = useState<ListMode>("all");
   const handledFocusTargetRef = useRef("");
   const fileHandlers = createAttachmentHandlers({
@@ -3681,6 +3682,7 @@ function GenericWorkPortal({
 
   const closeEditor = () => {
     setEditingRecord(null);
+    setFocusedSettlementRowId("");
     onClearFocusTarget();
   };
 
@@ -3691,6 +3693,7 @@ function GenericWorkPortal({
     const target = searched.find(({ id }) => id === focusTarget.id);
     if (!target) return;
     handledFocusTargetRef.current = focusKey;
+    setFocusedSettlementRowId("");
     setWorkMode(getListMode(target.record));
     if (focusTarget.openEditor || (focusTarget.taxInvoiceItemId && (type === "settlement" || focusTarget.taxInvoiceItemId === "record-tax-invoice"))) {
       setEditingRecord(prepareWorkDraft(target.record, target.originalIndex, type));
@@ -3757,7 +3760,7 @@ function GenericWorkPortal({
         </div>
         <div className="toolbar-cluster">
           <span className="count-label">{filtered.length}/{searched.length}건</span>
-          <button type="button" onClick={() => setEditingRecord(createBlankWorkTask(type))}>
+          <button type="button" onClick={() => { setFocusedSettlementRowId(""); setEditingRecord(createBlankWorkTask(type)); }}>
             <Plus size={16} />
             새 업무
           </button>
@@ -3772,6 +3775,7 @@ function GenericWorkPortal({
             title={title}
             data={data}
             focusTaxInvoiceItemId={focusTarget?.portal === type ? focusTarget.taxInvoiceItemId : undefined}
+            focusSettlementRowId={focusedSettlementRowId}
             onSave={saveWorkRecord}
             onCancel={closeEditor}
             fileAvailable={records.some((record, index) => recordId(record, index) === firstText(editingRecord, ["id"]))}
@@ -3808,13 +3812,21 @@ function GenericWorkPortal({
                   )}
                 </div>
               </div>
-              <WorkTaskDetails record={record} type={type} linkedSales={linkedSales} />
+              <WorkTaskDetails
+                record={record}
+                type={type}
+                linkedSales={linkedSales}
+                onOpenSettlementRow={(rowId) => {
+                  setFocusedSettlementRowId(rowId);
+                  setEditingRecord(prepareWorkDraft(record, originalIndex, type));
+                }}
+              />
               <div className="card-actions">
                 <button type="button" onClick={() => setFilePanel(filePanel === id ? null : id)}>
                   <FileText size={15} />
                   파일 {attachments.length}
                 </button>
-                <button type="button" onClick={() => setEditingRecord(prepareWorkDraft(record, originalIndex, type))}>
+                <button type="button" onClick={() => { setFocusedSettlementRowId(""); setEditingRecord(prepareWorkDraft(record, originalIndex, type)); }}>
                   <Pencil size={15} />
                   수정
                 </button>
@@ -3851,6 +3863,7 @@ function WorkEditor({
   title,
   data,
   focusTaxInvoiceItemId,
+  focusSettlementRowId,
   onSave,
   onCancel,
   onOpenFiles,
@@ -3862,6 +3875,7 @@ function WorkEditor({
   title: string;
   data: WorkNoteData;
   focusTaxInvoiceItemId?: string;
+  focusSettlementRowId?: string;
   onSave: (draft: AnyRecord) => void;
   onCancel: () => void;
   onOpenFiles: () => void;
@@ -4036,7 +4050,7 @@ function WorkEditor({
         )}
 
         {type === "settlement" && (
-          <SettlementFields draft={draft} updateField={updateField} updateFields={updateFields} focusTaxInvoiceItemId={focusTaxInvoiceItemId} />
+          <SettlementFields draft={draft} updateField={updateField} updateFields={updateFields} focusTaxInvoiceItemId={focusTaxInvoiceItemId} focusSettlementRowId={focusSettlementRowId} />
         )}
 
         {type === "output" && (
@@ -4128,12 +4142,14 @@ function SettlementFields({
   draft,
   updateField,
   updateFields,
-  focusTaxInvoiceItemId
+  focusTaxInvoiceItemId,
+  focusSettlementRowId
 }: {
   draft: AnyRecord;
   updateField: (key: string, value: string | boolean | AnyRecord[]) => void;
   updateFields: (values: AnyRecord) => void;
   focusTaxInvoiceItemId?: string;
+  focusSettlementRowId?: string;
 }) {
   const schedule = asArray(draft.paymentSchedule);
   const regularSchedule = schedule.filter((row) => !row.isTaxInvoiceOnly);
@@ -4166,11 +4182,14 @@ function SettlementFields({
   }, [draftId]);
 
   useEffect(() => {
-    if (!focusTaxInvoiceItemId || !rowIds.includes(focusTaxInvoiceItemId)) return;
-    setSelectedRowIds((current) => current.includes(focusTaxInvoiceItemId) ? current : [...current, focusTaxInvoiceItemId]);
-    setOpenInvoiceRowIds((current) => current.includes(focusTaxInvoiceItemId) ? current : [...current, focusTaxInvoiceItemId]);
-    window.setTimeout(() => scrollTaxInvoiceItemIntoView(focusTaxInvoiceItemId), 120);
-  }, [focusTaxInvoiceItemId, schedule.length]);
+    const focusedRowId = focusSettlementRowId || focusTaxInvoiceItemId;
+    if (!focusedRowId || !rowIds.includes(focusedRowId)) return;
+    if (focusTaxInvoiceItemId === focusedRowId) {
+      setSelectedRowIds((current) => current.includes(focusedRowId) ? current : [...current, focusedRowId]);
+      setOpenInvoiceRowIds((current) => current.includes(focusedRowId) ? current : [...current, focusedRowId]);
+    }
+    window.setTimeout(() => scrollTaxInvoiceItemIntoView(focusedRowId), 120);
+  }, [focusSettlementRowId, focusTaxInvoiceItemId, schedule.length]);
 
   const setSchedule = (rows: AnyRecord[]) => updateField("paymentSchedule", rows);
   const updateRow = (index: number, key: string, value: string | boolean) => {
@@ -4409,10 +4428,14 @@ function SettlementFields({
             const rowBillingMethod = billingMethodFor(row);
             const rowBillingStatus = firstText(row, ["taxInvoiceStatus"]);
             const invoiceOpen = openInvoiceRowIds.includes(rowId);
-            const focused = focusTaxInvoiceItemId === rowId;
+            const focusClass = focusTaxInvoiceItemId === rowId
+              ? "is-tax-invoice-focus"
+              : focusSettlementRowId === rowId
+                ? "is-settlement-row-focus"
+                : "";
             return (
               <div
-                className={`payment-row ${isAdvance ? "advance-deduction-row" : "installment-payment-row"} ${focused ? "is-tax-invoice-focus" : ""}`}
+                className={`payment-row ${isAdvance ? "advance-deduction-row" : "installment-payment-row"} ${focusClass}`}
                 key={rowId}
                 data-tax-invoice-item-id={rowId}
               >
@@ -4501,11 +4524,13 @@ function SettlementRowTaxInvoiceEditor({
 function WorkTaskDetails({
   record,
   type,
-  linkedSales
+  linkedSales,
+  onOpenSettlementRow
 }: {
   record: AnyRecord;
   type: "settlement" | "output" | "other";
   linkedSales: AnyRecord | null;
+  onOpenSettlementRow?: (rowId: string) => void;
 }) {
   if (type === "settlement") {
     const schedule = asArray(record.paymentSchedule);
@@ -4525,7 +4550,7 @@ function WorkTaskDetails({
           <InfoLine label="파일" value={attachmentCountText(record)} />
           <InfoLine label="수정" value={formatDateTime(firstText(record, ["updatedAt"]))} />
         </div>
-        <SchedulePreview rows={schedule} isAdvance={isAdvance} />
+        <SchedulePreview rows={schedule} isAdvance={isAdvance} onOpenRow={onOpenSettlementRow} />
         <AttachmentPreview record={record} />
         {firstText(record, ["plan"]) && <p className="muted-preview">{firstText(record, ["plan"])}</p>}
         {firstText(record, ["memo", "description", "note"]) && <p className="muted-preview">{firstText(record, ["memo", "description", "note"])}</p>}
@@ -4569,27 +4594,62 @@ function WorkTaskDetails({
   );
 }
 
-function SchedulePreview({ rows, isAdvance }: { rows: AnyRecord[]; isAdvance: boolean }) {
-  if (!rows.length) return null;
-  const completed = isAdvance ? rows.length : rows.filter((row) => firstText(row, ["status"]).includes("완료")).length;
+function SchedulePreview({ rows, isAdvance, onOpenRow }: { rows: AnyRecord[]; isAdvance: boolean; onOpenRow?: (rowId: string) => void }) {
+  const entries = getSettlementPreviewEntries(rows, isAdvance);
+  if (!entries.length) return null;
+  const visibleEntries = getVisibleSettlementPreviewEntries(entries, isAdvance);
+  const completed = isAdvance ? entries.length : entries.filter(({ row }) => isSettlementScheduleRowCompleted(row, false)).length;
   return (
     <div className="schedule-preview">
       <div className="preview-title">
         <strong>{isAdvance ? "차감 내역" : "회차 일정"}</strong>
-        <span>{isAdvance ? rows.length + "건" : completed + "/" + rows.length}</span>
+        <span>{isAdvance ? entries.length + "건" : completed + "/" + entries.length}</span>
       </div>
-      {rows.slice(0, 4).map((row, index) => (
-        <div className="schedule-preview-row" key={recordId(row, index)}>
-          <span>{isAdvance ? formatOptionalDate(firstText(row, ["dueDate"])) || "일자 미정" : (firstText(row, ["round"]) || index + 1) + "회차"}</span>
-          <strong>{isAdvance
-            ? joinParts([firstText(row, ["item"]) || "품목 미정", formatMoneyWithVat(firstText(row, ["amount"]), row.amountVatIncluded)], " · ")
-            : joinParts([formatOptionalDate(firstText(row, ["dueDate"])), formatMoneyWithVat(firstText(row, ["amount"]), row.amountVatIncluded), firstText(row, ["item"])], " · ")}</strong>
-          <small>{isAdvance ? firstText(row, ["memo"]) || "차감 완료" : firstText(row, ["status"]) || "예정"}</small>
-        </div>
-      ))}
-      {rows.length > 4 && <small className="more-line">외 {rows.length - 4}건</small>}
+      {visibleEntries.map(({ row, index, id }) => {
+        const roundLabel = `${firstText(row, ["round"]) || index + 1}회차`;
+        return (
+          <button
+            type="button"
+            className="schedule-preview-row"
+            key={id}
+            onClick={() => onOpenRow?.(id)}
+            aria-label={isAdvance ? `${formatOptionalDate(firstText(row, ["dueDate"])) || "일자 미정"} 차감 내역 수정` : `${roundLabel} 수정`}
+          >
+            <span>{isAdvance ? formatOptionalDate(firstText(row, ["dueDate"])) || "일자 미정" : roundLabel}</span>
+            <strong>{isAdvance
+              ? joinParts([firstText(row, ["item"]) || "품목 미정", formatMoneyWithVat(firstText(row, ["amount"]), row.amountVatIncluded)], " · ")
+              : joinParts([formatOptionalDate(firstText(row, ["dueDate"])), formatMoneyWithVat(firstText(row, ["amount"]), row.amountVatIncluded), firstText(row, ["item"])], " · ")}</strong>
+            <small>{isAdvance ? firstText(row, ["memo"]) || "차감 완료" : firstText(row, ["status"]) || "예정"}</small>
+          </button>
+        );
+      })}
+      {entries.length > visibleEntries.length && <small className="more-line">외 {entries.length - visibleEntries.length}건</small>}
     </div>
   );
+}
+
+function getSettlementPreviewEntries(rows: AnyRecord[], isAdvance: boolean): Array<{ row: AnyRecord; index: number; id: string }> {
+  const entries = rows
+    .map((row, index) => ({ row, index, id: recordId(row, index) }))
+    .filter(({ row }) => !row.isTaxInvoiceOnly);
+  if (isAdvance) return entries;
+  return [...entries].sort((a, b) => {
+    const roundA = Number(firstText(a.row, ["round"]));
+    const roundB = Number(firstText(b.row, ["round"]));
+    if (Number.isFinite(roundA) && roundA > 0 && Number.isFinite(roundB) && roundB > 0 && roundA !== roundB) return roundA - roundB;
+    const dateA = parseDateKey(firstText(a.row, ["dueDate"])) || "9999-12-31";
+    const dateB = parseDateKey(firstText(b.row, ["dueDate"])) || "9999-12-31";
+    return dateA.localeCompare(dateB) || a.index - b.index;
+  });
+}
+
+function getVisibleSettlementPreviewEntries(entries: Array<{ row: AnyRecord; index: number; id: string }>, isAdvance: boolean) {
+  if (isAdvance) return entries.slice(0, 4);
+  let latestCompletedIndex = -1;
+  entries.forEach(({ row }, index) => {
+    if (isSettlementScheduleRowCompleted(row, false)) latestCompletedIndex = index;
+  });
+  return entries.slice(Math.max(0, latestCompletedIndex), Math.max(0, latestCompletedIndex) + 4);
 }
 function AttachmentPreview({ record }: { record: AnyRecord }) {
   const attachments = asArray(record.attachments);
