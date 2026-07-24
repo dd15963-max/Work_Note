@@ -1656,7 +1656,7 @@ h2 {
 }
 
 .payment-row.advance-deduction-row {
-  grid-template-columns: 62px 120px minmax(135px, 1.05fr) minmax(115px, 0.8fr) minmax(135px, 1fr) 104px 50px;
+  grid-template-columns: 62px 120px minmax(112px, 0.7fr) minmax(135px, 1.05fr) minmax(115px, 0.8fr) minmax(135px, 1fr) 104px 50px;
 }
 
 .payment-row-select {
@@ -2721,7 +2721,7 @@ h2 {
   }
 
   .payment-row.advance-deduction-row {
-    grid-template-columns: 76px 180px minmax(280px, 1.3fr) 190px minmax(260px, 1fr) 210px 72px;
+    grid-template-columns: 76px 170px 150px minmax(250px, 1.2fr) 180px minmax(230px, 1fr) 210px 72px;
     gap: 12px;
     padding: 12px;
   }

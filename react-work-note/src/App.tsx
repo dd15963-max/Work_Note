@@ -88,6 +88,7 @@ type ScheduleItem = {
   sourceType: Extract<PortalId, "sales" | "settlement" | "output" | "other">;
   sourceId: string;
   taxInvoiceItemId?: string;
+  settlementRowId?: string;
   status: string;
   priority: string;
   collectionKey: TaskCollectionKey;
@@ -127,6 +128,7 @@ type FocusTarget = {
   portal: PortalId;
   id: string;
   taxInvoiceItemId?: string;
+  settlementRowId?: string;
   salesKind?: "equipment" | "material";
   openEditor?: boolean;
   nonce?: number;
@@ -182,6 +184,7 @@ const WORK_STATUS_OPTIONS = ["대기", "진행 중", "확인 필요", "보류", 
 const SETTLEMENT_STATUS_OPTIONS = ["예정", "선금 예정", "선금 완료", "차감 진행 중", "확인 필요", "보류", "완료"];
 const SETTLEMENT_PAYMENT_OPTIONS = ["분할 결제", "선금 결제"];
 const SETTLEMENT_ROW_STATUS_OPTIONS = ["예정", "청구 완료", "입금 완료", "차감 완료", "처리 완료", "확인 필요", "보류"];
+const ADVANCE_DEDUCTION_STATUS_OPTIONS = ["출고 대기", "납품 완료", "입금 완료", "처리 완료"];
 
 const portals: Array<{ id: PortalId; label: string; icon: typeof CalendarDays }> = [
   { id: "schedule", label: "일정", icon: CalendarDays },
@@ -436,6 +439,7 @@ export function App() {
       portal: item.sourceType,
       id: item.sourceId,
       taxInvoiceItemId: item.taxInvoiceItemId,
+      settlementRowId: item.settlementRowId,
       salesKind: item.collectionKey === "materialSalesNotes" ? "material" : item.sourceType === "sales" ? "equipment" : undefined,
       nonce: Date.now()
     });
@@ -3688,14 +3692,14 @@ function GenericWorkPortal({
 
   useEffect(() => {
     if (focusTarget?.portal !== type) return;
-    const focusKey = `${focusTarget.portal}:${focusTarget.id}:${focusTarget.taxInvoiceItemId || ""}:${focusTarget.nonce ?? ""}`;
+    const focusKey = `${focusTarget.portal}:${focusTarget.id}:${focusTarget.taxInvoiceItemId || ""}:${focusTarget.settlementRowId || ""}:${focusTarget.nonce ?? ""}`;
     if (handledFocusTargetRef.current === focusKey) return;
     const target = searched.find(({ id }) => id === focusTarget.id);
     if (!target) return;
     handledFocusTargetRef.current = focusKey;
-    setFocusedSettlementRowId("");
+    setFocusedSettlementRowId(focusTarget.settlementRowId || "");
     setWorkMode(getListMode(target.record));
-    if (focusTarget.openEditor || (focusTarget.taxInvoiceItemId && (type === "settlement" || focusTarget.taxInvoiceItemId === "record-tax-invoice"))) {
+    if (focusTarget.openEditor || focusTarget.settlementRowId || (focusTarget.taxInvoiceItemId && (type === "settlement" || focusTarget.taxInvoiceItemId === "record-tax-invoice"))) {
       setEditingRecord(prepareWorkDraft(target.record, target.originalIndex, type));
     }
     window.setTimeout(() => scrollRecordIntoView(focusTarget.id), 0);
@@ -4166,7 +4170,9 @@ function SettlementFields({
   const [bulkPlannedDate, setBulkPlannedDate] = useState("");
   const [bulkIssuedDate, setBulkIssuedDate] = useState("");
   const isAdvance = firstText(draft, ["paymentType"]).includes("선금");
-  const rowStatusOptions = ["예정", "청구 완료", "입금 완료", "처리 완료", "확인 필요", "보류"];
+  const rowStatusOptions = isAdvance
+    ? ADVANCE_DEDUCTION_STATUS_OPTIONS
+    : ["예정", "청구 완료", "입금 완료", "처리 완료", "확인 필요", "보류"];
   const scheduleStats = getSettlementScheduleStats(schedule, isAdvance);
   const advanceAmount = parseAmountNumber(firstText(draft, ["advanceAmount", "totalAmount"])) || 0;
   const advanceDeductedAmount = scheduleStats.totalAmount;
@@ -4204,7 +4210,7 @@ function SettlementFields({
         dueDate: toDateKey(new Date()),
         amount: "",
         amountVatIncluded: false,
-        status: isAdvance ? "차감 완료" : "예정",
+        status: isAdvance ? "출고 대기" : "예정",
         item: "",
         memo: "",
         billingMethod: "세금계산서",
@@ -4424,7 +4430,9 @@ function SettlementFields({
         <div className="payment-row-list">
           {schedule.map((row, index) => {
             const rowId = recordId(row, index);
-            const rowStatus = firstText(row, ["status"]) || (isAdvance ? "차감 완료" : "예정");
+            const rowStatus = isAdvance
+              ? normalizeAdvanceDeductionStatus(firstText(row, ["status"]))
+              : firstText(row, ["status"]) || "예정";
             const rowBillingMethod = billingMethodFor(row);
             const rowBillingStatus = firstText(row, ["taxInvoiceStatus"]);
             const invoiceOpen = openInvoiceRowIds.includes(rowId);
@@ -4446,6 +4454,7 @@ function SettlementFields({
                 {isAdvance ? (
                   <>
                     <TextField label="차감일" type="date" value={firstText(row, ["dueDate"])} onChange={(value) => updateRow(index, "dueDate", value)} />
+                    <SelectField label="상태" value={rowStatus} onChange={(value) => updateRow(index, "status", value)} options={rowStatusOptions} />
                     <TextField label="차감 품목" value={firstText(row, ["item"])} onChange={(value) => updateRow(index, "item", value)} placeholder="예: 레진 10kg" />
                     <TextField label="차감 금액" value={firstText(row, ["amount"])} onChange={(value) => updateRow(index, "amount", value)} option={<FieldCheck label="VAT 포함" checked={Boolean(row.amountVatIncluded)} onChange={(checked) => updateRow(index, "amountVatIncluded", checked)} />} />
                     <TextField label="메모" value={firstText(row, ["memo"])} onChange={(value) => updateRow(index, "memo", value)} placeholder="차감 근거 또는 참고사항" />
@@ -4619,7 +4628,7 @@ function SchedulePreview({ rows, isAdvance, onOpenRow }: { rows: AnyRecord[]; is
             <strong>{isAdvance
               ? joinParts([firstText(row, ["item"]) || "품목 미정", formatMoneyWithVat(firstText(row, ["amount"]), row.amountVatIncluded)], " · ")
               : joinParts([formatOptionalDate(firstText(row, ["dueDate"])), formatMoneyWithVat(firstText(row, ["amount"]), row.amountVatIncluded), firstText(row, ["item"])], " · ")}</strong>
-            <small>{isAdvance ? firstText(row, ["memo"]) || "차감 완료" : firstText(row, ["status"]) || "예정"}</small>
+            <small>{isAdvance ? normalizeAdvanceDeductionStatus(firstText(row, ["status"])) : firstText(row, ["status"]) || "예정"}</small>
           </button>
         );
       })}
@@ -5133,7 +5142,26 @@ function loadWorkNoteData(): WorkNoteData {
 }
 
 function migrateWorkNoteData(data: WorkNoteData): WorkNoteData {
-  return migrateImportantFlags(migrateWorkTaskTitles(migrateSettlementTaxInvoiceRows(migrateLegacyMaterialSalesNotes(migrateInternalContacts(data)))));
+  return migrateImportantFlags(migrateWorkTaskTitles(migrateAdvanceDeductionStatuses(migrateSettlementTaxInvoiceRows(migrateLegacyMaterialSalesNotes(migrateInternalContacts(data))))));
+}
+
+function migrateAdvanceDeductionStatuses(data: WorkNoteData): WorkNoteData {
+  let changed = false;
+  const settlementTasks = asArray(data.settlementTasks).map((record) => {
+    if (!firstText(record, ["paymentType"]).includes("선금")) return record;
+    let recordChanged = false;
+    const paymentSchedule = asArray(record.paymentSchedule).map((row) => {
+      if (row.isTaxInvoiceOnly) return row;
+      const status = normalizeAdvanceDeductionStatus(firstText(row, ["status"]));
+      if (status === firstText(row, ["status"])) return row;
+      recordChanged = true;
+      return { ...row, status };
+    });
+    if (!recordChanged) return record;
+    changed = true;
+    return { ...record, paymentSchedule };
+  });
+  return changed ? { ...data, settlementTasks } : data;
 }
 
 function migrateInternalContacts(data: WorkNoteData): WorkNoteData {
@@ -7169,7 +7197,9 @@ function normalizeWorkDraft(draft: AnyRecord, type: "settlement" | "output" | "o
       installmentProgress: isAdvance ? (paymentSchedule.filter((row) => !row.isTaxInvoiceOnly).length ? paymentSchedule.filter((row) => !row.isTaxInvoiceOnly).length + "건" : "") : firstText(draft, ["installmentProgress"]),
       nextActionDate: isAdvance ? "" : firstText(draft, ["nextActionDate"]),
       nextAction: isAdvance ? "" : firstText(draft, ["nextAction"]),
-      paymentSchedule: isAdvance ? paymentSchedule.map((row) => ({ ...row, status: "차감 완료" })) : paymentSchedule,
+      paymentSchedule: isAdvance
+        ? paymentSchedule.map((row) => row.isTaxInvoiceOnly ? row : { ...row, status: normalizeAdvanceDeductionStatus(firstText(row, ["status"])) })
+        : paymentSchedule,
       plan: firstText(draft, ["plan"])
     };
   }
@@ -7306,10 +7336,21 @@ function isLikelySettlementStatus(value: string): boolean {
 }
 
 function isSettlementScheduleRowCompleted(row: AnyRecord, isAdvance: boolean): boolean {
-  if (isAdvance) return true;
+  if (isAdvance) return normalizeAdvanceDeductionStatus(firstText(row, ["status"])) === "처리 완료";
   const status = firstText(row, ["status"]);
   if (!status || status.includes("청구")) return false;
   return /입금|처리|결제|완료/.test(status);
+}
+
+function normalizeAdvanceDeductionStatus(value: string): string {
+  const status = clean(value);
+  if (ADVANCE_DEDUCTION_STATUS_OPTIONS.includes(status)) return status;
+  if (!status || status === "예정") return "출고 대기";
+  if (status.includes("출고")) return "출고 대기";
+  if (status.includes("납품")) return "납품 완료";
+  if (status.includes("입금")) return "입금 완료";
+  if (/처리|차감|완료/.test(status)) return "처리 완료";
+  return "출고 대기";
 }
 
 function isWorkDraftValid(record: AnyRecord, type: "settlement" | "output" | "other"): boolean {
@@ -7723,11 +7764,13 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
     const rows = normalizePaymentSchedule(asArray(task.paymentSchedule));
     const activeRows = rows.filter((row) => !row.isTaxInvoiceOnly);
 
-    if (!isClosed(status)) {
+    if (!isClosed(status) || isAdvance) {
       activeRows
         .filter((row) => !isSettlementScheduleRowCompleted(row, isAdvance))
         .forEach((row, rowIndex) => {
-          const rowStatus = firstText(row, ["status"]);
+          const rowStatus = isAdvance
+            ? normalizeAdvanceDeductionStatus(firstText(row, ["status"]))
+            : firstText(row, ["status"]);
           const round = firstText(row, ["round"]);
           const amount = formatMoney(firstText(row, ["amount"]));
           const item = firstText(row, ["item"]);
@@ -7736,12 +7779,14 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
             task,
             index,
             firstText(row, ["dueDate"]),
-            `[정산] ${title} ${round ? (isAdvance ? `${round}번 차감` : `${round}회차`) : isAdvance ? "차감" : "결제"}`,
+            `[정산] ${title} ${isAdvance ? item || (round ? `${round}번 차감` : "차감") : round ? `${round}회차` : "결제"}`,
             joinParts([amount, item, rowStatus], " · "),
             "settlement",
             rowStatus || status,
             priority,
-            `pay-${recordId(row, rowIndex)}`
+            `pay-${recordId(row, rowIndex)}`,
+            "",
+            recordId(row, rowIndex)
           );
         });
       if (!activeRows.length) {
@@ -7799,7 +7844,8 @@ function addScheduleItem(
   status: string,
   priority: string,
   idSuffix = "",
-  taxInvoiceItemId = ""
+  taxInvoiceItemId = "",
+  settlementRowId = ""
 ) {
   const date = parseDateKey(dateValue);
   if (!date) return;
@@ -7814,6 +7860,7 @@ function addScheduleItem(
     sourceType: type,
     sourceId: recordId(record, index),
     taxInvoiceItemId: taxInvoiceItemId || undefined,
+    settlementRowId: settlementRowId || undefined,
     status,
     priority,
     collectionKey: type === "sales" ? "notes" : type === "settlement" ? "settlementTasks" : type === "output" ? "outputTasks" : "otherTasks",
