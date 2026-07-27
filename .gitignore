@@ -39,3 +39,18 @@ codex_sales_note_app_prompt.md
 # OS/editor noise
 .DS_Store
 Thumbs.db
+
+# Local full-stack worktree and Supabase CLI state
+.worktrees/
+.supabase/
+
+# Full-stack local secrets and generated preview output
+.env
+.env.*
+!.env.example
+fullstack-preview/
+
+# ChatGPT Sites local runtime and build output
+.wrangler/
+dist/
+tsconfig.tsbuildinfo

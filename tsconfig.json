@@ -1,21 +1,44 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "useDefineForClassFields": true,
-    "lib": ["DOM", "DOM.Iterable", "ES2020"],
-    "allowJs": false,
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "types": ["@cloudflare/workers-types"],
+    "allowJs": true,
     "skipLibCheck": true,
-    "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
     "strict": true,
-    "forceConsistentCasingInFileNames": true,
-    "module": "ESNext",
-    "moduleResolution": "Node",
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+    "paths": {
+      "@/*": ["./*"]
+    }
   },
-  "include": ["react-work-note/src"],
-  "references": [{ "path": "./tsconfig.node.json" }]
+  "include": [
+    "next-env.d.ts",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "db/**/*.ts",
+    "react-work-note/src/App.tsx",
+    "react-work-note/src/fullstack/types.ts",
+    "react-work-note/src/fullstack/syncStore.ts",
+    "react-work-note/src/fullstack/serverPayload.ts",
+    "react-work-note/src/fullstack/serverPayload.test.ts",
+    "react-work-note/src/fullstack/repository.ts",
+    "react-work-note/src/fullstack/migration.ts",
+    "react-work-note/src/fullstack/migration.test.ts",
+    "react-work-note/src/fullstack/FullstackRoot.tsx",
+    "worker/**/*.ts",
+    "vite.config.ts",
+    "vitest.config.ts",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules", "fullstack-preview", "react", "sales-note-app"]
 }

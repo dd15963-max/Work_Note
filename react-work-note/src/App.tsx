@@ -33,6 +33,14 @@ import {
   Star
 } from "lucide-react";
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  downloadRemoteAttachment,
+  enqueueRemoteDatasetSync,
+  isRemoteModeActive,
+  queueRemoteAttachmentDelete,
+  queueRemoteAttachmentUpload,
+  softDeleteAllAccountData
+} from "./fullstack/repository";
 
 type PortalId = "schedule" | "company" | "sales" | "settlement" | "output" | "other" | "account";
 type CalendarMode = "month" | "week";
@@ -41,6 +49,7 @@ type ListMode = "all" | "active" | "hold" | "closed" | "failed";
 type SettlementBulkAction = "status" | "dueDate" | "paidDate" | "invoice" | "important" | "delete" | null;
 type SalesSortKey = "priority" | "updated" | "nextContact" | "company";
 type SortDirection = "asc" | "desc";
+type BackupImportMode = "replace" | "merge" | "update";
 type AnyRecord = Record<string, unknown>;
 type AttachmentCollectionKey = "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks";
 type AttachmentOwnerType = "company" | "sales" | "materialSales" | "settlement" | "output" | "other";
@@ -696,19 +705,40 @@ function MemoListControls({
 }
 
 function EditorDrawer({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  const dirtyRef = useRef(false);
+  const requestClose = () => {
+    if (dirtyRef.current && !confirm("저장하지 않은 작성 내용이 있습니다. 편집 창을 닫을까요?")) return;
+    onClose();
+  };
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (document.querySelector(".inline-file-panel, .sales-detail-panel.file-modal-panel")) return;
+      if (dirtyRef.current && !confirm("저장하지 않은 작성 내용이 있습니다. 편집 창을 닫을까요?")) return;
       onClose();
     };
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirtyRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
   }, [onClose]);
 
   return (
-    <div className="editor-drawer-backdrop" onMouseDown={onClose}>
-      <div className="editor-drawer" onMouseDown={(event) => event.stopPropagation()}>
+    <div className="editor-drawer-backdrop" onMouseDown={requestClose}>
+      <div
+        className="editor-drawer"
+        onMouseDown={(event) => event.stopPropagation()}
+        onInputCapture={() => { dirtyRef.current = true; }}
+        onChangeCapture={() => { dirtyRef.current = true; }}
+      >
         {children}
       </div>
     </div>
@@ -765,7 +795,7 @@ function StatusBadge({ data }: { data: WorkNoteData }) {
   return (
     <span className="status-badge">
       <CheckCircle2 size={16} />
-      로컬 데이터 연결
+      {isRemoteModeActive() ? "서버 데이터 연결" : "로컬 데이터 연결"}
     </span>
   );
 }
@@ -781,8 +811,8 @@ function BackupCenter({
 }) {
   const jsonInputRef = useRef<HTMLInputElement | null>(null);
   const zipInputRef = useRef<HTMLInputElement | null>(null);
-  const [jsonMode, setJsonMode] = useState<"replace" | "merge">("replace");
-  const [zipMode, setZipMode] = useState<"replace" | "merge">("replace");
+  const [jsonMode, setJsonMode] = useState<BackupImportMode>("replace");
+  const [zipMode, setZipMode] = useState<BackupImportMode>("replace");
   const [busy, setBusy] = useState("");
 
   const finishImport = (message: string) => {
@@ -879,6 +909,7 @@ function BackupCenter({
 
     setBusy("전체 초기화 중");
     try {
+      if (isRemoteModeActive()) await softDeleteAllAccountData();
       await clearAttachmentStore();
       const emptyData = createEmptyWorkNoteData();
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(emptyData));
@@ -894,7 +925,7 @@ function BackupCenter({
     }
   };
 
-  const chooseJson = (mode: "replace" | "merge") => {
+const chooseJson = (mode: BackupImportMode) => {
     setJsonMode(mode);
     if (jsonInputRef.current) {
       jsonInputRef.current.value = "";
@@ -902,7 +933,7 @@ function BackupCenter({
     }
   };
 
-  const chooseZip = (mode: "replace" | "merge") => {
+  const chooseZip = (mode: BackupImportMode) => {
     setZipMode(mode);
     if (zipInputRef.current) {
       zipInputRef.current.value = "";
@@ -910,24 +941,42 @@ function BackupCenter({
     }
   };
 
+  const createAutomaticPreImportBackup = async (current: WorkNoteData) => {
+    const result = await createFullBackupZipBlob(current);
+    downloadBlob(result.blob, `work-note-before-server-replace-${getFilenameTimestamp()}.zip`, "application/zip");
+    if (result.missingCount && !confirm(`교체 전 전체 ZIP 백업에서 첨부 원본 ${result.missingCount}개를 현재 기기와 서버에서 찾지 못했습니다.\n기록과 파일 메타데이터는 백업되지만 해당 원본 파일은 복원할 수 없습니다.\n\n그래도 서버 데이터 교체를 계속할까요?`)) {
+      throw new Error("첨부 원본 누락으로 데이터 교체를 취소했습니다.");
+    }
+  };
+
   const handleJsonFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    setBusy(jsonMode === "merge" ? "JSON 병합 중" : "JSON 교체 중");
+    setBusy(jsonMode === "merge" ? "JSON 병합 중" : jsonMode === "update" ? "JSON 동일 ID 업데이트 중" : "JSON 교체 중");
     try {
-      const text = await file.text();
-      const parsed = JSON.parse(text) as AnyRecord;
+      const rawText = await file.text();
+      const parsed = JSON.parse(rawText) as AnyRecord;
       const backupData = normalizeBackupToWorkNote(extractBackupData(parsed));
       validateWorkNotePayload(backupData);
+      const current = loadWorkNoteData();
+      const preview = describeBackupImport(current, backupData, jsonMode, 0);
+      const note = "JSON에는 첨부 원본이 없으며 파일명과 메타데이터만 포함됩니다.";
+      if (!confirmBackupImport(jsonMode, preview, note)) return;
+
       if (jsonMode === "merge") {
-        if (!confirm(`JSON 백업을 현재 데이터에 병합할까요?\n\nJSON에는 원본 파일이 없어서 새 첨부자료는 파일명 기록만 들어옵니다.`)) return;
-        const merged = mergeBackupData(loadWorkNoteData(), backupData);
+        const merged = mergeBackupData(current, backupData);
         saveWorkNoteData(merged, "JSON 백업 병합");
         finishImport("JSON 병합 완료");
         return;
       }
-      if (!confirm("JSON 백업으로 현재 데이터를 교체할까요?\n\n첨부 파일 원본은 JSON에 포함되지 않습니다. 필요한 경우 전체 ZIP 백업을 사용해 주세요.")) return;
-      downloadPreImportBackup(loadWorkNoteData(), "before-json-replace");
+      if (jsonMode === "update") {
+        const updated = updateMatchingBackupData(current, backupData);
+        saveWorkNoteData(updated, "JSON 동일 ID 업데이트");
+        finishImport("JSON 동일 ID 업데이트 완료");
+        return;
+      }
+
+      await createAutomaticPreImportBackup(current);
       saveWorkNoteData(backupData, "JSON 백업 교체");
       finishImport("JSON 교체 완료");
     } catch (error) {
@@ -941,23 +990,33 @@ function BackupCenter({
   const handleZipFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    setBusy(zipMode === "merge" ? "ZIP 병합 중" : "ZIP 교체 중");
+    setBusy(zipMode === "merge" ? "ZIP 병합 중" : zipMode === "update" ? "ZIP 동일 ID 업데이트 중" : "ZIP 교체 중");
     try {
       const zipResult = await readFullBackupZip(file);
+      const current = loadWorkNoteData();
+      const incoming = normalizeBackupToWorkNote(zipResult.data);
+      const preview = describeBackupImport(current, incoming, zipMode, zipResult.files.records.length);
+      const note = `복원 가능한 첨부 원본 ${zipResult.files.records.length}개가 포함되어 있습니다.`;
+      if (!confirmBackupImport(zipMode, preview, note)) return;
+
       if (zipMode === "merge") {
-        if (!confirm(`전체 ZIP 백업을 현재 데이터에 병합할까요?\n\n복원 가능한 원본 파일: ${zipResult.files.records.length}개`)) return;
-        const current = loadWorkNoteData();
-        const merged = mergeBackupData(current, zipResult.data);
+        const merged = mergeBackupData(current, incoming);
         await restoreZipAttachmentRecords(zipResult.files, merged);
         saveWorkNoteData(merged, "전체 ZIP 백업 병합");
         finishImport(`ZIP 병합 완료 · 파일 ${zipResult.files.records.length}개`);
         return;
       }
-      if (!confirm(`전체 ZIP 백업으로 현재 데이터를 교체할까요?\n\n복원 가능한 원본 파일: ${zipResult.files.records.length}개`)) return;
-      downloadPreImportBackup(loadWorkNoteData(), "before-zip-replace");
-      const next = normalizeBackupToWorkNote(zipResult.data);
-      await restoreZipAttachmentRecords(zipResult.files, next);
-      saveWorkNoteData(next, "전체 ZIP 백업 교체");
+      if (zipMode === "update") {
+        const updated = updateMatchingBackupData(current, incoming);
+        await restoreZipAttachmentRecords(zipResult.files, updated);
+        saveWorkNoteData(updated, "전체 ZIP 동일 ID 업데이트");
+        finishImport(`ZIP 동일 ID 업데이트 완료 · 파일 ${zipResult.files.records.length}개`);
+        return;
+      }
+
+      await createAutomaticPreImportBackup(current);
+      await restoreZipAttachmentRecords(zipResult.files, incoming);
+      saveWorkNoteData(incoming, "전체 ZIP 백업 교체");
       finishImport(`ZIP 교체 완료 · 파일 ${zipResult.files.records.length}개`);
     } catch (error) {
       alert(`전체 ZIP 백업을 불러오지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
@@ -966,9 +1025,8 @@ function BackupCenter({
       event.target.value = "";
     }
   };
-
   return (
-    <details className="backup-center">
+    <details id="work-note-backup-center" className="backup-center">
       <summary className="icon-text-button">
         <Archive size={16} />
         백업 센터
@@ -988,6 +1046,10 @@ function BackupCenter({
           <strong>병합</strong>
           <button type="button" onClick={() => chooseJson("merge")} disabled={Boolean(busy)}>JSON 병합</button>
           <button type="button" onClick={() => chooseZip("merge")} disabled={Boolean(busy)}>ZIP 병합</button>
+        </div>        <div>
+          <strong>동일 ID만</strong>
+          <button type="button" onClick={() => chooseJson("update")} disabled={Boolean(busy)}>JSON 업데이트</button>
+          <button type="button" onClick={() => chooseZip("update")} disabled={Boolean(busy)}>ZIP 업데이트</button>
         </div>
         <div>
           <strong>점검</strong>
@@ -5296,7 +5358,7 @@ function EmptyState({ title, detail }: { title: string; detail: string }) {
   );
 }
 
-function loadWorkNoteData(): WorkNoteData {
+export function loadWorkNoteData(): WorkNoteData {
   const base: WorkNoteData = {
     version: "unknown",
     updatedAt: "",
@@ -5611,6 +5673,7 @@ function saveWorkNoteData(data: WorkNoteData, reason: string): WorkNoteData {
   const raw = JSON.stringify(payload);
   JSON.parse(raw);
   window.localStorage.setItem(STORAGE_KEY, raw);
+  enqueueRemoteDatasetSync(payload as WorkNoteData, reason);
   return loadWorkNoteData();
 }
 
@@ -5706,11 +5769,6 @@ function cloneBackupState(data: WorkNoteData): Pick<WorkNoteData, "companies" | 
 
 function downloadJson(payload: AnyRecord, filename: string) {
   downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), filename, "application/json");
-}
-
-function downloadPreImportBackup(data: WorkNoteData, reason: string) {
-  const payload = createBackupPayload(data, reason);
-  downloadJson(payload, `work-note-${reason}-${getFilenameTimestamp()}.json`);
 }
 
 async function auditAttachmentStorage(data: WorkNoteData): Promise<{
@@ -6576,6 +6634,63 @@ async function restoreZipAttachmentRecords(
     const { backupOwnerType, backupOwnerId, backupPath, missingOriginal, ...recordData } = record;
     await putAttachmentRecord(recordData as AttachmentRecord);
   }
+}
+
+const BACKUP_IMPORT_COLLECTION_KEYS: Array<keyof Pick<WorkNoteData, "companies" | "internalContacts" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts">> = [
+  "companies", "internalContacts", "notes", "materialSalesNotes", "settlementTasks", "outputTasks", "otherTasks", "accounts"
+];
+
+function describeBackupImport(current: WorkNoteData, incoming: WorkNoteData, mode: BackupImportMode, restoredOriginals: number): string {
+  let currentRecords = 0;
+  let incomingRecords = 0;
+  let duplicateIds = 0;
+  BACKUP_IMPORT_COLLECTION_KEYS.forEach((key) => {
+    const currentItems = asArray(current[key]);
+    const incomingItems = asArray(incoming[key]);
+    currentRecords += currentItems.length;
+    incomingRecords += incomingItems.length;
+    const currentIds = new Set(currentItems.map((record) => firstText(record, ["id"])).filter(Boolean));
+    duplicateIds += incomingItems.filter((record) => currentIds.has(firstText(record, ["id"]))).length;
+  });
+  const taskCount = incoming.notes.length + incoming.materialSalesNotes.length + incoming.outputTasks.length + incoming.otherTasks.length;
+  const attachmentCount = collectAttachmentIdsFromData(incoming).size;
+  const scheduleCount = collectScheduleItems(incoming).length;
+  const additions = mode === "update" ? 0 : Math.max(0, incomingRecords - duplicateIds);
+  const removals = mode === "replace" ? Math.max(0, currentRecords - duplicateIds) : 0;
+  const modeLabel = mode === "merge" ? "기존 서버 데이터와 병합" : mode === "update" ? "동일 ID 데이터만 업데이트" : "서버 데이터 전체 교체";
+  return [
+    `가져오기 방식: ${modeLabel}`,
+    `고객사 ${incoming.companies.length}건 · 업무 ${taskCount}건 · 정산 ${incoming.settlementTasks.length}건`,
+    `일정 ${scheduleCount}건 · 첨부 기록 ${attachmentCount}건${restoredOriginals ? ` · 원본 ${restoredOriginals}개` : ""}`,
+    `동일 ID ${duplicateIds}건 · 신규 추가 예상 ${additions}건 · 덮어쓰기 예상 ${duplicateIds}건`,
+    mode === "replace" ? `현재 데이터 중 교체로 제외될 수 있는 기록 ${removals}건` : "현재 데이터는 자동 삭제되지 않습니다."
+  ].join("\n");
+}
+
+function confirmBackupImport(mode: BackupImportMode, preview: string, note: string): boolean {
+  if (mode === "replace" && isRemoteModeActive()) {
+    const answer = prompt(`${preview}\n\n${note}\n\n교체 전에 현재 전체 ZIP 백업이 자동 생성됩니다.\n계속하려면 '서버 전체 교체'를 입력하세요.`);
+    return answer === "서버 전체 교체";
+  }
+  return confirm(`${preview}\n\n${note}\n\n계속할까요?`);
+}
+
+function updateMatchingBackupData(currentRaw: WorkNoteData, incomingRaw: WorkNoteData): WorkNoteData {
+  const current = migrateWorkNoteData(currentRaw);
+  const incoming = migrateWorkNoteData(incomingRaw);
+  const next: WorkNoteData = { ...current, version: incoming.version || current.version, updatedAt: new Date().toISOString() };
+  BACKUP_IMPORT_COLLECTION_KEYS.forEach((key) => {
+    const incomingById = new Map<string, AnyRecord>();
+    asArray(incoming[key]).forEach((record) => {
+      const id = firstText(record, ["id"]);
+      if (id) incomingById.set(id, record);
+    });
+    next[key] = asArray(current[key]).map((record) => {
+      const match = incomingById.get(firstText(record, ["id"]));
+      return match ? { ...record, ...match, id: firstText(record, ["id"]) } : record;
+    });
+  });
+  return migrateWorkNoteData(next);
 }
 
 function mergeBackupData(current: WorkNoteData, incomingRaw: AnyRecord): WorkNoteData {
@@ -8465,7 +8580,7 @@ function openAttachmentDb(): Promise<IDBDatabase> {
   });
 }
 
-async function getAttachmentRecord(id: string): Promise<AttachmentRecord | null> {
+async function getLocalAttachmentRecord(id: string): Promise<AttachmentRecord | null> {
   if (!id) return null;
   const db = await openAttachmentDb();
   return new Promise((resolve, reject) => {
@@ -8478,7 +8593,19 @@ async function getAttachmentRecord(id: string): Promise<AttachmentRecord | null>
   });
 }
 
-async function putAttachmentRecord(record: AttachmentRecord): Promise<void> {
+async function getAttachmentRecord(id: string): Promise<AttachmentRecord | null> {
+  if (!id) return null;
+  const local = await getLocalAttachmentRecord(id);
+  if (local?.blob instanceof Blob || !isRemoteModeActive()) return local;
+
+  const remote = await downloadRemoteAttachment(id);
+  if (!remote) return local;
+  const cached = remote as AttachmentRecord;
+  await putLocalAttachmentRecord(cached);
+  return cached;
+}
+
+async function putLocalAttachmentRecord(record: AttachmentRecord): Promise<void> {
   if (!record.id) throw new Error("파일 ID가 없습니다.");
   const db = await openAttachmentDb();
   return new Promise((resolve, reject) => {
@@ -8495,10 +8622,15 @@ async function putAttachmentRecord(record: AttachmentRecord): Promise<void> {
   });
 }
 
+async function putAttachmentRecord(record: AttachmentRecord): Promise<void> {
+  await putLocalAttachmentRecord(record);
+  queueRemoteAttachmentUpload(record);
+}
+
 async function deleteAttachmentRecord(id: string): Promise<void> {
   if (!id) return;
   const db = await openAttachmentDb();
-  return new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const transaction = db.transaction(ATTACHMENT_STORE_NAME, "readwrite");
     transaction.objectStore(ATTACHMENT_STORE_NAME).delete(id);
     transaction.oncomplete = () => {
@@ -8510,8 +8642,8 @@ async function deleteAttachmentRecord(id: string): Promise<void> {
       reject(transaction.error || new Error("첨부 파일을 삭제하지 못했습니다."));
     };
   });
+  queueRemoteAttachmentDelete(id);
 }
-
 async function clearAttachmentStore(): Promise<void> {
   const db = await openAttachmentDb();
   return new Promise((resolve, reject) => {

@@ -24,3 +24,19 @@ This repository also uses local Git hooks and GitHub Actions to block backup fil
 ## React App
 
 The root Work Note link now opens the React app. The legacy HTML app remains available under `/sales-note-app/` as a fallback while the React version continues to be refined.
+
+## Full-stack Preview Branch
+
+The Supabase conversion is developed on `codex/fullstack-supabase`. It does not replace the current `react/` deployment. The isolated build output is `fullstack-preview/`.
+
+- [Architecture](docs/FULLSTACK_ARCHITECTURE.md)
+- [Supabase and deployment setup](docs/FULLSTACK_SETUP.md)
+- [Safe migration and rollback](docs/FULLSTACK_MIGRATION.md)
+
+Run the full verification suite with:
+
+```powershell
+npm.cmd run verify:fullstack
+```
+
+The company repository `carimatec-bsm/Work_Note` is not updated by this branch.
