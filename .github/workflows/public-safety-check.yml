@@ -1,0 +1,16 @@
+name: Public safety check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for backup and customer files
+        shell: pwsh
+        run: ./scripts/public-safety-check.ps1 -Mode tracked

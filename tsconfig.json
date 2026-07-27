@@ -1,0 +1,44 @@
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "types": ["@cloudflare/workers-types"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "db/**/*.ts",
+    "react-work-note/src/App.tsx",
+    "react-work-note/src/fullstack/types.ts",
+    "react-work-note/src/fullstack/syncStore.ts",
+    "react-work-note/src/fullstack/serverPayload.ts",
+    "react-work-note/src/fullstack/serverPayload.test.ts",
+    "react-work-note/src/fullstack/repository.ts",
+    "react-work-note/src/fullstack/migration.ts",
+    "react-work-note/src/fullstack/migration.test.ts",
+    "react-work-note/src/fullstack/FullstackRoot.tsx",
+    "worker/**/*.ts",
+    "vite.config.ts",
+    "vitest.config.ts",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules", "fullstack-preview", "react", "sales-note-app"]
+}
