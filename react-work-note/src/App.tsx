@@ -38,6 +38,7 @@ type PortalId = "schedule" | "company" | "sales" | "settlement" | "output" | "ot
 type CalendarMode = "month" | "week";
 type SalesPanelMode = "detail" | "company" | "files";
 type ListMode = "all" | "active" | "hold" | "closed" | "failed";
+type SettlementBulkAction = "status" | "dueDate" | "paidDate" | "invoice" | "important" | "delete" | null;
 type SalesSortKey = "priority" | "updated" | "nextContact" | "company";
 type SortDirection = "asc" | "desc";
 type AnyRecord = Record<string, unknown>;
@@ -480,9 +481,17 @@ export function App() {
   const toggleImportant = (collectionKey: TaskCollectionKey, id: string) => {
     persistData((current) => ({
       ...current,
-      [collectionKey]: (current[collectionKey] as AnyRecord[]).map((record, index) =>
-        recordId(record, index) === id ? { ...record, isImportant: !Boolean(record.isImportant) } : record
-      )
+      [collectionKey]: (current[collectionKey] as AnyRecord[]).map((record, index) => {
+        if (recordId(record, index) !== id) return record;
+        if (collectionKey !== "settlementTasks") return { ...record, isImportant: !Boolean(record.isImportant) };
+        const rows = normalizePaymentSchedule(asArray(record.paymentSchedule));
+        const currentlyImportant = Boolean(record.isImportant) || rows.some((row) => Boolean(row.isImportant));
+        return {
+          ...record,
+          isImportant: !currentlyImportant,
+          paymentSchedule: currentlyImportant ? rows.map((row) => ({ ...row, isImportant: false })) : rows
+        };
+      })
     } as WorkNoteData), "중요 업무");
   };
   const toggleTaskCompleted = (collectionKey: TaskCollectionKey, id: string, completed: boolean) => {
@@ -4165,10 +4174,18 @@ function SettlementFields({
   const [pasteText, setPasteText] = useState("");
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
   const [openInvoiceRowIds, setOpenInvoiceRowIds] = useState<string[]>([]);
+  const [bulkAction, setBulkAction] = useState<SettlementBulkAction>(null);
+  const [bulkRowStatus, setBulkRowStatus] = useState("");
+  const [bulkDueDate, setBulkDueDate] = useState("");
+  const [bulkPaidDate, setBulkPaidDate] = useState("");
+  const [bulkImportantValue, setBulkImportantValue] = useState("set");
+  const [bulkFillPaidDateOnComplete, setBulkFillPaidDateOnComplete] = useState(true);
   const [bulkBillingMethod, setBulkBillingMethod] = useState("");
   const [bulkInvoiceStatus, setBulkInvoiceStatus] = useState("");
   const [bulkPlannedDate, setBulkPlannedDate] = useState("");
   const [bulkIssuedDate, setBulkIssuedDate] = useState("");
+  const [bulkChangePlannedDate, setBulkChangePlannedDate] = useState(false);
+  const [bulkChangeIssuedDate, setBulkChangeIssuedDate] = useState(false);
   const isAdvance = firstText(draft, ["paymentType"]).includes("선금");
   const rowStatusOptions = isAdvance
     ? ADVANCE_DEDUCTION_STATUS_OPTIONS
@@ -4178,6 +4195,7 @@ function SettlementFields({
   const advanceDeductedAmount = scheduleStats.totalAmount;
   const advanceRemainingAmount = advanceAmount - advanceDeductedAmount;
   const rowIds = schedule.map((row, index) => recordId(row, index));
+  const selectedRows = schedule.filter((row, index) => selectedRowIds.includes(recordId(row, index)));
   const draftId = firstText(draft, ["id"]);
   const allSelected = Boolean(rowIds.length) && rowIds.every((id) => selectedRowIds.includes(id));
   const bulkStatusOptions = billingStatusOptions(bulkBillingMethod || "세금계산서");
@@ -4185,6 +4203,7 @@ function SettlementFields({
   useEffect(() => {
     setSelectedRowIds([]);
     setOpenInvoiceRowIds([]);
+    setBulkAction(null);
   }, [draftId]);
 
   useEffect(() => {
@@ -4208,9 +4227,11 @@ function SettlementFields({
         id: createId("pay_"),
         round: String(regularSchedule.length + 1),
         dueDate: toDateKey(new Date()),
+        paidDate: "",
         amount: "",
         amountVatIncluded: false,
         status: isAdvance ? "출고 대기" : "예정",
+        isImportant: false,
         item: "",
         memo: "",
         billingMethod: "세금계산서",
@@ -4242,9 +4263,11 @@ function SettlementFields({
         id: createId("pay_"),
         round: String(index + 1),
         dueDate: toDateKey(date),
+        paidDate: "",
         amount: normalizeAmountString(scheduleAmount),
         amountVatIncluded: scheduleAmountVatIncluded,
         status: "예정",
+        isImportant: false,
         item: "",
         memo: "",
         billingMethod: "세금계산서",
@@ -4282,16 +4305,75 @@ function SettlementFields({
   const toggleInvoiceEditor = (id: string) => {
     setOpenInvoiceRowIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   };
-  const applyBulkInvoice = () => {
+  const openBulkAction = (action: Exclude<SettlementBulkAction, null>) => {
     if (!selectedRowIds.length) {
-      alert("결제 및 증빙 정보를 적용할 회차 또는 차감 항목을 선택해 주세요.");
+      alert("일괄 변경할 회차 또는 차감 항목을 선택해 주세요.");
       return;
     }
-    if (!bulkBillingMethod && !bulkInvoiceStatus && !bulkPlannedDate && !bulkIssuedDate) {
-      alert("일괄 적용할 결제 및 증빙 정보를 하나 이상 입력해 주세요.");
+    setBulkAction(action);
+    if (action === "status") setBulkRowStatus(rowStatusOptions[0] || "");
+    if (action === "dueDate") setBulkDueDate("");
+    if (action === "paidDate") setBulkPaidDate("");
+    if (action === "important") setBulkImportantValue("set");
+    if (action === "invoice") {
+      setBulkBillingMethod("");
+      setBulkInvoiceStatus("");
+      setBulkPlannedDate("");
+      setBulkIssuedDate("");
+      setBulkChangePlannedDate(false);
+      setBulkChangeIssuedDate(false);
+    }
+  };
+  const finishBulkAction = (rows: AnyRecord[]) => {
+    setSchedule(rows);
+    setSelectedRowIds([]);
+    setBulkAction(null);
+  };
+  const applySelectedBulkAction = () => {
+    if (!selectedRowIds.length || !bulkAction) return;
+    if (bulkAction === "delete") {
+      setSchedule(schedule.filter((row, index) => !selectedRowIds.includes(recordId(row, index))));
+      setOpenInvoiceRowIds((current) => current.filter((id) => !selectedRowIds.includes(id)));
+      setSelectedRowIds([]);
+      setBulkAction(null);
       return;
     }
-    setSchedule(schedule.map((row, index) => {
+    if (bulkAction === "status") {
+      if (!bulkRowStatus) return;
+      const fillPaidDate = !isAdvance && bulkRowStatus === "입금 완료" && bulkFillPaidDateOnComplete;
+      finishBulkAction(schedule.map((row, index) => selectedRowIds.includes(recordId(row, index))
+        ? { ...row, status: bulkRowStatus, ...(fillPaidDate && !firstText(row, ["paidDate"]) ? { paidDate: toDateKey(new Date()) } : {}) }
+        : row));
+      return;
+    }
+    if (bulkAction === "dueDate") {
+      if (!bulkDueDate && !confirm(`선택한 ${selectedRowIds.length}건의 예정일을 초기화할까요?`)) return;
+      if (!isAdvance && selectedRows.some((row) => isSettlementScheduleRowCompleted(row, false)) && !confirm("납부 완료된 회차가 포함되어 있습니다. 예정일을 변경할까요?")) return;
+      finishBulkAction(schedule.map((row, index) => selectedRowIds.includes(recordId(row, index)) ? { ...row, dueDate: bulkDueDate } : row));
+      return;
+    }
+    if (bulkAction === "paidDate") {
+      if (!bulkPaidDate && !confirm(`선택한 ${selectedRowIds.length}건의 실제 납부일을 초기화할까요?`)) return;
+      finishBulkAction(schedule.map((row, index) => selectedRowIds.includes(recordId(row, index)) ? { ...row, paidDate: bulkPaidDate } : row));
+      return;
+    }
+    if (bulkAction === "important") {
+      const isImportant = bulkImportantValue === "set";
+      finishBulkAction(schedule.map((row, index) => selectedRowIds.includes(recordId(row, index)) ? { ...row, isImportant } : row));
+      return;
+    }
+    if (!bulkBillingMethod && !bulkInvoiceStatus && !bulkChangePlannedDate && !bulkChangeIssuedDate) {
+      alert("일괄 적용할 결제 및 증빙 정보를 하나 이상 선택해 주세요.");
+      return;
+    }
+    if (bulkInvoiceStatus && !bulkBillingMethod && selectedRows.some((row) => !billingStatusOptions(billingMethodFor(row)).includes(bulkInvoiceStatus))) {
+      alert("선택한 항목의 처리 방식에 공통으로 적용할 수 없는 상태가 포함되어 있습니다. 처리 방식도 함께 선택해 주세요.");
+      return;
+    }
+    if ((bulkChangePlannedDate && !bulkPlannedDate) || (bulkChangeIssuedDate && !bulkIssuedDate)) {
+      if (!confirm("선택한 결제 및 증빙 날짜를 초기화할까요?")) return;
+    }
+    finishBulkAction(schedule.map((row, index) => {
       if (!selectedRowIds.includes(recordId(row, index))) return row;
       const billingMethod = bulkBillingMethod || billingMethodFor(row);
       if (billingMethod === "불필요") {
@@ -4306,19 +4388,46 @@ function SettlementFields({
       }
       const allowedStatuses = billingStatusOptions(billingMethod);
       const currentStatus = firstText(row, ["taxInvoiceStatus"]);
-      const nextStatus = bulkInvoiceStatus
-        ? (allowedStatuses.includes(bulkInvoiceStatus) ? bulkInvoiceStatus : "")
-        : (allowedStatuses.includes(currentStatus) ? currentStatus : "");
+      const nextStatus = bulkInvoiceStatus && allowedStatuses.includes(bulkInvoiceStatus)
+        ? bulkInvoiceStatus
+        : allowedStatuses.includes(currentStatus) ? currentStatus : "";
       return {
         ...row,
         billingMethod,
         taxInvoiceStatus: nextStatus,
-        ...(bulkPlannedDate ? { taxInvoicePlannedDate: bulkPlannedDate } : {}),
-        ...(bulkIssuedDate ? { taxInvoiceIssuedDate: bulkIssuedDate } : {})
+        ...(bulkChangePlannedDate ? { taxInvoicePlannedDate: bulkPlannedDate } : {}),
+        ...(bulkChangeIssuedDate ? { taxInvoiceIssuedDate: bulkIssuedDate } : {})
       };
     }));
-    setOpenInvoiceRowIds((current) => Array.from(new Set([...current, ...selectedRowIds])));
   };
+
+  const bulkActionTitle = bulkAction === "status"
+    ? `${isAdvance ? "차감" : "납부"} 상태 변경`
+    : bulkAction === "dueDate"
+      ? `${isAdvance ? "차감" : "납부"} 예정일 변경`
+      : bulkAction === "paidDate"
+        ? "실제 납부일 변경"
+        : bulkAction === "invoice"
+          ? "결제 및 증빙 설정"
+          : bulkAction === "delete"
+            ? `${isAdvance ? "선금 차감" : "분할 납부"} 내역 삭제`
+            : "중요 여부 변경";
+  const summarizeSelectedValues = (values: string[]) => {
+    const uniqueValues = [...new Set(values.map(clean).filter(Boolean))];
+    if (!uniqueValues.length) return "설정 안 됨";
+    return uniqueValues.length === 1 ? uniqueValues[0] : `여러 값 혼합 (${uniqueValues.length}종)`;
+  };
+  const bulkCurrentValue = bulkAction === "status"
+    ? summarizeSelectedValues(selectedRows.map((row) => firstText(row, ["status"])))
+    : bulkAction === "dueDate"
+      ? summarizeSelectedValues(selectedRows.map((row) => firstText(row, ["dueDate"])))
+      : bulkAction === "paidDate"
+        ? summarizeSelectedValues(selectedRows.map((row) => firstText(row, ["paidDate"])))
+        : bulkAction === "invoice"
+          ? summarizeSelectedValues(selectedRows.map((row) => joinParts([billingMethodFor(row), firstText(row, ["taxInvoiceStatus"])], " · ")))
+          : bulkAction === "important"
+            ? summarizeSelectedValues(selectedRows.map((row) => row.isImportant ? "중요" : "일반"))
+            : "-";
 
   return (
     <>
@@ -4389,43 +4498,127 @@ function SettlementFields({
           </>
         )}
 
-        <section className="settlement-invoice-bulk-panel">
+        <section className={`settlement-bulk-toolbar ${selectedRowIds.length ? "has-selection" : ""}`}>
           <div className="settlement-select-all">
             <label className="row-select-check">
               <input type="checkbox" checked={allSelected} onChange={toggleAllRows} />
               <span>전체 선택</span>
             </label>
-            <strong>{selectedRowIds.length}건 선택</strong>
+            <strong>{selectedRowIds.length ? `${selectedRowIds.length}건 선택됨` : `${rowIds.length}건`}</strong>
           </div>
-          <label className="field">
-            <span>처리 방식</span>
-            <select
-              value={bulkBillingMethod}
-              onChange={(event) => {
-                const method = event.target.value;
-                setBulkBillingMethod(method);
-                if (bulkInvoiceStatus && !billingStatusOptions(method || "세금계산서").includes(bulkInvoiceStatus)) setBulkInvoiceStatus("");
-              }}
-            >
-              <option value="">변경 안 함</option>
-              {BILLING_METHOD_OPTIONS.map((method) => <option key={method} value={method}>{method}</option>)}
-            </select>
-          </label>
-          {bulkBillingMethod !== "불필요" && (
-            <>
-              <label className="field">
-                <span>처리 상태</span>
-                <select value={bulkInvoiceStatus} onChange={(event) => setBulkInvoiceStatus(event.target.value)}>
-                  <option value="">변경 안 함</option>
-                  {bulkStatusOptions.filter(Boolean).map((status) => <option key={status} value={status}>{status}</option>)}
-                </select>
-              </label>
-              <TextField label={bulkBillingMethod === "카드결제" ? "결제 예정일" : "발행 예정일"} type="date" value={bulkPlannedDate} onChange={setBulkPlannedDate} />
-              <TextField label={bulkBillingMethod === "카드결제" ? "결제 완료일" : "실제 발행일"} type="date" value={bulkIssuedDate} onChange={setBulkIssuedDate} />
-            </>
+          {selectedRowIds.length > 0 && (
+            <div className="settlement-bulk-actions">
+              <button type="button" onClick={() => openBulkAction("status")}>상태 변경</button>
+              <button type="button" onClick={() => openBulkAction("dueDate")}>{isAdvance ? "차감일" : "예정일"} 변경</button>
+              {!isAdvance && <button type="button" onClick={() => openBulkAction("paidDate")}>실제 납부일</button>}
+              <button type="button" onClick={() => openBulkAction("invoice")}>결제/증빙</button>
+              <button type="button" onClick={() => openBulkAction("important")}>중요 여부</button>
+              <button type="button" className="ghost-button" onClick={() => setSelectedRowIds([])}>선택 해제</button>
+              <button type="button" className="danger-button" onClick={() => openBulkAction("delete")}>선택 삭제</button>
+            </div>
           )}
-          <button type="button" className="icon-text-button primary" onClick={applyBulkInvoice}>선택 항목에 적용</button>
         </section>
+
+        {bulkAction && (
+          <div className="settlement-bulk-modal-backdrop" role="dialog" aria-modal="true" aria-label={bulkActionTitle} onMouseDown={() => setBulkAction(null)}>
+            <section className="settlement-bulk-modal" onMouseDown={(event) => event.stopPropagation()}>
+              <div className="section-title-row">
+                <div>
+                  <p className="eyebrow">BULK EDIT</p>
+                  <h3>{bulkActionTitle}</h3>
+                  <small>선택 항목 {selectedRowIds.length}건 · 기존 값: {bulkCurrentValue}</small>
+                </div>
+                <button type="button" className="icon-only-button" onClick={() => setBulkAction(null)} aria-label="일괄 작업 닫기"><X size={17} /></button>
+              </div>
+              <div className="settlement-bulk-modal-body">
+                {bulkAction === "status" && (
+                  <>
+                    <SelectField label={isAdvance ? "차감 상태" : "납부 상태"} value={bulkRowStatus} onChange={setBulkRowStatus} options={rowStatusOptions} />
+                    {!isAdvance && bulkRowStatus === "입금 완료" && (
+                      <label className="bulk-option-check">
+                        <input type="checkbox" checked={bulkFillPaidDateOnComplete} onChange={(event) => setBulkFillPaidDateOnComplete(event.target.checked)} />
+                        <span>실제 납부일이 비어 있으면 오늘 날짜 입력</span>
+                      </label>
+                    )}
+                  </>
+                )}
+                {bulkAction === "dueDate" && (
+                  <div className="bulk-date-editor">
+                    <TextField label={isAdvance ? "차감 예정일" : "납부 예정일"} type="date" value={bulkDueDate} onChange={setBulkDueDate} />
+                    <div className="bulk-date-shortcuts">
+                      <button type="button" onClick={() => setBulkDueDate(toDateKey(new Date()))}>오늘</button>
+                      <button type="button" className="danger-button" onClick={() => confirm("적용할 날짜를 초기화 값으로 설정할까요?") && setBulkDueDate("")}>초기화</button>
+                    </div>
+                  </div>
+                )}
+                {bulkAction === "paidDate" && (
+                  <div className="bulk-date-editor">
+                    <TextField label="실제 납부일" type="date" value={bulkPaidDate} onChange={setBulkPaidDate} />
+                    <div className="bulk-date-shortcuts">
+                      <button type="button" onClick={() => setBulkPaidDate(toDateKey(new Date()))}>오늘</button>
+                      <button type="button" className="danger-button" onClick={() => confirm("적용할 실제 납부일을 초기화 값으로 설정할까요?") && setBulkPaidDate("")}>초기화</button>
+                    </div>
+                  </div>
+                )}
+                {bulkAction === "important" && (
+                  <label className="field">
+                    <span>중요 여부</span>
+                    <select value={bulkImportantValue} onChange={(event) => setBulkImportantValue(event.target.value)}>
+                      <option value="set">중요 업무로 설정</option>
+                      <option value="clear">중요 해제</option>
+                    </select>
+                  </label>
+                )}
+                {bulkAction === "delete" && (
+                  <div className="bulk-delete-warning">
+                    <strong>선택한 {selectedRowIds.length}건의 정산 내역을 삭제하시겠습니까?</strong>
+                    <p>삭제한 내역은 복구할 수 없습니다. 기존 정산 건 자체는 유지됩니다.</p>
+                  </div>
+                )}
+                {bulkAction === "invoice" && (
+                  <div className="settlement-bulk-invoice-grid">
+                    <label className="field">
+                      <span>처리 방식</span>
+                      <select value={bulkBillingMethod} onChange={(event) => {
+                        const method = event.target.value;
+                        setBulkBillingMethod(method);
+                        if (bulkInvoiceStatus && !billingStatusOptions(method || "세금계산서").includes(bulkInvoiceStatus)) setBulkInvoiceStatus("");
+                      }}>
+                        <option value="">변경 안 함</option>
+                        {BILLING_METHOD_OPTIONS.map((method) => <option key={method} value={method}>{method}</option>)}
+                      </select>
+                    </label>
+                    {bulkBillingMethod !== "불필요" && (
+                      <>
+                        <label className="field">
+                          <span>처리 상태</span>
+                          <select value={bulkInvoiceStatus} onChange={(event) => setBulkInvoiceStatus(event.target.value)}>
+                            <option value="">변경 안 함</option>
+                            {bulkStatusOptions.filter(Boolean).map((status) => <option key={status} value={status}>{status}</option>)}
+                          </select>
+                        </label>
+                        <div className="bulk-invoice-date-field">
+                          <label className="bulk-option-check"><input type="checkbox" checked={bulkChangePlannedDate} onChange={(event) => setBulkChangePlannedDate(event.target.checked)} /><span>{bulkBillingMethod === "카드결제" ? "결제 예정일" : "발행 예정일"} 변경</span></label>
+                          {bulkChangePlannedDate && <TextField label="날짜" type="date" value={bulkPlannedDate} onChange={setBulkPlannedDate} />}
+                          {bulkChangePlannedDate && <div className="bulk-date-shortcuts"><button type="button" onClick={() => setBulkPlannedDate(toDateKey(new Date()))}>오늘</button><button type="button" onClick={() => setBulkPlannedDate("")}>초기화</button></div>}
+                        </div>
+                        <div className="bulk-invoice-date-field">
+                          <label className="bulk-option-check"><input type="checkbox" checked={bulkChangeIssuedDate} onChange={(event) => setBulkChangeIssuedDate(event.target.checked)} /><span>{bulkBillingMethod === "카드결제" ? "결제 완료일" : "실제 발행일"} 변경</span></label>
+                          {bulkChangeIssuedDate && <TextField label="날짜" type="date" value={bulkIssuedDate} onChange={setBulkIssuedDate} />}
+                          {bulkChangeIssuedDate && <div className="bulk-date-shortcuts"><button type="button" onClick={() => setBulkIssuedDate(toDateKey(new Date()))}>오늘</button><button type="button" onClick={() => setBulkIssuedDate("")}>초기화</button></div>}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="settlement-bulk-modal-actions">
+                <button type="button" onClick={() => setBulkAction(null)}>취소</button>
+                <button type="button" className={bulkAction === "delete" ? "danger-button" : "primary"} onClick={applySelectedBulkAction}>{bulkAction === "delete" ? `${selectedRowIds.length}건 삭제` : `${selectedRowIds.length}건에 적용`}</button>
+              </div>
+            </section>
+          </div>
+        )}
 
         <div className="payment-row-list">
           {schedule.map((row, index) => {
@@ -4443,14 +4636,17 @@ function SettlementFields({
                 : "";
             return (
               <div
-                className={`payment-row ${isAdvance ? "advance-deduction-row" : "installment-payment-row"} ${focusClass}`}
+                className={`payment-row ${isAdvance ? "advance-deduction-row" : "installment-payment-row"} ${focusClass} ${selectedRowIds.includes(rowId) ? "is-selected" : ""} ${row.isImportant ? "is-row-important" : ""}`}
                 key={rowId}
                 data-tax-invoice-item-id={rowId}
               >
-                <label className="row-select-check payment-row-select">
-                  <input type="checkbox" checked={selectedRowIds.includes(rowId)} onChange={() => toggleRowSelection(rowId)} />
-                  <span>선택</span>
-                </label>
+                <div className="payment-row-selection">
+                  <label className="row-select-check payment-row-select">
+                    <input type="checkbox" checked={selectedRowIds.includes(rowId)} onChange={() => toggleRowSelection(rowId)} />
+                    <span>선택</span>
+                  </label>
+                  <ImportantToggle active={Boolean(row.isImportant)} onToggle={() => updateRow(index, "isImportant", !Boolean(row.isImportant))} />
+                </div>
                 {isAdvance ? (
                   <>
                     <TextField label="차감일" type="date" value={firstText(row, ["dueDate"])} onChange={(value) => updateRow(index, "dueDate", value)} />
@@ -4463,6 +4659,7 @@ function SettlementFields({
                   <>
                     <TextField label="회차" value={firstText(row, ["round"])} onChange={(value) => updateRow(index, "round", value)} />
                     <TextField label="예정일" type="date" value={firstText(row, ["dueDate"])} onChange={(value) => updateRow(index, "dueDate", value)} />
+                    <TextField label="실제 납부일" type="date" value={firstText(row, ["paidDate"])} onChange={(value) => updateRow(index, "paidDate", value)} />
                     <TextField label="금액" value={firstText(row, ["amount"])} onChange={(value) => updateRow(index, "amount", value)} option={<FieldCheck label="VAT 포함" checked={Boolean(row.amountVatIncluded)} onChange={(checked) => updateRow(index, "amountVatIncluded", checked)} />} />
                     <TextField label="품목/메모" value={firstText(row, ["item"])} onChange={(value) => updateRow(index, "item", value)} />
                     <label className="field">
@@ -4625,7 +4822,7 @@ function SchedulePreview({ rows, isAdvance, onOpenRow }: { rows: AnyRecord[]; is
             aria-label={isAdvance ? `${formatOptionalDate(firstText(row, ["dueDate"])) || "일자 미정"} 차감 내역 수정` : `${roundLabel} 수정`}
           >
             <span>{isAdvance ? formatOptionalDate(firstText(row, ["dueDate"])) || "일자 미정" : roundLabel}</span>
-            <strong>{isAdvance
+            <strong>{row.isImportant ? "★ " : ""}{isAdvance
               ? joinParts([firstText(row, ["item"]) || "품목 미정", formatMoneyWithVat(firstText(row, ["amount"]), row.amountVatIncluded)], " · ")
               : joinParts([formatOptionalDate(firstText(row, ["dueDate"])), formatMoneyWithVat(firstText(row, ["amount"]), row.amountVatIncluded), firstText(row, ["item"])], " · ")}</strong>
             <small>{isAdvance ? normalizeAdvanceDeductionStatus(firstText(row, ["status"])) : firstText(row, ["status"]) || "예정"}</small>
@@ -5142,20 +5339,22 @@ function loadWorkNoteData(): WorkNoteData {
 }
 
 function migrateWorkNoteData(data: WorkNoteData): WorkNoteData {
-  return migrateImportantFlags(migrateWorkTaskTitles(migrateAdvanceDeductionStatuses(migrateSettlementTaxInvoiceRows(migrateLegacyMaterialSalesNotes(migrateInternalContacts(data))))));
+  return migrateImportantFlags(migrateWorkTaskTitles(migrateSettlementRowFields(migrateSettlementTaxInvoiceRows(migrateLegacyMaterialSalesNotes(migrateInternalContacts(data))))));
 }
 
-function migrateAdvanceDeductionStatuses(data: WorkNoteData): WorkNoteData {
+function migrateSettlementRowFields(data: WorkNoteData): WorkNoteData {
   let changed = false;
   const settlementTasks = asArray(data.settlementTasks).map((record) => {
-    if (!firstText(record, ["paymentType"]).includes("선금")) return record;
+    const isAdvance = firstText(record, ["paymentType"]).includes("선금");
     let recordChanged = false;
     const paymentSchedule = asArray(record.paymentSchedule).map((row) => {
-      if (row.isTaxInvoiceOnly) return row;
-      const status = normalizeAdvanceDeductionStatus(firstText(row, ["status"]));
-      if (status === firstText(row, ["status"])) return row;
+      const currentStatus = firstText(row, ["status"]);
+      const status = isAdvance && !row.isTaxInvoiceOnly ? normalizeAdvanceDeductionStatus(currentStatus) : currentStatus;
+      const paidDate = parseDateKey(firstText(row, ["paidDate", "actualPaidDate", "paymentCompletedDate"])) || "";
+      const isImportant = Boolean(row.isImportant);
+      if (status === currentStatus && paidDate === firstText(row, ["paidDate"]) && typeof row.isImportant === "boolean") return row;
       recordChanged = true;
-      return { ...row, status };
+      return { ...row, status, paidDate, isImportant };
     });
     if (!recordChanged) return record;
     changed = true;
@@ -5774,7 +5973,7 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
   ]);
 
   addSheet("정산일정_차감목록", [
-    ["업체명", "정산 ID", "결제 유형", "구분", "번호", "일자", "금액", "VAT", "상태", "품목", "메모", "결제/증빙 방식", "처리 상태", "발행/결제 예정일", "실제 발행/결제일", "결제/증빙 메모"],
+    ["업체명", "정산 ID", "결제 유형", "구분", "번호", "예정/차감일", "실제 납부일", "금액", "VAT", "상태", "중요 업무", "품목", "메모", "결제/증빙 방식", "처리 상태", "발행/결제 예정일", "실제 발행/결제일", "결제/증빙 메모"],
     ...asArray(data.settlementTasks).flatMap((record, recordIndex) => {
       const isAdvance = firstText(record, ["paymentType"]).includes("선금");
       return asArray(record.paymentSchedule).map((row) => [
@@ -5784,9 +5983,11 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
         isAdvance ? "차감" : "회차",
         firstText(row, ["round"]),
         firstText(row, ["dueDate"]),
+        firstText(row, ["paidDate"]),
         amountForXlsx(firstText(row, ["amount"])),
         formatVatStatus(row.amountVatIncluded),
         firstText(row, ["status"]),
+        row.isImportant ? "예" : "아니오",
         firstText(row, ["item"]),
         firstText(row, ["memo", "description"]),
         billingMethodFor(row),
@@ -7270,9 +7471,11 @@ function normalizePaymentSchedule(rows: AnyRecord[]): AnyRecord[] {
         id: firstText(row, ["id"]) || createId("pay_"),
         round: firstText(row, ["round"]) || (row.isTaxInvoiceOnly ? "" : String(index + 1)),
         dueDate: parseDateKey(firstText(row, ["dueDate"])) || firstText(row, ["dueDate"]),
+        paidDate: parseDateKey(firstText(row, ["paidDate", "actualPaidDate", "paymentCompletedDate"])) || "",
         amount: normalizeAmountString(firstText(row, ["amount"])),
         amountVatIncluded: Boolean(row.amountVatIncluded),
         status: firstText(row, ["status"]) || "예정",
+        isImportant: Boolean(row.isImportant),
         item: firstText(row, ["item"]),
         memo: firstText(row, ["memo", "description"]),
         isTaxInvoiceOnly: Boolean(row.isTaxInvoiceOnly),
@@ -7283,7 +7486,7 @@ function normalizePaymentSchedule(rows: AnyRecord[]): AnyRecord[] {
         taxInvoiceMemo: disabled ? "" : firstText(row, ["taxInvoiceMemo", "invoiceMemo"])
       };
     })
-    .filter((row) => row.isTaxInvoiceOnly || ["dueDate", "amount", "status", "item", "memo", "billingMethod", "taxInvoiceStatus", "taxInvoicePlannedDate", "taxInvoiceIssuedDate", "taxInvoiceMemo"].some((key) => firstText(row, [key])));
+    .filter((row) => row.isTaxInvoiceOnly || ["dueDate", "paidDate", "amount", "status", "item", "memo", "billingMethod", "taxInvoiceStatus", "taxInvoicePlannedDate", "taxInvoiceIssuedDate", "taxInvoiceMemo"].some((key) => firstText(row, [key])));
 }
 function parseSettlementSchedulePaste(text: string): AnyRecord[] {
   return text
@@ -7575,6 +7778,8 @@ function collectUnifiedWorkItems(data: WorkNoteData, scheduleItems: ScheduleItem
     const isThisWeek = normalizedDates.some((date) => weekStart <= date && date <= weekEnd)
       || Boolean(hasRange && startDate <= weekEnd && endDate >= weekStart);
     const isCompleted = isUnifiedTaskCompleted(record, collectionKey);
+    const hasImportantSettlementRow = collectionKey === "settlementTasks"
+      && normalizePaymentSchedule(asArray(record.paymentSchedule)).some((row) => Boolean(row.isImportant));
 
     return {
       id: key,
@@ -7601,7 +7806,7 @@ function collectUnifiedWorkItems(data: WorkNoteData, scheduleItems: ScheduleItem
       memo,
       createdAt: firstText(record, ["createdAt", "registeredAt", "inquiryDate", "updatedAt", "modifiedAt"]),
       updatedAt: firstText(record, ["updatedAt", "modifiedAt", "createdAt"]),
-      isImportant: Boolean(record.isImportant),
+      isImportant: Boolean(record.isImportant || hasImportantSettlementRow),
       isCompleted,
       isToday,
       isThisWeek
@@ -7786,7 +7991,8 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
             priority,
             `pay-${recordId(row, rowIndex)}`,
             "",
-            recordId(row, rowIndex)
+            recordId(row, rowIndex),
+            Boolean(task.isImportant || row.isImportant)
           );
         });
       if (!activeRows.length) {
@@ -7815,7 +8021,9 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
         status,
         priority,
         `tax-invoice-${rowId}`,
-        rowId
+        rowId,
+        rowId,
+        Boolean(task.isImportant || row.isImportant)
       );
     });
   });
@@ -7845,7 +8053,8 @@ function addScheduleItem(
   priority: string,
   idSuffix = "",
   taxInvoiceItemId = "",
-  settlementRowId = ""
+  settlementRowId = "",
+  isImportantOverride?: boolean
 ) {
   const date = parseDateKey(dateValue);
   if (!date) return;
@@ -7864,7 +8073,7 @@ function addScheduleItem(
     status,
     priority,
     collectionKey: type === "sales" ? "notes" : type === "settlement" ? "settlementTasks" : type === "output" ? "outputTasks" : "otherTasks",
-    isImportant: Boolean(record.isImportant)
+    isImportant: isImportantOverride ?? Boolean(record.isImportant)
   });
 }
 
