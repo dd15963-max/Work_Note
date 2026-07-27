@@ -8,7 +8,7 @@ export function getSupabaseClient(): SupabaseClient {
     throw new Error("Supabase 환경변수가 설정되지 않았습니다.");
   }
   if (!client) {
-    client = createClient(fullstackConfig.supabaseUrl, fullstackConfig.supabaseAnonKey, {
+    client = createClient(fullstackConfig.supabaseUrl, fullstackConfig.supabasePublishableKey, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,

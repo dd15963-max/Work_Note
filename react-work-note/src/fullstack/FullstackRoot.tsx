@@ -79,7 +79,7 @@ function ConfigurationRequired() {
         <div className="setup-steps">
           <strong>필요한 환경변수</strong>
           <code>VITE_SUPABASE_URL</code>
-          <code>VITE_SUPABASE_ANON_KEY</code>
+          <code>VITE_SUPABASE_PUBLISHABLE_KEY</code>
           <code>VITE_ALLOWED_EMAIL</code>
         </div>
       </section>

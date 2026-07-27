@@ -37,14 +37,14 @@ Copy `.env.example` to `.env.local` at the repository root and fill in only publ
 
 ```dotenv
 VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-key
 VITE_ALLOWED_EMAIL=your-email@example.com
 VITE_SUPABASE_STORAGE_BUCKET=work-note-attachments
 VITE_FULLSTACK_ENABLED=true
 VITE_PUBLIC_BASE=/Work_Note/fullstack-preview/
 ```
 
-For Vercel, set `VITE_PUBLIC_BASE=/`. Do not create a `VITE_SUPABASE_SERVICE_ROLE_KEY` variable.
+For Vercel, set `VITE_PUBLIC_BASE=/`. The app also accepts the legacy `VITE_SUPABASE_ANON_KEY` as a fallback, but new projects should use the publishable key. Do not create `VITE_SUPABASE_SECRET_KEY` or `VITE_SUPABASE_SERVICE_ROLE_KEY` variables.
 
 ## 4. Local development
 
