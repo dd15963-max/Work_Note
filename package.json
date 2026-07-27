@@ -4,11 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "build": "vite build",
-    "check": "tsc --noEmit"
+    "dev": "vite --host 127.0.0.1 --config vite.fullstack.config.ts",
+    "build": "vite build --config vite.fullstack.config.ts",
+    "check": "tsc --noEmit",
+    "test": "vitest run --config vitest.config.ts",
+    "check:static": "node scripts/fullstack-static-check.mjs",
+    "verify:fullstack": "npm run check && npm run test && npm run build && npm run check:static"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.110.8",
+    "@tanstack/react-query": "^5.101.4",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
@@ -18,6 +23,7 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^6.0.3",
     "typescript": "^5.5.4",
-    "vite": "^8.1.3"
+    "vite": "^8.1.3",
+    "vitest": "^4.1.10"
   }
 }

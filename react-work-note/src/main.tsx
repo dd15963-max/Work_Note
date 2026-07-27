@@ -1,10 +1,11 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { App } from "./App";
+import { FullstackRoot } from "./fullstack/FullstackRoot";
 import "./styles.css";
+import "./fullstack/fullstack.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    <FullstackRoot />
   </React.StrictMode>
 );
