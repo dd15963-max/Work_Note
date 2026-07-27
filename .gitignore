@@ -49,3 +49,8 @@ Thumbs.db
 .env.*
 !.env.example
 fullstack-preview/
+
+# ChatGPT Sites local runtime and build output
+.wrangler/
+dist/
+tsconfig.tsbuildinfo

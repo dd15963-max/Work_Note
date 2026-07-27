@@ -1,0 +1,15 @@
+@import "../react-work-note/src/styles.css";
+@import "../react-work-note/src/fullstack/fullstack.css";
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+}

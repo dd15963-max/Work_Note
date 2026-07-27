@@ -1,8 +1,12 @@
-import type { SupabaseClient, User } from "@supabase/supabase-js";
-import { fullstackConfig } from "./config";
 import { updateSyncState } from "./syncStore";
 import type { AttachmentRecord, DataCounts, WorkNoteData } from "./types";
 import { buildServerPayload } from "./serverPayload";
+
+export type SiteUser = {
+  id: string;
+  email: string;
+  displayName?: string;
+};
 
 const PENDING_DATASET_KEY = "workNotePendingServerSyncV1";
 const PENDING_ATTACHMENTS_KEY = "workNotePendingAttachmentSyncV1";
@@ -12,15 +16,14 @@ const ATTACHMENT_DB_NAME = "salesNoteAttachmentDbV1";
 const ATTACHMENT_STORE_NAME = "files";
 const ATTACHMENT_DB_VERSION = 1;
 
-let client: SupabaseClient | null = null;
-let user: User | null = null;
+let user: SiteUser | null = null;
 let flushing: Promise<void> | null = null;
 let flushingAttachments: Promise<void> | null = null;
 let onlineListenerAttached = false;
 
 function emptyData(): WorkNoteData {
   return {
-    version: "react-work-note-v1",
+    version: "sites-work-note-v1",
     updatedAt: "",
     companies: [],
     internalContacts: [],
@@ -30,44 +33,71 @@ function emptyData(): WorkNoteData {
     outputTasks: [],
     otherTasks: [],
     accounts: [],
-    loadedAt: new Date().toISOString()
+    loadedAt: new Date().toISOString(),
   };
 }
 
 function asArray(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object") : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> =>
+        Boolean(item) && typeof item === "object")
+    : [];
 }
 
-export function initializeRemoteRuntime(nextClient: SupabaseClient, nextUser: User) {
-  client = nextClient;
+async function responseError(response: Response): Promise<Error> {
+  try {
+    const payload = await response.json() as { error?: string };
+    return new Error(payload.error || `서버 요청 실패 (${response.status})`);
+  } catch {
+    return new Error(`서버 요청 실패 (${response.status})`);
+  }
+}
+
+export function initializeRemoteRuntime(nextUser: SiteUser) {
   user = nextUser;
-  updateSyncState({ mode: navigator.onLine ? "online" : "offline", message: navigator.onLine ? "서버 연결됨" : "오프라인", pendingCount: pendingCount(), error: "" });
+  updateSyncState({
+    mode: navigator.onLine ? "online" : "offline",
+    message: navigator.onLine ? "Sites 서버 연결됨" : "오프라인",
+    pendingCount: pendingCount(),
+    error: "",
+  });
   if (!onlineListenerAttached) {
     window.addEventListener("online", () => void flushPendingChanges());
-    window.addEventListener("offline", () => updateSyncState({ mode: "offline", message: "오프라인 · 변경사항은 이 기기에 보관됩니다." }));
+    window.addEventListener("offline", () =>
+      updateSyncState({
+        mode: "offline",
+        message: "오프라인 · 변경사항은 이 기기에 보관됩니다.",
+      }));
     onlineListenerAttached = true;
   }
   void flushPendingChanges();
 }
 
 export function clearRemoteRuntime() {
-  client = null;
   user = null;
-  updateSyncState({ mode: "disabled", message: "로그아웃", lastSyncedAt: "", pendingCount: pendingCount(), error: "" });
+  updateSyncState({
+    mode: "disabled",
+    message: "로그아웃",
+    lastSyncedAt: "",
+    pendingCount: pendingCount(),
+    error: "",
+  });
 }
 
 export function isRemoteModeActive(): boolean {
-  return Boolean(client && user);
+  return Boolean(user);
 }
 
-export function getRemoteUser(): User | null {
+export function getRemoteUser(): SiteUser | null {
   return user;
 }
 
 export function hasCompletedMigration(): boolean {
   if (!user) return false;
   try {
-    const marker = JSON.parse(window.localStorage.getItem(MIGRATION_MARKER_KEY) || "{}") as { userId?: string; completedAt?: string };
+    const marker = JSON.parse(
+      window.localStorage.getItem(MIGRATION_MARKER_KEY) || "{}",
+    ) as { userId?: string; completedAt?: string };
     return marker.userId === user.id && Boolean(marker.completedAt);
   } catch {
     return false;
@@ -76,21 +106,36 @@ export function hasCompletedMigration(): boolean {
 
 export function markMigrationComplete() {
   if (!user) return;
-  window.localStorage.setItem(MIGRATION_MARKER_KEY, JSON.stringify({ userId: user.id, completedAt: new Date().toISOString() }));
+  window.localStorage.setItem(
+    MIGRATION_MARKER_KEY,
+    JSON.stringify({ userId: user.id, completedAt: new Date().toISOString() }),
+  );
 }
 
 export async function loadServerDataset(): Promise<WorkNoteData> {
   ensureRuntime();
-  updateSyncState({ mode: "connecting", message: "서버 데이터 불러오는 중", error: "" });
-  const { data, error } = await client!.rpc("get_work_note_dataset");
-  if (error) {
-    updateSyncState({ mode: "error", message: "서버 불러오기 실패", error: error.message });
+  updateSyncState({
+    mode: "connecting",
+    message: "서버 데이터를 불러오는 중",
+    error: "",
+  });
+  const response = await fetch("/api/workspace", {
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const error = await responseError(response);
+    updateSyncState({
+      mode: "error",
+      message: "서버 불러오기 실패",
+      error: error.message,
+    });
     throw error;
   }
-  const payload = data && typeof data === "object" ? data as Record<string, unknown> : {};
+  const payload = await response.json() as Record<string, unknown>;
   const result: WorkNoteData = {
     ...emptyData(),
-    version: String(payload.version || "server-work-note-v1"),
+    version: String(payload.version || "sites-work-note-v1"),
     updatedAt: String(payload.updatedAt || payload.updated_at || ""),
     companies: asArray(payload.companies),
     internalContacts: asArray(payload.internalContacts),
@@ -100,40 +145,57 @@ export async function loadServerDataset(): Promise<WorkNoteData> {
     outputTasks: asArray(payload.outputTasks),
     otherTasks: asArray(payload.otherTasks),
     accounts: asArray(payload.accounts),
-    loadedAt: new Date().toISOString()
+    loadedAt: new Date().toISOString(),
   };
-  updateSyncState({ mode: "online", message: "동기화 완료", lastSyncedAt: new Date().toISOString(), error: "" });
+  updateSyncState({
+    mode: "online",
+    message: "동기화 완료",
+    lastSyncedAt: new Date().toISOString(),
+    error: "",
+  });
   return result;
 }
 
 export async function syncServerDataset(
   data: WorkNoteData,
-  reason: string,
-  mode: "sync" | "merge" | "replace" = "sync",
-  migrationBatchId = ""
+  _reason: string,
+  _mode: "sync" | "merge" | "replace" = "sync",
+  _migrationBatchId = "",
 ): Promise<void> {
   ensureRuntime();
-  const { error } = await client!.rpc("sync_work_note_dataset", {
-    p_payload: buildServerPayload(data),
-    p_reason: reason,
-    p_mode: mode,
-    p_migration_batch_id: migrationBatchId || null
+  const response = await fetch("/api/workspace", {
+    method: "PUT",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(buildServerPayload(data)),
   });
-  if (error) throw error;
+  if (!response.ok) throw await responseError(response);
 }
 
-export function enqueueRemoteDatasetSync(data: WorkNoteData, reason: string) {
+export function enqueueRemoteDatasetSync(
+  data: WorkNoteData,
+  reason: string,
+) {
   if (!isRemoteModeActive()) return;
-  const pending = { data, reason, queuedAt: new Date().toISOString() };
-  window.localStorage.setItem(PENDING_DATASET_KEY, JSON.stringify(pending));
-  updateSyncState({ pendingCount: pendingCount(), message: navigator.onLine ? "저장 대기" : "오프라인 저장 대기" });
+  window.localStorage.setItem(
+    PENDING_DATASET_KEY,
+    JSON.stringify({ data, reason, queuedAt: new Date().toISOString() }),
+  );
+  updateSyncState({
+    pendingCount: pendingCount(),
+    message: navigator.onLine ? "저장 대기" : "오프라인 저장 대기",
+  });
   void flushPendingDataset();
 }
 
 export async function flushPendingDataset(): Promise<void> {
   if (!isRemoteModeActive() || flushing) return flushing || Promise.resolve();
   if (!navigator.onLine) {
-    updateSyncState({ mode: "offline", message: "오프라인 · 변경사항 저장 대기", pendingCount: pendingCount() });
+    updateSyncState({
+      mode: "offline",
+      message: "오프라인 · 변경사항 저장 대기",
+      pendingCount: pendingCount(),
+    });
     return;
   }
   flushing = (async () => {
@@ -147,15 +209,32 @@ export async function flushPendingDataset(): Promise<void> {
         window.localStorage.removeItem(PENDING_DATASET_KEY);
         break;
       }
-      updateSyncState({ mode: "saving", message: "서버 저장 중", pendingCount: pendingCount(), error: "" });
+      updateSyncState({
+        mode: "saving",
+        message: "Sites 서버 저장 중",
+        pendingCount: pendingCount(),
+        error: "",
+      });
       try {
-        await syncServerDataset(pending.data, pending.reason, "sync");
-        const current = window.localStorage.getItem(PENDING_DATASET_KEY);
-        if (current === raw) window.localStorage.removeItem(PENDING_DATASET_KEY);
-        updateSyncState({ mode: "online", message: "동기화 완료", lastSyncedAt: new Date().toISOString(), pendingCount: pendingCount(), error: "" });
+        await syncServerDataset(pending.data, pending.reason);
+        if (window.localStorage.getItem(PENDING_DATASET_KEY) === raw) {
+          window.localStorage.removeItem(PENDING_DATASET_KEY);
+        }
+        updateSyncState({
+          mode: "online",
+          message: "동기화 완료",
+          lastSyncedAt: new Date().toISOString(),
+          pendingCount: pendingCount(),
+          error: "",
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        updateSyncState({ mode: navigator.onLine ? "error" : "offline", message: "서버 저장 실패 · 재시도 대기", pendingCount: pendingCount(), error: message });
+        updateSyncState({
+          mode: navigator.onLine ? "error" : "offline",
+          message: "서버 저장 실패 · 재시도 대기",
+          pendingCount: pendingCount(),
+          error: message,
+        });
         break;
       }
     }
@@ -169,13 +248,19 @@ export function clearPendingSync() {
   window.localStorage.removeItem(PENDING_DATASET_KEY);
   window.localStorage.removeItem(PENDING_ATTACHMENTS_KEY);
   window.localStorage.removeItem(PENDING_ATTACHMENT_DELETES_KEY);
-  updateSyncState({ pendingCount: 0, error: "", message: isRemoteModeActive() ? "동기화 완료" : "서버 연결 준비" });
+  updateSyncState({
+    pendingCount: 0,
+    error: "",
+    message: isRemoteModeActive() ? "동기화 완료" : "서버 연결 준비",
+  });
 }
 
 function readIdQueue(key: string): string[] {
   try {
     const values = JSON.parse(window.localStorage.getItem(key) || "[]") as unknown;
-    return Array.isArray(values) ? [...new Set(values.map(String).filter(Boolean))] : [];
+    return Array.isArray(values)
+      ? [...new Set(values.map(String).filter(Boolean))]
+      : [];
   } catch {
     return [];
   }
@@ -195,63 +280,81 @@ function pendingCount(): number {
 }
 
 function addPendingAttachment(id: string) {
-  writeIdQueue(PENDING_ATTACHMENTS_KEY, [...readIdQueue(PENDING_ATTACHMENTS_KEY), id]);
+  writeIdQueue(
+    PENDING_ATTACHMENTS_KEY,
+    [...readIdQueue(PENDING_ATTACHMENTS_KEY), id],
+  );
 }
 
 function removePendingAttachment(id: string) {
-  writeIdQueue(PENDING_ATTACHMENTS_KEY, readIdQueue(PENDING_ATTACHMENTS_KEY).filter((item) => item !== id));
+  writeIdQueue(
+    PENDING_ATTACHMENTS_KEY,
+    readIdQueue(PENDING_ATTACHMENTS_KEY).filter((item) => item !== id),
+  );
 }
 
 function addPendingAttachmentDelete(id: string) {
-  writeIdQueue(PENDING_ATTACHMENT_DELETES_KEY, [...readIdQueue(PENDING_ATTACHMENT_DELETES_KEY), id]);
+  writeIdQueue(
+    PENDING_ATTACHMENT_DELETES_KEY,
+    [...readIdQueue(PENDING_ATTACHMENT_DELETES_KEY), id],
+  );
 }
 
 function removePendingAttachmentDelete(id: string) {
-  writeIdQueue(PENDING_ATTACHMENT_DELETES_KEY, readIdQueue(PENDING_ATTACHMENT_DELETES_KEY).filter((item) => item !== id));
+  writeIdQueue(
+    PENDING_ATTACHMENT_DELETES_KEY,
+    readIdQueue(PENDING_ATTACHMENT_DELETES_KEY).filter((item) => item !== id),
+  );
 }
 
 export function getPendingAttachmentIds(): string[] {
   return readIdQueue(PENDING_ATTACHMENTS_KEY);
 }
 
-function safePathSegment(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || "file";
-}
-
 async function sha256ForBlob(blob: Blob): Promise<string> {
   if (!globalThis.crypto?.subtle) return "";
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
-  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    await blob.arrayBuffer(),
+  );
+  return Array.from(
+    new Uint8Array(digest),
+    (value) => value.toString(16).padStart(2, "0"),
+  ).join("");
 }
 
-export async function uploadRemoteAttachment(record: AttachmentRecord, migrationBatchId = ""): Promise<void> {
+export async function uploadRemoteAttachment(
+  record: AttachmentRecord,
+  migrationBatchId = "",
+): Promise<void> {
   ensureRuntime();
-  if (!record.id || !(record.blob instanceof Blob)) throw new Error("업로드할 첨부 원본이 없습니다.");
+  if (!record.id || !(record.blob instanceof Blob)) {
+    throw new Error("업로드할 첨부 원본이 없습니다.");
+  }
   const fileName = String(record.fileName || record.name || "attachment");
-  const storagePath = `${user!.id}/${safePathSegment(record.id)}/${safePathSegment(fileName)}`;
-  const fileHash = String(record.sha256 || "") || await sha256ForBlob(record.blob);
-  const { error: uploadError } = await client!.storage
-    .from(fullstackConfig.storageBucket)
-    .upload(storagePath, record.blob, { upsert: true, contentType: String(record.fileType || record.blob.type || "application/octet-stream") });
-  if (uploadError) throw uploadError;
-  const metadata = { ...record, ...(fileHash ? { sha256: fileHash } : {}) };
+  const fileHash =
+    String(record.sha256 || "") || await sha256ForBlob(record.blob);
+  const metadata = {
+    ...record,
+    fileName,
+    fileType: String(
+      record.fileType || record.blob.type || "application/octet-stream",
+    ),
+    fileSize: Number(record.fileSize || record.blob.size || 0),
+    sha256: fileHash,
+    migrationBatchId,
+  };
   delete metadata.blob;
-  const { error: metadataError } = await client!.from("attachments").upsert({
-    user_id: user!.id,
-    local_id: record.id,
-    owner_kind: String(record.ownerType || record.backupOwnerType || "unknown"),
-    owner_local_id: String(record.ownerId || record.noteId || record.backupOwnerId || ""),
-    storage_path: storagePath,
-    file_name: fileName,
-    mime_type: String(record.fileType || record.blob.type || "application/octet-stream"),
-    file_size: Number(record.fileSize || record.blob.size || 0),
-    sha256: fileHash || null,
-    data: metadata,
-    migration_batch_id: migrationBatchId || null,
-    deleted_at: null,
-    updated_at: new Date().toISOString()
-  }, { onConflict: "user_id,local_id" });
-  if (metadataError) throw metadataError;
+  const form = new FormData();
+  form.set("id", record.id);
+  form.set("metadata", JSON.stringify(metadata));
+  form.set("file", record.blob, fileName);
+  const response = await fetch("/api/files", {
+    method: "PUT",
+    credentials: "same-origin",
+    body: form,
+  });
+  if (!response.ok) throw await responseError(response);
   removePendingAttachment(record.id);
 }
 
@@ -262,33 +365,33 @@ export function queueRemoteAttachmentUpload(record: AttachmentRecord) {
   void flushPendingAttachments();
 }
 
-export async function downloadRemoteAttachment(id: string): Promise<AttachmentRecord | null> {
+export async function downloadRemoteAttachment(
+  id: string,
+): Promise<AttachmentRecord | null> {
   if (!isRemoteModeActive() || !id) return null;
-  const { data: metadata, error } = await client!
-    .from("attachments")
-    .select("storage_path,file_name,mime_type,file_size,sha256,data")
-    .eq("user_id", user!.id)
-    .eq("local_id", id)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (error) throw error;
-  if (!metadata) return null;
-  const { data: blob, error: downloadError } = await client!.storage.from(fullstackConfig.storageBucket).download(metadata.storage_path);
-  if (downloadError) throw downloadError;
-  if (Number(metadata.file_size || 0) && blob.size !== Number(metadata.file_size)) throw new Error("첨부파일 크기 검증에 실패했습니다.");
+  const metadataResponse = await fetch(
+    `/api/files?id=${encodeURIComponent(id)}&metadata=1`,
+    { credentials: "same-origin", cache: "no-store" },
+  );
+  if (metadataResponse.status === 404) return null;
+  if (!metadataResponse.ok) throw await responseError(metadataResponse);
+  const metadata = await metadataResponse.json() as AttachmentRecord;
+  const fileResponse = await fetch(
+    `/api/files?id=${encodeURIComponent(id)}`,
+    { credentials: "same-origin", cache: "no-store" },
+  );
+  if (!fileResponse.ok) throw await responseError(fileResponse);
+  const blob = await fileResponse.blob();
+  if (Number(metadata.fileSize || 0) && blob.size !== Number(metadata.fileSize)) {
+    throw new Error("첨부파일 크기 검증에 실패했습니다.");
+  }
   if (metadata.sha256) {
     const downloadedHash = await sha256ForBlob(blob);
-    if (downloadedHash && downloadedHash !== metadata.sha256) throw new Error("첨부파일 무결성 검증에 실패했습니다.");
+    if (downloadedHash && downloadedHash !== metadata.sha256) {
+      throw new Error("첨부파일 무결성 검증에 실패했습니다.");
+    }
   }
-  return {
-    ...((metadata.data || {}) as Record<string, unknown>),
-    id,
-    fileName: metadata.file_name,
-    fileType: metadata.mime_type,
-    fileSize: metadata.file_size,
-    sha256: metadata.sha256 || "",
-    blob
-  };
+  return { ...metadata, id, blob };
 }
 
 export function queueRemoteAttachmentDelete(id: string) {
@@ -304,20 +407,35 @@ export async function flushPendingChanges(): Promise<void> {
 }
 
 async function flushPendingAttachments(): Promise<void> {
-  if (!isRemoteModeActive() || flushingAttachments) return flushingAttachments || Promise.resolve();
+  if (!isRemoteModeActive() || flushingAttachments) {
+    return flushingAttachments || Promise.resolve();
+  }
   if (!navigator.onLine) {
-    updateSyncState({ mode: "offline", message: "오프라인 · 첨부 변경사항 저장 대기", pendingCount: pendingCount() });
+    updateSyncState({
+      mode: "offline",
+      message: "오프라인 · 첨부 변경사항 저장 대기",
+      pendingCount: pendingCount(),
+    });
     return;
   }
-  const startedQueue = JSON.stringify([readIdQueue(PENDING_ATTACHMENTS_KEY), readIdQueue(PENDING_ATTACHMENT_DELETES_KEY)]);
+  const startedQueue = JSON.stringify([
+    readIdQueue(PENDING_ATTACHMENTS_KEY),
+    readIdQueue(PENDING_ATTACHMENT_DELETES_KEY),
+  ]);
   let continueAfterFlush = false;
   flushingAttachments = (async () => {
     let lastError = "";
     for (const id of readIdQueue(PENDING_ATTACHMENTS_KEY)) {
       try {
         const record = await readLocalAttachmentForRetry(id);
-        if (!record?.blob) throw new Error(`${id}: 로컬 첨부 원본을 찾지 못했습니다.`);
-        updateSyncState({ mode: "saving", message: "첨부파일 서버 저장 중", error: "" });
+        if (!record?.blob) {
+          throw new Error(`${id}: 로컬 첨부 원본을 찾지 못했습니다.`);
+        }
+        updateSyncState({
+          mode: "saving",
+          message: "첨부파일 서버 저장 중",
+          error: "",
+        });
         await uploadRemoteAttachment(record);
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error);
@@ -325,65 +443,111 @@ async function flushPendingAttachments(): Promise<void> {
     }
     for (const id of readIdQueue(PENDING_ATTACHMENT_DELETES_KEY)) {
       try {
-        const { error } = await client!.from("attachments").update({ deleted_at: new Date().toISOString() }).eq("user_id", user!.id).eq("local_id", id);
-        if (error) throw error;
+        const response = await fetch(
+          `/api/files?id=${encodeURIComponent(id)}`,
+          { method: "DELETE", credentials: "same-origin" },
+        );
+        if (!response.ok) throw await responseError(response);
         removePendingAttachmentDelete(id);
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error);
       }
     }
     const remaining = pendingCount();
-    const finishedQueue = JSON.stringify([readIdQueue(PENDING_ATTACHMENTS_KEY), readIdQueue(PENDING_ATTACHMENT_DELETES_KEY)]);
-    continueAfterFlush = finishedQueue !== startedQueue && finishedQueue !== "[[],[]]";
-    updateSyncState(lastError && remaining > 0
-      ? { mode: "error", message: "첨부파일 저장 실패 · 재시도 대기", pendingCount: remaining, error: lastError }
-      : { mode: "online", message: "동기화 완료", lastSyncedAt: new Date().toISOString(), pendingCount: remaining, error: "" });
+    const finishedQueue = JSON.stringify([
+      readIdQueue(PENDING_ATTACHMENTS_KEY),
+      readIdQueue(PENDING_ATTACHMENT_DELETES_KEY),
+    ]);
+    continueAfterFlush =
+      finishedQueue !== startedQueue && finishedQueue !== "[[],[]]";
+    updateSyncState(
+      lastError && remaining > 0
+        ? {
+            mode: "error",
+            message: "첨부파일 저장 실패 · 재시도 대기",
+            pendingCount: remaining,
+            error: lastError,
+          }
+        : {
+            mode: "online",
+            message: "동기화 완료",
+            lastSyncedAt: new Date().toISOString(),
+            pendingCount: remaining,
+            error: "",
+          },
+    );
   })().finally(() => {
     flushingAttachments = null;
-    if (continueAfterFlush && navigator.onLine && isRemoteModeActive()) void flushPendingAttachments();
+    if (continueAfterFlush && navigator.onLine && isRemoteModeActive()) {
+      void flushPendingAttachments();
+    }
   });
   return flushingAttachments;
 }
 
-async function readLocalAttachmentForRetry(id: string): Promise<AttachmentRecord | null> {
+async function readLocalAttachmentForRetry(
+  id: string,
+): Promise<AttachmentRecord | null> {
   if (!window.indexedDB || !id) return null;
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
-    const request = window.indexedDB.open(ATTACHMENT_DB_NAME, ATTACHMENT_DB_VERSION);
+    const request = window.indexedDB.open(
+      ATTACHMENT_DB_NAME,
+      ATTACHMENT_DB_VERSION,
+    );
     request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(ATTACHMENT_STORE_NAME)) request.result.createObjectStore(ATTACHMENT_STORE_NAME, { keyPath: "id" });
+      if (!request.result.objectStoreNames.contains(ATTACHMENT_STORE_NAME)) {
+        request.result.createObjectStore(ATTACHMENT_STORE_NAME, {
+          keyPath: "id",
+        });
+      }
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error || new Error("첨부파일 저장소를 열지 못했습니다."));
+    request.onerror = () =>
+      reject(request.error || new Error("첨부파일 저장소를 열지 못했습니다."));
   });
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(ATTACHMENT_STORE_NAME, "readonly");
     const request = transaction.objectStore(ATTACHMENT_STORE_NAME).get(id);
-    request.onsuccess = () => resolve((request.result as AttachmentRecord | undefined) || null);
-    request.onerror = () => reject(request.error || new Error("재시도할 첨부파일을 읽지 못했습니다."));
+    request.onsuccess = () =>
+      resolve((request.result as AttachmentRecord | undefined) || null);
+    request.onerror = () =>
+      reject(request.error || new Error("첨부파일을 읽지 못했습니다."));
     transaction.oncomplete = () => db.close();
     transaction.onerror = () => db.close();
   });
 }
+
 export async function getServerCounts(): Promise<DataCounts> {
   ensureRuntime();
-  const { data, error } = await client!.rpc("get_work_note_counts");
-  if (error) throw error;
-  return data as DataCounts;
+  const response = await fetch("/api/workspace?counts=1", {
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<DataCounts>;
 }
 
 export async function softDeleteAllAccountData(): Promise<void> {
   ensureRuntime();
-  const { error } = await client!.rpc("soft_delete_work_note_account_data");
-  if (error) throw error;
+  const response = await fetch("/api/workspace", {
+    method: "DELETE",
+    credentials: "same-origin",
+  });
+  if (!response.ok) throw await responseError(response);
   clearPendingSync();
 }
 
 export async function addMigrationLog(values: Record<string, unknown>) {
   if (!isRemoteModeActive()) return;
-  const { error } = await client!.from("migration_logs").insert({ user_id: user!.id, ...values });
-  if (error) throw error;
+  const response = await fetch("/api/workspace", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(values),
+  });
+  if (!response.ok) throw await responseError(response);
 }
 
 function ensureRuntime() {
-  if (!client || !user) throw new Error("로그인된 Supabase 세션이 없습니다.");
+  if (!user) throw new Error("로그인된 ChatGPT Sites 세션이 없습니다.");
 }

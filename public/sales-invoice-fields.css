@@ -1,0 +1,159 @@
+/* Runtime enhancement: tax invoice fields for sales editors. */
+.invoice-runtime-panel {
+  grid-column: 1 / -1;
+  border: 1px solid #d6e0ef;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.invoice-runtime-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+
+.invoice-runtime-title strong {
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.invoice-runtime-title small {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.invoice-runtime-row,
+.invoice-runtime-extra {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.invoice-runtime-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.invoice-runtime-field input,
+.invoice-runtime-field select {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  border: 1px solid #d6e0ef;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+  font-weight: 500;
+  padding: 0 12px;
+}
+
+.invoice-runtime-field input:focus,
+.invoice-runtime-field select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.14);
+  outline: none;
+}
+
+.invoice-runtime-extra[hidden] {
+  display: none !important;
+}
+
+.invoice-runtime-row.is-disabled .invoice-runtime-field:not(:first-child) {
+  display: none;
+}
+
+.invoice-list-line {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.invoice-list-line span {
+  color: #334155;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.invoice-list-line strong {
+  min-width: 0;
+  color: #0f172a;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.invoice-list-line.is-muted strong {
+  color: #64748b;
+  font-weight: 600;
+}
+
+@media (max-width: 760px) {
+  .invoice-runtime-row,
+  .invoice-runtime-extra {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Align runtime invoice controls with the product form system. */
+.invoice-runtime-panel {
+  border-color: var(--line, #d8e0ea);
+  border-radius: var(--radius-md, 8px);
+  background: var(--surface-soft, #f7f9fc);
+  padding: 14px;
+  gap: 12px;
+}
+
+.invoice-runtime-title {
+  align-items: center;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--line, #d8e0ea);
+  padding-bottom: 10px;
+}
+
+.invoice-runtime-title strong {
+  color: var(--text, #172033);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.invoice-runtime-title small {
+  color: var(--muted, #657187);
+}
+
+.invoice-runtime-field {
+  color: #4f5d72;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.invoice-runtime-field input,
+.invoice-runtime-field select {
+  height: 42px;
+  border-color: var(--line, #d8e0ea);
+  border-radius: var(--radius-sm, 6px);
+  color: var(--text, #172033);
+  font-weight: 500;
+}
+
+.invoice-runtime-field input:hover,
+.invoice-runtime-field select:hover {
+  border-color: #b7c4d4;
+}
+
+.invoice-runtime-field input:focus,
+.invoice-runtime-field select:focus {
+  border-color: var(--primary, #2563d9);
+  box-shadow: var(--focus-ring, 0 0 0 3px rgba(37, 99, 217, 0.16));
+}
