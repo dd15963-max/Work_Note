@@ -1373,8 +1373,10 @@ h2 {
 }
 
 .sales-file-manager {
+  min-width: 0;
   display: grid;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
 }
 
 .file-upload-panel,
@@ -1389,12 +1391,14 @@ h2 {
 
 .file-upload-panel {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 
 .file-picker {
   position: relative;
   width: fit-content;
+  max-width: 100%;
   min-height: 38px;
   display: inline-flex;
   align-items: center;
@@ -1407,6 +1411,7 @@ h2 {
   padding: 8px 12px;
   font-size: 14px;
   font-weight: 900;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -1414,24 +1419,66 @@ h2 {
   position: absolute;
   width: 1px;
   height: 1px;
+  padding: 0;
+  margin: -1px;
   overflow: hidden;
   clip: rect(0 0 0 0);
   clip-path: inset(50%);
   white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
+  border: 0;
 }
 
-.file-upload-fields,
-.attachment-editor-grid {
+.file-drop-zone {
+  border: 1px dashed #b8c8dc;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.file-drop-zone.is-dragging {
+  border-color: #2474ea;
+  background: #eef6ff;
+}
+
+.file-upload-grid {
+  width: 100%;
+  min-width: 0;
   display: grid;
-  grid-template-columns: minmax(130px, 0.7fr) minmax(140px, 0.7fr) minmax(220px, 1.4fr) auto;
+  grid-template-columns: minmax(130px, 150px) minmax(145px, 160px) minmax(280px, 1fr) auto;
   gap: 10px;
   align-items: end;
 }
 
-.file-upload-fields .icon-text-button {
+.file-upload-grid > *,
+.file-upload-field,
+.file-upload-field > .field,
+.attachment-edit-grid > *,
+.attachment-edit-field,
+.attachment-edit-field > .field {
+  min-width: 0;
+}
+
+.file-upload-grid input,
+.file-upload-grid select,
+.attachment-edit-grid input,
+.attachment-edit-grid select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.file-upload-action {
+  min-width: 124px;
   min-height: 38px;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.file-upload-action:disabled,
+.attachment-edit-actions button:disabled,
+.file-bulk-actions button:disabled,
+.attachment-move-row button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
 }
 
 .selected-file-list {
@@ -1440,62 +1487,292 @@ h2 {
   gap: 6px;
 }
 
-.selected-file-list span {
+.selected-file-list button {
+  display: inline-flex;
+  overflow: hidden;
+  white-space: nowrap;
   max-width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: var(--surface-soft);
+  background: #fff;
   color: #475467;
   padding: 5px 9px;
   font-size: 12px;
   font-weight: 800;
-  overflow-wrap: anywhere;
+}
+
+.selected-file-list button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-library-toolbar {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 140px 150px auto auto;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.file-library-toolbar > * {
+  min-width: 0;
+}
+
+.file-library-toolbar select,
+.file-search-field,
+.file-date-range input {
+  min-height: 38px;
+  border: 1px solid #ccd8e8;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.file-library-toolbar select {
+  width: 100%;
+  padding: 0 10px;
+}
+
+.file-search-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+}
+
+.file-search-field input {
+  min-width: 0;
+  width: 100%;
+  flex: 1 1 auto;
+  border: 0;
+  outline: 0;
+}
+
+.file-date-range {
+  display: grid;
+  grid-template-columns: 150px auto 150px;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.file-date-range input {
+  width: 150px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 9px;
+}
+
+.file-view-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, 38px);
+  flex: 0 0 auto;
+}
+
+.file-view-toggle button {
+  width: 38px;
+  white-space: nowrap;
+  height: 38px;
+  padding: 0;
+}
+
+.file-bulk-bar {
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  border: 1px solid #d7e1ef;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 7px 9px;
+}
+
+.file-bulk-summary,
+.file-bulk-actions,
+.file-bulk-move {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-bulk-summary {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.file-bulk-summary label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.file-bulk-actions {
+  justify-content: flex-end;
+  flex: 1 1 auto;
+}
+
+.file-bulk-move {
+  flex: 0 1 360px;
+}
+
+.file-bulk-move select {
+  width: min(320px, 100%);
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid #ccd8e8;
+  background: #fff;
+  padding: 0 9px;
+}
+
+.file-bulk-actions button,
+.file-bulk-move button {
+  min-height: 34px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: nowrap;
 }
 
 .attachment-editor-list {
+  min-width: 0;
   display: grid;
   gap: 9px;
 }
 
+.attachment-editor-list.is-card {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .attachment-editor-card {
+  min-width: 0;
   display: grid;
   gap: 10px;
 }
 
-.attachment-editor-card .attachment-title-copy {
+.attachment-editor-card.is-selected {
+  border-color: #e0b92e;
+  background: #fffdf3;
+}
+
+.attachment-header {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.file-select-check {
+  width: 30px;
+  min-width: 30px;
+  display: grid;
+  place-items: center;
+}
+
+.file-select-check input {
+  width: 17px;
+  height: 17px;
+}
+
+.attachment-file-copy {
   min-width: 0;
   display: grid;
   gap: 2px;
 }
 
-.attachment-editor-card .attachment-title-row > .attachment-actions {
-  display: inline-flex;
-  justify-self: end;
-  align-self: center;
-  flex-direction: row;
-}
-
-.attachment-editor-card .attachment-title-row strong,
-.attachment-editor-card .attachment-title-row span {
+.attachment-file-copy strong,
+.attachment-file-copy span {
   min-width: 0;
-  overflow-wrap: anywhere;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.attachment-editor-card .attachment-title-row span,
+.attachment-file-copy strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.attachment-file-copy span,
 .empty-inline span {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.45;
 }
 
-.attachment-editor-actions {
+.attachment-header > .attachment-actions {
+  display: inline-flex;
+  justify-self: end;
+  align-self: center;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.attachment-edit-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns:
+    minmax(200px, 1.2fr)
+    minmax(130px, 150px)
+    minmax(145px, 160px)
+    minmax(280px, 2fr)
+    auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.attachment-editor-list.is-card .attachment-edit-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(130px, 160px);
+}
+
+.attachment-editor-list.is-card .attachment-edit-field.is-name,
+.attachment-editor-list.is-card .attachment-edit-field.is-memo,
+.attachment-editor-list.is-card .attachment-edit-actions {
+  grid-column: 1 / -1;
+}
+
+.attachment-edit-actions {
+  min-width: 0;
+  min-height: 38px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
-.attachment-editor-actions button {
+.attachment-edit-actions button {
+  min-width: 58px;
   min-height: 38px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1504,18 +1781,227 @@ h2 {
   padding: 8px 11px;
   font-size: 13px;
   font-weight: 900;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.attachment-editor-actions button:disabled,
-.file-upload-fields button:disabled {
-  cursor: not-allowed;
-  opacity: 0.56;
+.attachment-move-row {
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid #e4ebf4;
+  padding-top: 10px;
+}
+
+.attachment-move-row select {
+  width: min(420px, 100%);
+  min-width: 0;
+  min-height: 38px;
+  flex: 0 1 420px;
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 0 10px;
+}
+
+.attachment-move-row button {
+  min-height: 38px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: nowrap;
 }
 
 .empty-inline {
   display: grid;
   gap: 4px;
+}
+
+@media (max-width: 1200px) {
+  .file-library-toolbar {
+    grid-template-columns: minmax(240px, 1fr) 140px 150px auto;
+  }
+
+  .file-date-range {
+    grid-column: 1 / 4;
+    grid-row: 2;
+    justify-self: start;
+  }
+
+  .file-view-toggle {
+    grid-column: 4;
+    grid-row: 2;
+    justify-self: end;
+  }
+
+  .attachment-editor-list.is-card {
+    grid-template-columns: 1fr;
+  }
+
+  .attachment-edit-grid,
+  .attachment-editor-list.is-card .attachment-edit-grid {
+    grid-template-columns: minmax(200px, 1fr) minmax(130px, 150px) minmax(145px, 160px) auto;
+  }
+
+  .attachment-edit-field.is-memo,
+  .attachment-editor-list.is-card .attachment-edit-field.is-memo {
+    grid-column: 1 / 4;
+  }
+
+  .attachment-edit-actions,
+  .attachment-editor-list.is-card .attachment-edit-actions {
+    grid-column: 4;
+  }
+}
+
+@media (max-width: 900px) {
+  .file-upload-grid {
+    grid-template-columns: minmax(130px, 1fr) minmax(145px, 160px);
+  }
+
+  .file-upload-field.is-memo {
+    grid-column: 1 / -1;
+  }
+
+  .file-upload-action {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+
+  .file-library-toolbar {
+    grid-template-columns: minmax(0, 1fr) minmax(130px, 160px);
+  }
+
+  .file-search-field,
+  .file-date-range {
+    grid-column: 1 / -1;
+  }
+
+  .file-date-range {
+    grid-row: auto;
+  }
+
+  .file-view-toggle {
+    grid-column: 2;
+    grid-row: auto;
+    justify-self: end;
+  }
+
+  .file-bulk-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .file-bulk-summary,
+  .file-bulk-actions {
+    width: 100%;
+  }
+
+  .file-bulk-actions {
+    justify-content: flex-end;
+  }
+
+  .attachment-edit-grid,
+  .attachment-editor-list.is-card .attachment-edit-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(145px, 160px);
+  }
+
+  .attachment-edit-field.is-name,
+  .attachment-edit-field.is-memo,
+  .attachment-editor-list.is-card .attachment-edit-field.is-name,
+  .attachment-editor-list.is-card .attachment-edit-field.is-memo {
+    grid-column: 1 / -1;
+  }
+
+  .attachment-edit-actions,
+  .attachment-editor-list.is-card .attachment-edit-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 768px) {
+  .attachment-header {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .attachment-header > .attachment-actions {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .attachment-edit-grid,
+  .attachment-editor-list.is-card .attachment-edit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .attachment-edit-field.is-name,
+  .attachment-edit-field.is-memo,
+  .attachment-edit-actions,
+  .attachment-editor-list.is-card .attachment-edit-field.is-name,
+  .attachment-editor-list.is-card .attachment-edit-field.is-memo,
+  .attachment-editor-list.is-card .attachment-edit-actions {
+    grid-column: auto;
+  }
+
+  .attachment-edit-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 520px) {
+  .file-upload-grid,
+  .file-library-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .file-upload-field.is-memo,
+  .file-upload-action,
+  .file-search-field,
+  .file-date-range,
+  .file-view-toggle {
+    grid-column: auto;
+  }
+
+  .file-upload-action,
+  .file-view-toggle {
+    justify-self: start;
+  }
+
+  .file-date-range {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+
+  .file-date-range input {
+    width: 100%;
+  }
+
+  .file-bulk-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .file-bulk-move {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .file-bulk-actions > button {
+    width: 100%;
+  }
+
+  .attachment-move-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .attachment-move-row select {
+    width: 100%;
+  }
 }
 
 .inline-file-panel {
@@ -2030,8 +2516,6 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  .file-upload-fields,
-  .attachment-editor-grid,
   .schedule-tool-grid,
   .payment-row,
   .payment-row.advance-deduction-row,
@@ -2231,8 +2715,6 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  .file-upload-fields,
-  .attachment-editor-grid,
   .schedule-tool-grid,
   .payment-row,
   .payment-row.advance-deduction-row,
@@ -2241,12 +2723,6 @@ h2 {
   .settlement-invoice-bulk-panel,
   .settlement-row-tax-invoice {
     grid-template-columns: 1fr;
-  }
-
-  .attachment-title-row,
-  .attachment-editor-actions {
-    align-items: stretch;
-    flex-direction: column;
   }
 
   .schedule-list-item {
@@ -4286,7 +4762,7 @@ h2 {
 .danger-button,
 .sales-management-actions button,
 .sales-management-actions a,
-.attachment-editor-actions button,
+.attachment-edit-actions button,
 .file-picker,
 .department-filter-row button,
 .material-total-tools button,
@@ -4309,7 +4785,7 @@ h2 {
 .card-actions button:hover,
 .sales-management-actions button:hover,
 .sales-management-actions a:hover,
-.attachment-editor-actions button:hover,
+.attachment-edit-actions button:hover,
 .file-picker:hover,
 .material-total-tools button:hover,
 .material-items-editor button:hover {
@@ -5453,280 +5929,5 @@ h2 {
     display: flex;
     align-items: center;
     justify-content: space-between;
-  }
-}
-
-.file-drop-zone {
-  border: 1px dashed #b8c8dc;
-  transition: border-color 140ms ease, background 140ms ease;
-}
-
-.file-drop-zone.is-dragging {
-  border-color: #2474ea;
-  background: #eef6ff;
-}
-
-.selected-file-list button {
-  display: inline-flex;
-  max-width: 100%;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid #d5dfec;
-  background: #fff;
-  padding: 5px 8px;
-  color: #34455f;
-}
-
-.selected-file-list button span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-library-toolbar {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) 140px 150px minmax(270px, auto) auto;
-  gap: 8px;
-  align-items: center;
-  margin-top: 12px;
-}
-
-.file-library-toolbar select,
-.file-search-field {
-  min-height: 38px;
-  border: 1px solid #ccd8e8;
-  background: #fff;
-}
-
-.file-library-toolbar select {
-  padding: 0 10px;
-}
-
-.file-search-field {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-}
-
-.file-search-field input {
-  min-width: 0;
-  flex: 1;
-  border: 0;
-  outline: 0;
-}
-
-.file-date-range,
-.file-bulk-move,
-.attachment-item-move {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-}
-
-.file-date-range input,
-.file-bulk-move select,
-.attachment-item-move select {
-  min-width: 0;
-  min-height: 38px;
-  border: 1px solid #ccd8e8;
-  background: #fff;
-  padding: 0 9px;
-}
-
-.file-date-range input {
-  width: 132px;
-}
-
-.file-bulk-move select {
-  width: min(280px, 24vw);
-}
-
-.file-view-toggle {
-  display: grid;
-  grid-template-columns: repeat(2, 38px);
-}
-
-.file-view-toggle button {
-  width: 38px;
-  height: 38px;
-  padding: 0;
-}
-
-.file-bulk-bar {
-  display: flex;
-  min-height: 42px;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  border: 1px solid #d7e1ef;
-  background: #f8fafc;
-  padding: 6px 8px;
-}
-
-.file-bulk-bar label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-right: auto;
-  white-space: nowrap;
-}
-
-.file-bulk-bar button {
-  display: inline-flex;
-  min-height: 32px;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-}
-
-.attachment-editor-list.is-card {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.attachment-editor-card.is-selected {
-  border-color: #e0b92e;
-  background: #fffdf3;
-}
-
-.file-select-check {
-  display: grid;
-  flex: 0 0 30px;
-  place-items: center;
-}
-
-.sr-only {
-  position: absolute !important;
-  width: 1px !important;
-  height: 1px !important;
-  padding: 0 !important;
-  margin: -1px !important;
-  overflow: hidden !important;
-  clip: rect(0, 0, 0, 0) !important;
-  clip-path: inset(50%) !important;
-  white-space: nowrap !important;
-  border: 0 !important;
-}
-
-.file-select-check input {
-  width: 17px;
-  height: 17px;
-}
-
-.attachment-editor-grid {
-  grid-template-columns: minmax(180px, 1.35fr) 130px 150px minmax(180px, 1fr) auto;
-}
-
-.attachment-editor-list.is-card .attachment-editor-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.attachment-editor-list.is-card .attachment-editor-actions {
-  grid-column: 1 / -1;
-  justify-content: flex-end;
-}
-
-.attachment-item-move {
-  grid-column: 1 / -1;
-  justify-content: flex-end;
-  border-top: 1px solid #e4ebf4;
-  padding-top: 8px;
-}
-
-.attachment-item-move select {
-  width: min(420px, 60%);
-}
-
-.attachment-item-move button,
-.file-bulk-move button {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-}
-
-@media (max-width: 780px) {
-  .file-library-toolbar {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .file-search-field {
-    grid-column: 1 / -1;
-  }
-
-  .file-date-range {
-    grid-column: 1 / -1;
-  }
-
-  .file-date-range input {
-    flex: 1 1 0;
-    width: auto;
-  }
-
-  .file-view-toggle {
-    justify-self: end;
-  }
-
-  .attachment-editor-list.is-card {
-    grid-template-columns: 1fr;
-  }
-
-  .attachment-editor-grid,
-  .attachment-editor-list.is-card .attachment-editor-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .attachment-editor-actions,
-  .attachment-editor-list.is-card .attachment-editor-actions {
-    grid-column: auto;
-  }
-
-  .attachment-title-row {
-    grid-template-columns: 30px minmax(0, 1fr);
-  }
-
-  .attachment-editor-card .attachment-title-row > .attachment-actions {
-    grid-column: 2;
-    justify-self: start;
-  }
-}
-
-@media (max-width: 520px) {
-  .file-library-toolbar {
-    grid-template-columns: 1fr;
-  }
-
-  .file-search-field {
-    grid-column: auto;
-  }
-
-  .file-view-toggle {
-    justify-self: start;
-  }
-
-  .file-bulk-bar {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .file-bulk-bar label {
-    margin-right: 0;
-  }
-
-  .file-bulk-move {
-    grid-column: 1 / -1;
-  }
-
-  .file-bulk-move select,
-  .attachment-item-move select {
-    width: 100%;
-  }
-
-  .attachment-item-move {
-    align-items: stretch;
   }
 }
