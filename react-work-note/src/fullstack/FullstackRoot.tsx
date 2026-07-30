@@ -5,6 +5,8 @@ import {
   CloudOff,
   Database,
   Download,
+  FolderOpen,
+  HardDrive,
   LogOut,
   RefreshCw,
   Settings,
@@ -22,11 +24,17 @@ import { App, loadWorkNoteData } from "../App";
 import {
   clearPendingSync,
   clearRemoteRuntime,
+  connectGoogleDrive,
+  disconnectGoogleDrive,
   flushPendingChanges,
+  getGoogleDriveStatus,
   getServerCounts,
   initializeRemoteRuntime,
   loadServerDataset,
+  migrateLegacyAttachmentsToDrive,
   softDeleteAllAccountData,
+  testGoogleDriveConnection,
+  type GoogleDriveStatus,
   type SiteUser,
 } from "./repository";
 import {
@@ -132,6 +140,18 @@ export function FullstackRoot({ user }: { user: SiteUser }) {
       clearRemoteRuntime();
     };
   }, [user.email, user.id]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("drive") === "connected" || params.has("driveError")) {
+      setSettingsOpen(true);
+      if (params.has("driveError")) setError(params.get("driveError") || "Google Drive 연결에 실패했습니다.");
+      params.delete("drive");
+      params.delete("driveError");
+      const query = params.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+    }
+  }, []);
 
   useEffect(() => {
     const warnPendingSave = (event: BeforeUnloadEvent) => {
@@ -397,16 +417,30 @@ function ServerSettings({
   const [busy, setBusy] = useState("");
   const [deleteText, setDeleteText] = useState("");
   const [counts, setCounts] = useState<DataCounts | null>(null);
+  const [drive, setDrive] = useState<GoogleDriveStatus | null>(null);
+  const [driveMessage, setDriveMessage] = useState("");
   const sync = useSyncState();
+
+  const refreshDrive = async () => {
+    const status = await getGoogleDriveStatus();
+    setDrive(status);
+    return status;
+  };
 
   useEffect(() => {
     void getServerCounts().then(setCounts).catch(() => setCounts(null));
+    void refreshDrive().catch((caught) => {
+      setDrive({ connected: false, provider: "google_drive", error: caught instanceof Error ? caught.message : String(caught) });
+    });
   }, []);
 
   const run = async (label: string, action: () => Promise<void>) => {
     setBusy(label);
+    setDriveMessage("");
     try {
       await action();
+    } catch (caught) {
+      setDriveMessage(caught instanceof Error ? caught.message : String(caught));
     } finally {
       setBusy("");
     }
@@ -458,6 +492,60 @@ function ServerSettings({
             {counts
               ? <CountSummary counts={counts} />
               : <p>개수 확인 중</p>}
+          </section>
+          <section className="drive-storage-settings">
+            <div className="drive-settings-heading">
+              <div>
+                <h3>파일 저장소</h3>
+                <p>신규 첨부 원본은 개인 Google Drive에 비공개로 저장됩니다.</p>
+              </div>
+              <HardDrive size={21} />
+            </div>
+            {!drive && <p>Google Drive 연결 상태 확인 중</p>}
+            {drive && !drive.connected && (
+              <>
+                <div className="drive-status-row is-disconnected">
+                  <span>현재 저장소</span><b>Google Drive 연결 필요</b>
+                </div>
+                {drive.error && <small className="settings-error">{drive.error}</small>}
+                <button type="button" className="primary" onClick={() => connectGoogleDrive("/")}>Google Drive 연결</button>
+              </>
+            )}
+            {drive?.connected && (
+              <>
+                <div className="drive-status-grid">
+                  <span>현재 저장소 <b>Google Drive</b></span>
+                  <span>연결 계정 <b>{drive.googleEmail}</b></span>
+                  <span>루트 폴더 <b>{drive.rootFolderName || "Work Note"}</b></span>
+                  <span>Drive 파일 <b>{drive.driveFileCount || 0}개</b></span>
+                  <span>기존 Site 파일 <b>{drive.legacyFileCount || 0}개</b></span>
+                  <span>연결 일시 <b>{drive.connectedAt ? new Date(drive.connectedAt).toLocaleString("ko-KR") : "-"}</b></span>
+                  <span>최근 확인 <b>{drive.lastSyncedAt ? new Date(drive.lastSyncedAt).toLocaleString("ko-KR") : "-"}</b></span>
+                  {drive.quota?.usage && <span>사용량 <b>{formatStorageSize(drive.quota.usage)}{drive.quota.limit ? ` / ${formatStorageSize(drive.quota.limit)}` : ""}</b></span>}
+                </div>
+                {driveMessage && <p className="drive-settings-message">{driveMessage}</p>}
+                <div className="settings-actions">
+                  <button type="button" disabled={Boolean(busy)} onClick={() => run("drive-test", async () => {
+                    await testGoogleDriveConnection();
+                    await refreshDrive();
+                    setDriveMessage("Google Drive 연결이 정상입니다.");
+                  })}>연결 테스트</button>
+                  {drive.rootFolderUrl && <a className="settings-link-button" href={drive.rootFolderUrl} target="_blank" rel="noreferrer"><FolderOpen size={16} /> Google Drive 열기</a>}
+                  <button type="button" disabled={Boolean(busy) || !drive.legacyFileCount} onClick={() => run("drive-migrate", async () => {
+                    if (!confirm(`기존 Site 파일 ${drive.legacyFileCount || 0}개를 Google Drive로 복사할까요? 검증 후에도 기존 원본은 삭제하지 않습니다.`)) return;
+                    const result = await migrateLegacyAttachmentsToDrive((migrated, remaining) => setDriveMessage(`기존 파일 이전 ${migrated}개 완료 · 남은 파일 ${remaining}개`));
+                    setDriveMessage(`이전 완료 ${result.migrated}개 · 실패 ${result.failed}개 · 남음 ${result.remaining}개`);
+                    await refreshDrive();
+                  })}>기존 파일 Drive로 이전</button>
+                  <button type="button" className="danger-button" disabled={Boolean(busy)} onClick={() => run("drive-disconnect", async () => {
+                    if (!confirm("Google Drive 연결을 해제할까요? 기존 파일은 Drive와 Work Note에 그대로 유지됩니다.")) return;
+                    await disconnectGoogleDrive();
+                    await refreshDrive();
+                    setDriveMessage("Google Drive 연결을 해제했습니다.");
+                  })}>연결 해제</button>
+                </div>
+              </>
+            )}
           </section>
           <section>
             <h3>백업 및 이전</h3>
@@ -552,6 +640,14 @@ function CountSummary({ counts }: { counts: DataCounts }) {
       <span>첨부 <b>{counts.attachments}</b></span>
     </div>
   );
+}
+
+function formatStorageSize(value: string): string {
+  const bytes = Number(value || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return `${(bytes / 1024 ** index).toFixed(index > 1 ? 1 : 0)}${units[index]}`;
 }
 
 function Metric({ label, value }: { label: string; value: number }) {

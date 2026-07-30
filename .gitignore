@@ -54,3 +54,8 @@ fullstack-preview/
 .wrangler/
 dist/
 tsconfig.tsbuildinfo
+
+# OAuth credentials must never enter Git
+*client_secret*.json
+google-oauth*.json
+.local-secrets/

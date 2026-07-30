@@ -8,6 +8,21 @@ export type SiteUser = {
   displayName?: string;
 };
 
+export type GoogleDriveStatus = {
+  connected: boolean;
+  provider: "google_drive";
+  googleEmail?: string;
+  rootFolderId?: string;
+  rootFolderName?: string;
+  rootFolderUrl?: string;
+  connectedAt?: string;
+  lastSyncedAt?: string;
+  driveFileCount?: number;
+  legacyFileCount?: number;
+  quota?: { limit?: string; usage?: string; usageInDrive?: string } | null;
+  error?: string;
+};
+
 const PENDING_DATASET_KEY = "workNotePendingServerSyncV1";
 const PENDING_ATTACHMENTS_KEY = "workNotePendingAttachmentSyncV1";
 const PENDING_ATTACHMENT_DELETES_KEY = "workNotePendingAttachmentDeleteV1";
@@ -349,11 +364,7 @@ export async function uploadRemoteAttachment(
   form.set("id", record.id);
   form.set("metadata", JSON.stringify(metadata));
   form.set("file", record.blob, fileName);
-  const response = await fetch("/api/files", {
-    method: "PUT",
-    credentials: "same-origin",
-    body: form,
-  });
+  const response = await uploadFormWithProgress(form, fileName, record.id);
   if (!response.ok) throw await responseError(response);
   removePendingAttachment(record.id);
 }
@@ -525,6 +536,91 @@ export async function getServerCounts(): Promise<DataCounts> {
   });
   if (!response.ok) throw await responseError(response);
   return response.json() as Promise<DataCounts>;
+}
+
+function uploadFormWithProgress(form: FormData, fileName: string, id: string): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("PUT", "/api/files");
+    request.withCredentials = true;
+    request.upload.onprogress = (event) => {
+      const percent = event.lengthComputable ? Math.round((event.loaded / event.total) * 100) : 0;
+      updateSyncState({ mode: "saving", message: percent
+        ? `${fileName} Google Drive 업로드 ${percent}%`
+        : `${fileName} Google Drive 업로드 중`, error: "" });
+    };
+    request.onerror = () => reject(new Error("파일 업로드에 실패했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요."));
+    request.onabort = () => reject(new Error("파일 업로드가 취소되었습니다."));
+    request.onload = () => resolve(new Response(request.responseText, {
+      status: request.status,
+      statusText: request.statusText,
+      headers: { "Content-Type": request.getResponseHeader("Content-Type") || "application/json" },
+    }));
+    addPendingAttachment(id);
+    request.send(form);
+  });
+}
+
+export async function getGoogleDriveStatus(): Promise<GoogleDriveStatus> {
+  ensureRuntime();
+  const response = await fetch("/api/google-drive/status", { credentials: "same-origin", cache: "no-store" });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<GoogleDriveStatus>;
+}
+
+export function connectGoogleDrive(returnTo = "/") {
+  window.location.assign(`/api/google-drive/oauth/start?returnTo=${encodeURIComponent(returnTo)}`);
+}
+
+export async function disconnectGoogleDrive(): Promise<void> {
+  ensureRuntime();
+  const response = await fetch("/api/google-drive/disconnect", { method: "DELETE", credentials: "same-origin" });
+  if (!response.ok) throw await responseError(response);
+}
+
+export async function testGoogleDriveConnection(): Promise<void> {
+  ensureRuntime();
+  const response = await fetch("/api/google-drive/test", { method: "POST", credentials: "same-origin" });
+  if (!response.ok) throw await responseError(response);
+}
+
+export async function migrateLegacyAttachmentsToDrive(
+  onProgress?: (migrated: number, remaining: number) => void,
+): Promise<{ migrated: number; failed: number; remaining: number }> {
+  ensureRuntime();
+  let migrated = 0;
+  let failed = 0;
+  let remaining = 1;
+  while (remaining > 0) {
+    const response = await fetch("/api/google-drive/migrate", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    if (!response.ok) throw await responseError(response);
+    const result = await response.json() as { migrated: number; failed: number; remaining: number };
+    migrated += Number(result.migrated || 0);
+    failed += Number(result.failed || 0);
+    remaining = Number(result.remaining || 0);
+    onProgress?.(migrated, remaining);
+    if (result.migrated === 0 || result.failed > 0) break;
+  }
+  return { migrated, failed, remaining };
+}
+
+export async function updateRemoteAttachment(
+  id: string,
+  values: { fileName?: string; ownerKind?: string; ownerLocalId?: string; category?: string; sentDate?: string; memo?: string },
+): Promise<void> {
+  if (!isRemoteModeActive() || !id) return;
+  const response = await fetch("/api/files", {
+    method: "PATCH",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, ...values }),
+  });
+  if (!response.ok) throw await responseError(response);
 }
 
 export async function softDeleteAllAccountData(): Promise<void> {

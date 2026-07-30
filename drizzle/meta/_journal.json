@@ -8,6 +8,13 @@
       "when": 1785139478607,
       "tag": "0000_silent_the_renegades",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785377847235,
+      "tag": "0001_left_secret_warriors",
+      "breakpoints": true
     }
   ]
 }

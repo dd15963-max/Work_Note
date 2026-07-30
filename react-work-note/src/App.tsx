@@ -39,7 +39,9 @@ import {
   isRemoteModeActive,
   queueRemoteAttachmentDelete,
   queueRemoteAttachmentUpload,
-  softDeleteAllAccountData
+  softDeleteAllAccountData,
+  updateRemoteAttachment,
+  uploadRemoteAttachment
 } from "./fullstack/repository";
 
 type PortalId = "schedule" | "company" | "sales" | "settlement" | "output" | "other" | "account";
@@ -53,6 +55,7 @@ type BackupImportMode = "replace" | "merge" | "update";
 type AnyRecord = Record<string, unknown>;
 type AttachmentCollectionKey = "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks";
 type AttachmentOwnerType = "company" | "sales" | "materialSales" | "settlement" | "output" | "other";
+type AttachmentMoveTarget = { type: AttachmentOwnerType; id: string; label: string };
 type TaskCollectionKey = Exclude<AttachmentCollectionKey, "companies">;
 type TaskPreset = "today" | "week" | "important" | "all";
 type TaskPeriodFilter = "today" | "week" | "month" | "all" | "custom";
@@ -1877,6 +1880,8 @@ function CustomerCompanyPortal({
                     onUpload={companyFiles.uploadAttachments}
                     onUpdateMeta={companyFiles.updateAttachmentMeta}
                     onDelete={companyFiles.deleteAttachment}
+                    moveTargets={attachmentMoveTargets(data, "company", id)}
+                    onMove={companyFiles.moveAttachments}
                     emptyDetail="사업자등록증, 통장 사본, 회사 서류 같은 업체 자료를 업로드해 두면 다시 다운로드할 수 있습니다."
                   />
                 </div>
@@ -2438,18 +2443,19 @@ function SalesPortal({
       return { meta: attachmentMeta, record: { ...attachmentMeta, blob: file } };
     });
 
-    try {
-      await Promise.all(records.map(({ record }) => putAttachmentRecord(record)));
-      updateSalesAttachments(noteId, (attachments) => [...attachments, ...records.map(({ meta }) => meta)], "영업 파일 업로드");
-    } catch (error) {
-      alert(`파일을 저장하지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
-    }
+    const stored = await Promise.all(records.map(async ({ meta, record }) => {
+      const result = await persistNewAttachmentRecord(record);
+      return { ...meta, storageProvider: result.ok ? "google_drive" : "local_pending", uploadStatus: result.ok ? "completed" : "failed", uploadError: result.error || "" };
+    }));
+    updateSalesAttachments(noteId, (attachments) => [...attachments, ...stored], "영업 파일 업로드");
+    const failed = stored.filter((item) => item.uploadStatus === "failed");
+    if (failed.length) alert(`${failed.length}개 파일은 Google Drive 업로드에 실패해 이 기기에 보관했습니다. Drive 연결과 네트워크를 확인하면 자동으로 재시도합니다.`);
   };
 
   const updateSalesAttachmentMeta = async (
     noteId: string,
     attachmentKey: string,
-    values: { category: string; sentDate: string; memo: string }
+    values: { category: string; sentDate: string; memo: string; fileName?: string }
   ) => {
     let updatedAttachment: AnyRecord | null = null;
     updateSalesAttachments(
@@ -2467,17 +2473,18 @@ function SalesPortal({
     const attachmentId = nextAttachmentMeta ? firstText(nextAttachmentMeta, ["id"]) : "";
     if (!attachmentId) return;
     try {
-      const stored = await getAttachmentRecord(attachmentId);
+      const stored = await getLocalAttachmentRecord(attachmentId);
       if (stored?.blob) {
-        await putAttachmentRecord({ ...stored, ...nextAttachmentMeta, blob: stored.blob });
+        await putLocalAttachmentRecord({ ...stored, ...nextAttachmentMeta, blob: stored.blob });
       }
+      await updateRemoteAttachment(attachmentId, values);
     } catch {
-      // Metadata is still saved in localStorage. The original blob can be restored by importing a full ZIP backup.
+      // Metadata remains in the local dataset and will be retried with the next edit.
     }
   };
 
-  const deleteSalesAttachment = async (noteId: string, attachmentKey: string) => {
-    if (!confirm("이 파일을 파일함에서 삭제할까요? 원본 파일도 이 브라우저 저장소에서 삭제됩니다.")) return;
+  const deleteSalesAttachment = async (noteId: string, attachmentKey: string, options?: { skipConfirm?: boolean }) => {
+    if (!options?.skipConfirm && !confirm("이 파일을 삭제할까요? Google Drive 파일은 휴지통으로 이동하고, 로컬 캐시에서도 제거됩니다.")) return;
     const targetNote = data.notes.find((item, itemIndex) => recordId(item, itemIndex) === noteId);
     const targetAttachment = asArray(targetNote?.attachments).find((attachment, attachmentIndex) => recordId(attachment, attachmentIndex) === attachmentKey);
     const attachmentId = targetAttachment ? firstText(targetAttachment, ["id"]) : "";
@@ -2491,6 +2498,35 @@ function SalesPortal({
       );
     } catch (error) {
       alert(`파일을 삭제하지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const moveSalesAttachments = async (noteId: string, attachmentKeys: string[], target: AttachmentMoveTarget) => {
+    const sourceRecord = data.notes.find((record, index) => recordId(record, index) === noteId);
+    const selected = new Set(attachmentKeys);
+    const attachmentIds = asArray(sourceRecord?.attachments)
+      .filter((attachment, index) => selected.has(recordId(attachment, index)))
+      .map((attachment) => firstText(attachment, ["id"]))
+      .filter(Boolean);
+    if (!attachmentIds.length) return;
+
+    const remotelyMoved: string[] = [];
+    try {
+      for (const attachmentId of attachmentIds) {
+        await updateRemoteAttachment(attachmentId, { ownerKind: target.type, ownerLocalId: target.id });
+        remotelyMoved.push(attachmentId);
+      }
+    } catch (error) {
+      for (const attachmentId of remotelyMoved) {
+        try { await updateRemoteAttachment(attachmentId, { ownerKind: "sales", ownerLocalId: noteId }); } catch { /* Recovery is retried manually. */ }
+      }
+      throw error;
+    }
+
+    onPersist((current) => moveAttachmentsInWorkNote(current, "sales", noteId, attachmentKeys, target), "영업 파일 이동");
+    for (const attachmentId of attachmentIds) {
+      const stored = await getLocalAttachmentRecord(attachmentId);
+      if (stored?.blob) await putLocalAttachmentRecord({ ...stored, ownerType: target.type, ownerId: target.id, blob: stored.blob });
     }
   };
 
@@ -2723,6 +2759,8 @@ function SalesPortal({
                   onUploadAttachments={uploadSalesAttachments}
                   onUpdateAttachmentMeta={updateSalesAttachmentMeta}
                   onDeleteAttachment={deleteSalesAttachment}
+                  moveTargets={attachmentMoveTargets(data, "sales", id)}
+                  onMoveAttachments={moveSalesAttachments}
                 />
               )}
             </div>
@@ -2926,6 +2964,8 @@ function MaterialSalesSection({
                     onUpload={fileHandlers.uploadAttachments}
                     onUpdateMeta={fileHandlers.updateAttachmentMeta}
                     onDelete={fileHandlers.deleteAttachment}
+                    moveTargets={attachmentMoveTargets(data, "materialSales", id)}
+                    onMove={fileHandlers.moveAttachments}
                     emptyDetail="소재/소모품 영업건에 보낸 견적서, 세금계산서, 메일 캡처와 관련 자료를 업로드해 두면 다시 다운로드할 수 있습니다."
                   />
                 </div>
@@ -3337,15 +3377,19 @@ function SalesDetailPanel({
   noteId,
   onUploadAttachments,
   onUpdateAttachmentMeta,
-  onDeleteAttachment
+  onDeleteAttachment,
+  moveTargets,
+  onMoveAttachments
 }: {
   note: AnyRecord;
   company: AnyRecord | null;
   mode: SalesPanelMode;
   noteId: string;
   onUploadAttachments: (noteId: string, files: File[], meta: { category: string; sentDate: string; memo: string }) => Promise<void>;
-  onUpdateAttachmentMeta: (noteId: string, attachmentKey: string, values: { category: string; sentDate: string; memo: string }) => Promise<void>;
+  onUpdateAttachmentMeta: (noteId: string, attachmentKey: string, values: { category: string; sentDate: string; memo: string; fileName?: string }) => Promise<void>;
   onDeleteAttachment: (noteId: string, attachmentKey: string) => Promise<void>;
+  moveTargets: AttachmentMoveTarget[];
+  onMoveAttachments: (noteId: string, attachmentKeys: string[], target: AttachmentMoveTarget) => Promise<void>;
 }) {
   const attachments = asArray(note.attachments);
   const contacts = company ? asArray(company.contacts) : [];
@@ -3406,6 +3450,8 @@ function SalesDetailPanel({
               onUpload={onUploadAttachments}
               onUpdateMeta={onUpdateAttachmentMeta}
               onDelete={onDeleteAttachment}
+              moveTargets={moveTargets}
+              onMove={onMoveAttachments}
             />
           </section>
         </div>
@@ -3420,13 +3466,17 @@ function SalesFileManager({
   onUpload,
   onUpdateMeta,
   onDelete,
-  emptyDetail = "이 영업 건에 보낸 견적서, 자료, 메일 캡처 이미지를 업로드해 두면 다시 다운로드할 수 있습니다."
+  moveTargets = [],
+  onMove,
+  emptyDetail = "이 업무 건에 관련된 파일을 업로드해 두면 언제든 다시 확인할 수 있습니다."
 }: {
   noteId: string;
   attachments: AnyRecord[];
   onUpload: (noteId: string, files: File[], meta: { category: string; sentDate: string; memo: string }) => Promise<void>;
-  onUpdateMeta: (noteId: string, attachmentKey: string, values: { category: string; sentDate: string; memo: string }) => Promise<void>;
-  onDelete: (noteId: string, attachmentKey: string) => Promise<void>;
+  onUpdateMeta: (noteId: string, attachmentKey: string, values: { category: string; sentDate: string; memo: string; fileName?: string }) => Promise<void>;
+  onDelete: (noteId: string, attachmentKey: string, options?: { skipConfirm?: boolean }) => Promise<void>;
+  moveTargets?: AttachmentMoveTarget[];
+  onMove?: (noteId: string, attachmentKeys: string[], target: AttachmentMoveTarget) => Promise<void>;
   emptyDetail?: string;
 }) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -3434,7 +3484,44 @@ function SalesFileManager({
   const [sentDate, setSentDate] = useState(toDateKey(new Date()));
   const [memo, setMemo] = useState("");
   const [busy, setBusy] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [fileInputKey, setFileInputKey] = useState(0);
+  const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [uploadedFrom, setUploadedFrom] = useState("");
+  const [uploadedTo, setUploadedTo] = useState("");
+  const [sortKey, setSortKey] = useState("recent");
+  const [moveTargetKey, setMoveTargetKey] = useState("");
+  const [viewMode, setViewMode] = useState<"list" | "card">("list");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  const addFiles = (files: File[]) => {
+    setSelectedFiles((current) => {
+      const bySignature = new Map(current.map((file) => [`${file.name}|${file.size}|${file.lastModified}`, file]));
+      files.forEach((file) => bySignature.set(`${file.name}|${file.size}|${file.lastModified}`, file));
+      return [...bySignature.values()];
+    });
+  };
+
+  const visibleAttachments = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return attachments
+      .map((attachment, index) => ({ attachment, id: recordId(attachment, index) }))
+      .filter(({ attachment }) => {
+        const name = firstText(attachment, ["fileName", "name", "filename"]).toLowerCase();
+        const memoText = firstText(attachment, ["memo"]).toLowerCase();
+        const uploadDate = firstText(attachment, ["uploadedAt", "createdAt", "sentDate"]).slice(0, 10);
+        return (!normalizedQuery || name.includes(normalizedQuery) || memoText.includes(normalizedQuery))
+          && (typeFilter === "all" || attachmentTypeGroup(attachment) === typeFilter)
+          && (!uploadedFrom || (uploadDate && uploadDate >= uploadedFrom))
+          && (!uploadedTo || (uploadDate && uploadDate <= uploadedTo));
+      })
+      .sort((left, right) => {
+        if (sortKey === "name") return firstText(left.attachment, ["fileName", "name"]).localeCompare(firstText(right.attachment, ["fileName", "name"]), "ko");
+        if (sortKey === "size") return Number(right.attachment.fileSize || 0) - Number(left.attachment.fileSize || 0);
+        return firstText(right.attachment, ["uploadedAt"]).localeCompare(firstText(left.attachment, ["uploadedAt"]));
+      });
+  }, [attachments, query, typeFilter, uploadedFrom, uploadedTo, sortKey]);
 
   const handleUpload = async () => {
     setBusy(true);
@@ -3443,147 +3530,171 @@ function SalesFileManager({
       setSelectedFiles([]);
       setMemo("");
       setFileInputKey((value) => value + 1);
-    } finally {
-      setBusy(false);
+    } finally { setBusy(false); }
+  };
+
+  const toggleAll = () => {
+    const visibleIds = visibleAttachments.map((item) => item.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+    setSelectedIds(allSelected ? selectedIds.filter((id) => !visibleIds.includes(id)) : [...new Set([...selectedIds, ...visibleIds])]);
+  };
+
+  const bulkDownload = async () => {
+    const targets = visibleAttachments.filter((item) => selectedIds.includes(item.id));
+    for (const target of targets) {
+      const record = await getAttachmentRecord(target.id);
+      if (record?.blob) downloadBlob(record.blob, firstText(target.attachment, ["fileName", "name"]) || "attachment", record.fileType || "application/octet-stream");
+      await new Promise((resolve) => window.setTimeout(resolve, 120));
     }
+  };
+
+  const bulkDelete = async () => {
+    const targets = visibleAttachments.filter((item) => selectedIds.includes(item.id));
+    if (!targets.length || !confirm(`선택한 파일 ${targets.length}개를 삭제할까요? Drive 파일은 휴지통으로 이동합니다.`)) return;
+    setBusy(true);
+    try {
+      for (const target of targets) await onDelete(noteId, target.id, { skipConfirm: true });
+      setSelectedIds((current) => current.filter((id) => !targets.some((target) => target.id === id)));
+    } finally { setBusy(false); }
+  };
+
+  const bulkMove = async () => {
+    const targets = visibleAttachments.filter((item) => selectedIds.includes(item.id));
+    const destination = moveTargets.find((target) => `${target.type}:${target.id}` === moveTargetKey);
+    if (!onMove || !targets.length || !destination) return;
+    if (!confirm(`선택한 파일 ${targets.length}개를 "${destination.label}" 항목으로 이동할까요?`)) return;
+    setBusy(true);
+    try {
+      await onMove(noteId, targets.map((target) => target.id), destination);
+      setSelectedIds((current) => current.filter((id) => !targets.some((target) => target.id === id)));
+      setMoveTargetKey("");
+    } catch (error) {
+      alert(`파일을 이동하지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    } finally { setBusy(false); }
   };
 
   return (
     <div className="sales-file-manager">
-      <div className="file-upload-panel">
+      <div className={`file-upload-panel file-drop-zone ${dragging ? "is-dragging" : ""}`}
+        onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
+        onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
+        onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
+        onDrop={(event) => { event.preventDefault(); setDragging(false); addFiles(Array.from(event.dataTransfer.files || [])); }}>
         <label className="file-picker">
-          <Upload size={17} />
-          <span>파일 선택</span>
-          <input
-            key={fileInputKey}
-            type="file"
-            multiple
-            onChange={(event) => setSelectedFiles(Array.from(event.target.files || []))}
-          />
+          <Upload size={17} /><span>파일 선택 또는 드래그</span>
+          <input key={fileInputKey} type="file" multiple onChange={(event) => addFiles(Array.from(event.target.files || []))} />
         </label>
         <div className="file-upload-fields">
-          <label className="field">
-            <span>분류</span>
-            <select value={category} onChange={(event) => setCategory(event.target.value)}>
-              {FILE_CATEGORY_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </label>
+          <label className="field"><span>분류</span><select value={category} onChange={(event) => setCategory(event.target.value)}>{FILE_CATEGORY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <TextField label="발송/등록일" type="date" value={sentDate} onChange={setSentDate} />
           <TextField label="파일 메모" value={memo} onChange={setMemo} placeholder="예: 발송 메일 캡처, 수정본, 최종 견적서" />
-          <button type="button" className="icon-text-button primary" disabled={busy || !selectedFiles.length} onClick={handleUpload}>
-            <Upload size={16} />
-            업로드
-          </button>
+          <button type="button" className="icon-text-button primary" disabled={busy || !selectedFiles.length} onClick={handleUpload}><Upload size={16} /> {busy ? "업로드 중" : `${selectedFiles.length || ""}개 업로드`}</button>
         </div>
         <div className="selected-file-list" aria-label="선택한 파일">
-          {selectedFiles.map((file) => (
-            <span key={`${file.name}-${file.size}-${file.lastModified}`}>
-              {file.name} · {formatFileSize(file.size)}
-            </span>
-          ))}
-          {!selectedFiles.length && <span>여러 파일을 한 번에 선택할 수 있습니다.</span>}
+          {selectedFiles.map((file) => <button type="button" key={`${file.name}-${file.size}-${file.lastModified}`} onClick={() => setSelectedFiles((current) => current.filter((item) => item !== file))} title="선택 취소"><span>{file.name} · {formatFileSize(file.size)}</span><X size={13} /></button>)}
+          {!selectedFiles.length && <span>여러 파일을 한 번에 선택하거나 이 영역으로 드래그할 수 있습니다.</span>}
         </div>
       </div>
 
-      <div className="attachment-editor-list">
-        {attachments.map((attachment, index) => (
-          <AttachmentMetaEditor
-            key={recordId(attachment, index)}
-            noteId={noteId}
-            attachmentKey={recordId(attachment, index)}
-            attachment={attachment}
-            onUpdateMeta={onUpdateMeta}
-            onDelete={onDelete}
-          />
-        ))}
-        {!attachments.length && (
-          <div className="empty-inline">
-            <strong>첨부자료 없음</strong>
-            <span>{emptyDetail}</span>
-          </div>
-        )}
+      <div className="file-library-toolbar">
+        <label className="file-search-field"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="파일명 또는 메모 검색" /></label>
+        <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} aria-label="파일 유형">
+          <option value="all">모든 유형</option><option value="image">이미지</option><option value="pdf">PDF</option><option value="document">문서</option><option value="spreadsheet">표</option><option value="archive">압축</option><option value="cad">CAD/3D</option><option value="other">기타</option>
+        </select>
+        <select value={sortKey} onChange={(event) => setSortKey(event.target.value)} aria-label="파일 정렬"><option value="recent">최근 등록순</option><option value="name">이름순</option><option value="size">큰 파일순</option></select>
+        <div className="file-date-range" aria-label="업로드 날짜 필터">
+          <input type="date" value={uploadedFrom} onChange={(event) => setUploadedFrom(event.target.value)} aria-label="업로드 시작일" title="업로드 시작일" />
+          <span>~</span>
+          <input type="date" value={uploadedTo} onChange={(event) => setUploadedTo(event.target.value)} aria-label="업로드 종료일" title="업로드 종료일" />
+        </div>
+        <div className="file-view-toggle segmented"><button type="button" className={viewMode === "list" ? "is-active" : ""} onClick={() => setViewMode("list")} title="목록 보기"><ListChecks size={15} /></button><button type="button" className={viewMode === "card" ? "is-active" : ""} onClick={() => setViewMode("card")} title="카드 보기"><LayoutDashboard size={15} /></button></div>
+      </div>
+
+      {visibleAttachments.length > 0 && <div className="file-bulk-bar">
+        <label><input type="checkbox" checked={visibleAttachments.every((item) => selectedIds.includes(item.id))} onChange={toggleAll} /> 전체 선택</label>
+        <span>{selectedIds.length}개 선택</span>
+        {onMove && moveTargets.length > 0 && <div className="file-bulk-move">
+          <select value={moveTargetKey} onChange={(event) => setMoveTargetKey(event.target.value)} aria-label="파일 이동 대상"><option value="">이동할 항목 선택</option>{moveTargets.map((target) => <option key={`${target.type}:${target.id}`} value={`${target.type}:${target.id}`}>{target.label}</option>)}</select>
+          <button type="button" disabled={!selectedIds.length || !moveTargetKey || busy} onClick={bulkMove}><FolderOpen size={15} /> 이동</button>
+        </div>}
+        <button type="button" disabled={!selectedIds.length || busy} onClick={bulkDownload}><Download size={15} /> 다운로드</button>
+        <button type="button" className="danger-button" disabled={!selectedIds.length || busy} onClick={bulkDelete}><Trash2 size={15} /> 삭제</button>
+      </div>}
+
+      <div className={`attachment-editor-list is-${viewMode}`}>
+        {visibleAttachments.map(({ attachment, id }) => <AttachmentMetaEditor key={id} noteId={noteId} attachmentKey={id} attachment={attachment}
+          selected={selectedIds.includes(id)} onSelect={(checked) => setSelectedIds((current) => checked ? [...new Set([...current, id])] : current.filter((item) => item !== id))}
+          moveTargets={moveTargets} onMove={onMove ? async (attachmentKey, target) => onMove(noteId, [attachmentKey], target) : undefined}
+          onUpdateMeta={onUpdateMeta} onDelete={onDelete} />)}
+        {!visibleAttachments.length && <div className="empty-inline"><strong>{attachments.length ? "검색 결과 없음" : "첨부자료 없음"}</strong><span>{attachments.length ? "검색어나 파일 유형을 변경해 주세요." : emptyDetail}</span></div>}
       </div>
     </div>
   );
 }
 
-function AttachmentMetaEditor({
-  noteId,
-  attachmentKey,
-  attachment,
-  onUpdateMeta,
-  onDelete
-}: {
+function attachmentTypeGroup(attachment: AnyRecord): string {
+  const name = firstText(attachment, ["fileName", "name", "filename"]).toLowerCase();
+  const type = firstText(attachment, ["fileType"]).toLowerCase();
+  if (type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|heic)$/.test(name)) return "image";
+  if (type === "application/pdf" || name.endsWith(".pdf")) return "pdf";
+  if (/\.(xlsx?|csv|ods)$/.test(name)) return "spreadsheet";
+  if (/\.(docx?|pptx?|hwp|hwpx|txt|rtf)$/.test(name)) return "document";
+  if (/\.(zip|7z|rar|tar|gz)$/.test(name)) return "archive";
+  if (/\.(step|stp|stl|obj|3mf|iges|igs|dwg|dxf)$/.test(name)) return "cad";
+  return "other";
+}
+
+function AttachmentMetaEditor({ noteId, attachmentKey, attachment, selected, onSelect, moveTargets, onMove, onUpdateMeta, onDelete }: {
   noteId: string;
   attachmentKey: string;
   attachment: AnyRecord;
-  onUpdateMeta: (noteId: string, attachmentKey: string, values: { category: string; sentDate: string; memo: string }) => Promise<void>;
-  onDelete: (noteId: string, attachmentKey: string) => Promise<void>;
+  selected: boolean;
+  onSelect: (checked: boolean) => void;
+  moveTargets: AttachmentMoveTarget[];
+  onMove?: (attachmentKey: string, target: AttachmentMoveTarget) => Promise<void>;
+  onUpdateMeta: (noteId: string, attachmentKey: string, values: { category: string; sentDate: string; memo: string; fileName?: string }) => Promise<void>;
+  onDelete: (noteId: string, attachmentKey: string, options?: { skipConfirm?: boolean }) => Promise<void>;
 }) {
+  const originalName = firstText(attachment, ["fileName", "name", "filename"]) || "첨부자료";
+  const [fileName, setFileName] = useState(originalName);
   const [category, setCategory] = useState(firstText(attachment, ["category"]) || FILE_CATEGORY_OPTIONS[0]);
   const [sentDate, setSentDate] = useState(firstText(attachment, ["sentDate"]));
   const [memo, setMemo] = useState(firstText(attachment, ["memo"]));
+  const [moveTargetKey, setMoveTargetKey] = useState("");
   const [busy, setBusy] = useState(false);
-  const fileName = firstText(attachment, ["fileName", "name", "filename"]) || "첨부자료";
 
   const saveMeta = async () => {
+    if (!fileName.trim()) { alert("파일명을 입력해 주세요."); return; }
     setBusy(true);
-    try {
-      await onUpdateMeta(noteId, attachmentKey, { category, sentDate, memo });
-    } finally {
-      setBusy(false);
-    }
+    try { await onUpdateMeta(noteId, attachmentKey, { category, sentDate, memo, fileName: fileName.trim() }); }
+    finally { setBusy(false); }
+  };
+  const deleteFile = async () => { setBusy(true); try { await onDelete(noteId, attachmentKey); } finally { setBusy(false); } };
+  const moveFile = async () => {
+    const destination = moveTargets.find((target) => `${target.type}:${target.id}` === moveTargetKey);
+    if (!onMove || !destination) return;
+    if (!confirm(`이 파일을 "${destination.label}" 항목으로 이동할까요?`)) return;
+    setBusy(true);
+    try { await onMove(attachmentKey, destination); }
+    catch (error) { alert(`파일을 이동하지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`); }
+    finally { setBusy(false); }
   };
 
-  const deleteFile = async () => {
-    setBusy(true);
-    try {
-      await onDelete(noteId, attachmentKey);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <article className="attachment-editor-card">
-      <div className="attachment-title-row">
-        <div>
-          <strong>{fileName}</strong>
-          <span>
-            {formatFileSize(Number(attachment.fileSize) || 0)}
-            {firstText(attachment, ["uploadedAt"]) ? ` · 등록 ${formatDateTime(firstText(attachment, ["uploadedAt"]))}` : ""}
-          </span>
-        </div>
-        <AttachmentActions attachment={attachment} />
-      </div>
-      <div className="attachment-editor-grid">
-        <label className="field">
-          <span>분류</span>
-          <select value={category} onChange={(event) => setCategory(event.target.value)}>
-            {FILE_CATEGORY_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-        <TextField label="발송/등록일" type="date" value={sentDate} onChange={setSentDate} />
-        <TextField label="메모" value={memo} onChange={setMemo} placeholder="파일별 메모" />
-        <div className="attachment-editor-actions">
-          <button type="button" onClick={saveMeta} disabled={busy}>
-            저장
-          </button>
-          <button type="button" className="danger-button" onClick={deleteFile} disabled={busy}>
-            삭제
-          </button>
-        </div>
-      </div>
-    </article>
-  );
+  return <article className={`attachment-editor-card ${selected ? "is-selected" : ""}`}>
+    <div className="attachment-title-row">
+      <label className="file-select-check"><input type="checkbox" checked={selected} onChange={(event) => onSelect(event.target.checked)} /><span className="sr-only">파일 선택</span></label>
+      <div><strong>{fileName}</strong><span>{formatFileSize(Number(attachment.fileSize) || 0)}{firstText(attachment, ["uploadedAt"]) ? ` · 등록 ${formatDateTime(firstText(attachment, ["uploadedAt"]))}` : ""} · {firstText(attachment, ["storageProvider"]) === "google_drive" ? "Drive 동기화" : "이 기기"}</span></div>
+      <AttachmentActions attachment={{ ...attachment, fileName }} />
+    </div>
+    <div className="attachment-editor-grid">
+      <TextField label="표시 파일명" value={fileName} onChange={setFileName} />
+      <label className="field"><span>분류</span><select value={category} onChange={(event) => setCategory(event.target.value)}>{FILE_CATEGORY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+      <TextField label="발송/등록일" type="date" value={sentDate} onChange={setSentDate} />
+      <TextField label="메모" value={memo} onChange={setMemo} placeholder="파일별 메모" />
+      <div className="attachment-editor-actions"><button type="button" onClick={saveMeta} disabled={busy}>저장</button><button type="button" className="danger-button" onClick={deleteFile} disabled={busy}>삭제</button></div>
+      {onMove && moveTargets.length > 0 && <div className="attachment-item-move"><select value={moveTargetKey} onChange={(event) => setMoveTargetKey(event.target.value)} aria-label={`${fileName} 이동 대상`}><option value="">다른 항목으로 이동</option>{moveTargets.map((target) => <option key={`${target.type}:${target.id}`} value={`${target.type}:${target.id}`}>{target.label}</option>)}</select><button type="button" disabled={busy || !moveTargetKey} onClick={moveFile}><FolderOpen size={15} /> 이동</button></div>}
+    </div>
+  </article>;
 }
 
 function createAttachmentHandlers({
@@ -3651,18 +3762,19 @@ function createAttachmentHandlers({
       return { meta: attachmentMeta, record: { ...attachmentMeta, blob: file } };
     });
 
-    try {
-      await Promise.all(records.map(({ record }) => putAttachmentRecord(record)));
-      updateRecordAttachments(recordKey, (attachments) => [...attachments, ...records.map(({ meta }) => meta)], `${reasonLabel} 업로드`);
-    } catch (error) {
-      alert(`파일을 저장하지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
-    }
+    const stored = await Promise.all(records.map(async ({ meta, record }) => {
+      const result = await persistNewAttachmentRecord(record);
+      return { ...meta, storageProvider: result.ok ? "google_drive" : "local_pending", uploadStatus: result.ok ? "completed" : "failed", uploadError: result.error || "" };
+    }));
+    updateRecordAttachments(recordKey, (attachments) => [...attachments, ...stored], `${reasonLabel} 업로드`);
+    const failed = stored.filter((item) => item.uploadStatus === "failed");
+    if (failed.length) alert(`${failed.length}개 파일은 Google Drive 업로드에 실패해 이 기기에 보관했습니다. Drive 연결과 네트워크를 확인하면 자동으로 재시도합니다.`);
   };
 
   const updateAttachmentMeta = async (
     recordKey: string,
     attachmentKey: string,
-    values: { category: string; sentDate: string; memo: string }
+    values: { category: string; sentDate: string; memo: string; fileName?: string }
   ) => {
     let updatedAttachment: AnyRecord | null = null;
     updateRecordAttachments(
@@ -3680,17 +3792,18 @@ function createAttachmentHandlers({
     const attachmentId = nextAttachmentMeta ? firstText(nextAttachmentMeta, ["id"]) : "";
     if (!attachmentId) return;
     try {
-      const stored = await getAttachmentRecord(attachmentId);
+      const stored = await getLocalAttachmentRecord(attachmentId);
       if (stored?.blob) {
-        await putAttachmentRecord({ ...stored, ...nextAttachmentMeta, blob: stored.blob });
+        await putLocalAttachmentRecord({ ...stored, ...nextAttachmentMeta, blob: stored.blob });
       }
+      await updateRemoteAttachment(attachmentId, values);
     } catch {
-      // Metadata has already been saved. Full ZIP import can restore the original blob if needed.
+      // Metadata remains in the local dataset and will be retried with the next edit.
     }
   };
 
-  const deleteAttachment = async (recordKey: string, attachmentKey: string) => {
-    if (!confirm("이 파일을 파일함에서 삭제할까요? 원본 파일도 이 브라우저 저장소에서 삭제됩니다.")) return;
+  const deleteAttachment = async (recordKey: string, attachmentKey: string, options?: { skipConfirm?: boolean }) => {
+    if (!options?.skipConfirm && !confirm("이 파일을 삭제할까요? Google Drive 파일은 휴지통으로 이동하고, 로컬 캐시에서도 제거됩니다.")) return;
     const records = data[collectionKey] as AnyRecord[];
     const targetRecord = records.find((item, itemIndex) => recordId(item, itemIndex) === recordKey);
     const targetAttachment = asArray(targetRecord?.attachments).find((attachment, attachmentIndex) => recordId(attachment, attachmentIndex) === attachmentKey);
@@ -3708,7 +3821,36 @@ function createAttachmentHandlers({
     }
   };
 
-  return { uploadAttachments, updateAttachmentMeta, deleteAttachment };
+  const moveAttachments = async (recordKey: string, attachmentKeys: string[], target: AttachmentMoveTarget) => {
+    const sourceRecord = (data[collectionKey] as AnyRecord[]).find((record, index) => recordId(record, index) === recordKey);
+    const selected = new Set(attachmentKeys);
+    const attachmentIds = asArray(sourceRecord?.attachments)
+      .filter((attachment, index) => selected.has(recordId(attachment, index)))
+      .map((attachment) => firstText(attachment, ["id"]))
+      .filter(Boolean);
+    if (!attachmentIds.length) return;
+
+    const remotelyMoved: string[] = [];
+    try {
+      for (const attachmentId of attachmentIds) {
+        await updateRemoteAttachment(attachmentId, { ownerKind: target.type, ownerLocalId: target.id });
+        remotelyMoved.push(attachmentId);
+      }
+    } catch (error) {
+      for (const attachmentId of remotelyMoved) {
+        try { await updateRemoteAttachment(attachmentId, { ownerKind: ownerType, ownerLocalId: recordKey }); } catch { /* Recovery is retried manually. */ }
+      }
+      throw error;
+    }
+
+    onPersist((current) => moveAttachmentsInWorkNote(current, ownerType, recordKey, attachmentKeys, target), `${reasonLabel} 이동`);
+    for (const attachmentId of attachmentIds) {
+      const stored = await getLocalAttachmentRecord(attachmentId);
+      if (stored?.blob) await putLocalAttachmentRecord({ ...stored, ownerType: target.type, ownerId: target.id, blob: stored.blob });
+    }
+  };
+
+  return { uploadAttachments, updateAttachmentMeta, deleteAttachment, moveAttachments };
 }
 
 function GenericWorkPortal({
@@ -3918,6 +4060,8 @@ function GenericWorkPortal({
                     onUpload={fileHandlers.uploadAttachments}
                     onUpdateMeta={fileHandlers.updateAttachmentMeta}
                     onDelete={fileHandlers.deleteAttachment}
+                    moveTargets={attachmentMoveTargets(data, type, id)}
+                    onMove={fileHandlers.moveAttachments}
                     emptyDetail={`${title} 업무에 필요한 관련 파일을 업로드해 두면 다시 다운로드할 수 있습니다.`}
                   />
                 </div>
@@ -5822,6 +5966,59 @@ function attachmentOwnerTitle(type: AttachmentOwnerType, owner: AnyRecord): stri
   if (type === "settlement") return workTitle(owner, "settlement");
   if (type === "output") return workTitle(owner, "output");
   return workTitle(owner, "other");
+}
+
+function attachmentCollectionKeyForOwner(type: AttachmentOwnerType): AttachmentCollectionKey {
+  if (type === "company") return "companies";
+  if (type === "sales") return "notes";
+  if (type === "materialSales") return "materialSalesNotes";
+  if (type === "settlement") return "settlementTasks";
+  if (type === "output") return "outputTasks";
+  return "otherTasks";
+}
+
+function attachmentMoveTargets(data: WorkNoteData, currentType: AttachmentOwnerType, currentId: string): AttachmentMoveTarget[] {
+  return getAttachmentOwnerGroups(data).flatMap((group) => group.items.map((owner, index) => {
+    const id = recordId(owner, index);
+    return { type: group.type, id, label: `${attachmentOwnerLabel(group.type)} · ${attachmentOwnerTitle(group.type, owner)}` };
+  })).filter((target) => target.type !== currentType || target.id !== currentId);
+}
+
+function moveAttachmentsInWorkNote(
+  current: WorkNoteData,
+  sourceType: AttachmentOwnerType,
+  sourceId: string,
+  attachmentIds: string[],
+  target: AttachmentMoveTarget
+): WorkNoteData {
+  const sourceKey = attachmentCollectionKeyForOwner(sourceType);
+  const targetKey = attachmentCollectionKeyForOwner(target.type);
+  const selected = new Set(attachmentIds);
+  const sourceRecords = current[sourceKey] as AnyRecord[];
+  const sourceRecord = sourceRecords.find((record, index) => recordId(record, index) === sourceId);
+  const moved = asArray(sourceRecord?.attachments)
+    .filter((attachment, index) => selected.has(recordId(attachment, index)))
+    .map((attachment) => ({ ...attachment, ownerType: target.type, ownerId: target.id }));
+  if (!moved.length) return current;
+  const movedIds = new Set(moved.map((attachment, index) => recordId(attachment, index)));
+  const now = new Date().toISOString();
+  const nextCollection = (key: AttachmentCollectionKey) => (current[key] as AnyRecord[]).map((record, index) => {
+    const id = recordId(record, index);
+    let attachments = asArray(record.attachments);
+    let changed = false;
+    if (key === sourceKey && id === sourceId) {
+      attachments = attachments.filter((attachment, attachmentIndex) => !selected.has(recordId(attachment, attachmentIndex)));
+      changed = true;
+    }
+    if (key === targetKey && id === target.id) {
+      const existing = new Set(attachments.map((attachment, attachmentIndex) => recordId(attachment, attachmentIndex)));
+      attachments = [...attachments, ...moved.filter((attachment, attachmentIndex) => !existing.has(recordId(attachment, attachmentIndex)) && movedIds.has(recordId(attachment, attachmentIndex)))];
+      changed = true;
+    }
+    return changed ? { ...record, attachments, updatedAt: now } : record;
+  });
+  if (sourceKey === targetKey) return { ...current, [sourceKey]: nextCollection(sourceKey) } as WorkNoteData;
+  return { ...current, [sourceKey]: nextCollection(sourceKey), [targetKey]: nextCollection(targetKey) } as WorkNoteData;
 }
 
 function getBackupRecordCounts(data: Pick<WorkNoteData, "companies" | "internalContacts" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts">): Record<string, number> {
@@ -8620,6 +8817,18 @@ async function putLocalAttachmentRecord(record: AttachmentRecord): Promise<void>
       reject(transaction.error || new Error("첨부 파일을 저장하지 못했습니다."));
     };
   });
+}
+
+async function persistNewAttachmentRecord(record: AttachmentRecord): Promise<{ ok: boolean; error?: string }> {
+  await putLocalAttachmentRecord(record);
+  if (!isRemoteModeActive()) return { ok: true };
+  try {
+    await uploadRemoteAttachment(record);
+    return { ok: true };
+  } catch (error) {
+    queueRemoteAttachmentUpload(record);
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 async function putAttachmentRecord(record: AttachmentRecord): Promise<void> {
