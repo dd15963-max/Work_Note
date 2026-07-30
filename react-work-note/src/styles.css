@@ -1354,9 +1354,9 @@ h2 {
 }
 
 .attachment-title-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
 }
 
@@ -1462,10 +1462,17 @@ h2 {
   gap: 10px;
 }
 
-.attachment-editor-card .attachment-title-row > div {
+.attachment-editor-card .attachment-title-copy {
   min-width: 0;
   display: grid;
   gap: 2px;
+}
+
+.attachment-editor-card .attachment-title-row > .attachment-actions {
+  display: inline-flex;
+  justify-self: end;
+  align-self: center;
+  flex-direction: row;
 }
 
 .attachment-editor-card .attachment-title-row strong,
@@ -5591,6 +5598,19 @@ h2 {
   place-items: center;
 }
 
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
 .file-select-check input {
   width: 17px;
   height: 17px;
@@ -5663,6 +5683,15 @@ h2 {
   .attachment-editor-actions,
   .attachment-editor-list.is-card .attachment-editor-actions {
     grid-column: auto;
+  }
+
+  .attachment-title-row {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .attachment-editor-card .attachment-title-row > .attachment-actions {
+    grid-column: 2;
+    justify-self: start;
   }
 }
 

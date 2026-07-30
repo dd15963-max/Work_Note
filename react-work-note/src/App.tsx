@@ -3683,7 +3683,7 @@ function AttachmentMetaEditor({ noteId, attachmentKey, attachment, selected, onS
   return <article className={`attachment-editor-card ${selected ? "is-selected" : ""}`}>
     <div className="attachment-title-row">
       <label className="file-select-check"><input type="checkbox" checked={selected} onChange={(event) => onSelect(event.target.checked)} /><span className="sr-only">파일 선택</span></label>
-      <div><strong>{fileName}</strong><span>{formatFileSize(Number(attachment.fileSize) || 0)}{firstText(attachment, ["uploadedAt"]) ? ` · 등록 ${formatDateTime(firstText(attachment, ["uploadedAt"]))}` : ""} · {firstText(attachment, ["storageProvider"]) === "google_drive" ? "Drive 동기화" : "이 기기"}</span></div>
+      <div className="attachment-title-copy"><strong>{fileName}</strong><span>{formatFileSize(Number(attachment.fileSize) || 0)}{firstText(attachment, ["uploadedAt"]) ? ` · 등록 ${formatDateTime(firstText(attachment, ["uploadedAt"]))}` : ""} · {firstText(attachment, ["storageProvider"]) === "google_drive" ? "Drive 동기화" : "이 기기"}</span></div>
       <AttachmentActions attachment={{ ...attachment, fileName }} />
     </div>
     <div className="attachment-editor-grid">
