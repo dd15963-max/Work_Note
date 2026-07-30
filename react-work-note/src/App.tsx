@@ -168,20 +168,60 @@ const QUOTE_STATUS_OPTIONS = ["미진행", "발송 완료", "진행 중", "불�
 const REVENUE_TYPE_OPTIONS = ["장비 매출", "타사 장비", "기타"];
 
 const FILE_CATEGORY_OPTIONS = [
+  "자동 분류",
   "견적서",
-  "발송자료",
-  "메일 캡처",
-  "사업자등록증",
-  "통장 사본",
-  "회사 서류",
-  "출력 파일",
-  "정산자료",
+  "발송서류",
+  "계약서",
+  "거래명세서",
   "세금계산서",
-  "입금증",
-  "샘플/BMT",
-  "계약/발주",
-  "기타 파일"
+  "발주서",
+  "납품서류",
+  "출력·샘플자료",
+  "도면·3D파일",
+  "기술자료",
+  "이미지",
+  "기타"
 ];
+
+const LEGACY_FILE_CATEGORY_MAP: Record<string, string> = {
+  "발송자료": "발송서류",
+  "메일 캡처": "이미지",
+  "사업자등록증": "기타",
+  "통장 사본": "기타",
+  "회사 서류": "기타",
+  "출력 파일": "출력·샘플자료",
+  "정산자료": "기타",
+  "입금증": "기타",
+  "샘플/BMT": "출력·샘플자료",
+  "계약/발주": "계약서",
+  "기타 파일": "기타"
+};
+
+function inferLocalFileCategory(fileName: string): string {
+  const name = fileName.toLowerCase();
+  const extension = name.includes(".") ? name.split(".").pop() || "" : "";
+  if (/세금.?계산|tax.?invoice/.test(name)) return "세금계산서";
+  if (/거래.?명세/.test(name)) return "거래명세서";
+  if (/견적|quotation|quote/.test(name)) return "견적서";
+  if (/계약|contract/.test(name)) return "계약서";
+  if (/발주|purchase.?order|(^|[^a-z])po([^a-z]|$)/.test(name)) return "발주서";
+  if (/납품|검수|delivery/.test(name)) return "납품서류";
+  if (/발송|송장|운송|shipping|packing|awb/.test(name)) return "발송서류";
+  if (/샘플|bmt|출력|print/.test(name)) return "출력·샘플자료";
+  if (/도면|drawing|cad/.test(name) ||
+      ["step", "stp", "stl", "obj", "3mf", "iges", "igs", "dwg", "dxf"].includes(extension)) {
+    return "도면·3D파일";
+  }
+  if (/매뉴얼|사양|기술|datasheet|manual|spec/.test(name)) return "기술자료";
+  if (["png", "jpg", "jpeg", "gif", "webp", "heic", "bmp", "svg"].includes(extension)) return "이미지";
+  return "기타";
+}
+
+function normalizeLocalFileCategory(category: string, fileName = ""): string {
+  if (category === "자동 분류") return inferLocalFileCategory(fileName);
+  const normalized = LEGACY_FILE_CATEGORY_MAP[category] || category;
+  return FILE_CATEGORY_OPTIONS.includes(normalized) ? normalized : "기타";
+}
 const WORK_STATUS_OPTIONS = ["대기", "진행 중", "확인 필요", "보류", "완료"];
 const SETTLEMENT_STATUS_OPTIONS = ["예정", "선금 예정", "선금 완료", "차감 진행 중", "확인 필요", "보류", "완료"];
 const SETTLEMENT_PAYMENT_OPTIONS = ["분할 결제", "선금 결제"];
@@ -2371,7 +2411,7 @@ function SalesPortal({
         name: file.name,
         fileType: file.type || "application/octet-stream",
         fileSize: file.size,
-        category: meta.category,
+        category: normalizeLocalFileCategory(meta.category, file.name),
         sentDate: meta.sentDate,
         memo: meta.memo,
         uploadedAt
@@ -3582,7 +3622,8 @@ function AttachmentMetaEditor({ noteId, attachmentKey, attachment, selected, onS
 }) {
   const originalName = firstText(attachment, ["originalFileName", "fileName", "name", "filename"]) || "첨부자료";
   const [fileName, setFileName] = useState(firstText(attachment, ["fileName", "name", "filename"]) || originalName);
-  const [category, setCategory] = useState(firstText(attachment, ["category"]) || FILE_CATEGORY_OPTIONS[0]);
+  const [category, setCategory] = useState(
+    normalizeLocalFileCategory(firstText(attachment, ["category"]) || FILE_CATEGORY_OPTIONS[0], originalName));
   const [sentDate, setSentDate] = useState(firstText(attachment, ["sentDate"]));
   const [memo, setMemo] = useState(firstText(attachment, ["memo"]));
   const [moveTargetKey, setMoveTargetKey] = useState("");
@@ -3679,7 +3720,7 @@ function createAttachmentHandlers({
         name: file.name,
         fileType: file.type || "application/octet-stream",
         fileSize: file.size,
-        category: meta.category,
+        category: normalizeLocalFileCategory(meta.category, file.name),
         sentDate: meta.sentDate,
         memo: meta.memo,
         uploadedAt
