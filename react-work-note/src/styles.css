@@ -1393,6 +1393,7 @@ h2 {
 }
 
 .file-picker {
+  position: relative;
   width: fit-content;
   min-height: 38px;
   display: inline-flex;
@@ -1413,6 +1414,10 @@ h2 {
   position: absolute;
   width: 1px;
   height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
   opacity: 0;
   pointer-events: none;
 }
@@ -5441,5 +5446,258 @@ h2 {
     display: flex;
     align-items: center;
     justify-content: space-between;
+  }
+}
+
+.file-drop-zone {
+  border: 1px dashed #b8c8dc;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.file-drop-zone.is-dragging {
+  border-color: #2474ea;
+  background: #eef6ff;
+}
+
+.selected-file-list button {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d5dfec;
+  background: #fff;
+  padding: 5px 8px;
+  color: #34455f;
+}
+
+.selected-file-list button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-library-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 140px 150px minmax(270px, auto) auto;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.file-library-toolbar select,
+.file-search-field {
+  min-height: 38px;
+  border: 1px solid #ccd8e8;
+  background: #fff;
+}
+
+.file-library-toolbar select {
+  padding: 0 10px;
+}
+
+.file-search-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+}
+
+.file-search-field input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+}
+
+.file-date-range,
+.file-bulk-move,
+.attachment-item-move {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.file-date-range input,
+.file-bulk-move select,
+.attachment-item-move select {
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid #ccd8e8;
+  background: #fff;
+  padding: 0 9px;
+}
+
+.file-date-range input {
+  width: 132px;
+}
+
+.file-bulk-move select {
+  width: min(280px, 24vw);
+}
+
+.file-view-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, 38px);
+}
+
+.file-view-toggle button {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+}
+
+.file-bulk-bar {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  border: 1px solid #d7e1ef;
+  background: #f8fafc;
+  padding: 6px 8px;
+}
+
+.file-bulk-bar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  white-space: nowrap;
+}
+
+.file-bulk-bar button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.attachment-editor-list.is-card {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.attachment-editor-card.is-selected {
+  border-color: #e0b92e;
+  background: #fffdf3;
+}
+
+.file-select-check {
+  display: grid;
+  flex: 0 0 30px;
+  place-items: center;
+}
+
+.file-select-check input {
+  width: 17px;
+  height: 17px;
+}
+
+.attachment-editor-grid {
+  grid-template-columns: minmax(180px, 1.35fr) 130px 150px minmax(180px, 1fr) auto;
+}
+
+.attachment-editor-list.is-card .attachment-editor-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.attachment-editor-list.is-card .attachment-editor-actions {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+}
+
+.attachment-item-move {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  border-top: 1px solid #e4ebf4;
+  padding-top: 8px;
+}
+
+.attachment-item-move select {
+  width: min(420px, 60%);
+}
+
+.attachment-item-move button,
+.file-bulk-move button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+@media (max-width: 780px) {
+  .file-library-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .file-search-field {
+    grid-column: 1 / -1;
+  }
+
+  .file-date-range {
+    grid-column: 1 / -1;
+  }
+
+  .file-date-range input {
+    flex: 1 1 0;
+    width: auto;
+  }
+
+  .file-view-toggle {
+    justify-self: end;
+  }
+
+  .attachment-editor-list.is-card {
+    grid-template-columns: 1fr;
+  }
+
+  .attachment-editor-grid,
+  .attachment-editor-list.is-card .attachment-editor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .attachment-editor-actions,
+  .attachment-editor-list.is-card .attachment-editor-actions {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 520px) {
+  .file-library-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .file-search-field {
+    grid-column: auto;
+  }
+
+  .file-view-toggle {
+    justify-self: start;
+  }
+
+  .file-bulk-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .file-bulk-bar label {
+    margin-right: 0;
+  }
+
+  .file-bulk-move {
+    grid-column: 1 / -1;
+  }
+
+  .file-bulk-move select,
+  .attachment-item-move select {
+    width: 100%;
+  }
+
+  .attachment-item-move {
+    align-items: stretch;
   }
 }
