@@ -15,6 +15,13 @@
       "when": 1785377847235,
       "tag": "0001_left_secret_warriors",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785397710431,
+      "tag": "0002_misty_post",
+      "breakpoints": true
     }
   ]
 }

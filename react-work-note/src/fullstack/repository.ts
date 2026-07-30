@@ -21,6 +21,35 @@ export type GoogleDriveStatus = {
   legacyFileCount?: number;
   quota?: { limit?: string; usage?: string; usageInDrive?: string } | null;
   error?: string;
+  managedFolderCount?: number;
+  retryRequiredCount?: number;
+  organizedFileCount?: number;
+};
+
+export type DriveOrganizationItem = {
+  id?: string;
+  folder_id?: string;
+  drive_path?: string;
+  currentPath?: string;
+  targetPath?: string;
+  category?: string;
+  needsMove?: boolean;
+  eligible?: boolean;
+  reason?: string;
+  excludedReason?: string;
+};
+
+export type DriveOrganizationResult = {
+  checked?: number;
+  empty?: number;
+  excluded?: number;
+  cleaned?: number;
+  failed?: number;
+  synchronized?: number;
+  moveRequired?: number;
+  folders?: DriveOrganizationItem[];
+  items?: DriveOrganizationItem[];
+  remaining?: DriveOrganizationResult;
 };
 
 const PENDING_DATASET_KEY = "workNotePendingServerSyncV1";
@@ -341,7 +370,7 @@ async function sha256ForBlob(blob: Blob): Promise<string> {
 export async function uploadRemoteAttachment(
   record: AttachmentRecord,
   migrationBatchId = "",
-): Promise<void> {
+): Promise<AttachmentRecord> {
   ensureRuntime();
   if (!record.id || !(record.blob instanceof Blob)) {
     throw new Error("업로드할 첨부 원본이 없습니다.");
@@ -367,6 +396,8 @@ export async function uploadRemoteAttachment(
   const response = await uploadFormWithProgress(form, fileName, record.id);
   if (!response.ok) throw await responseError(response);
   removePendingAttachment(record.id);
+  const result = await response.json() as AttachmentRecord;
+  return { ...record, ...result, id: record.id, blob: record.blob };
 }
 
 export function queueRemoteAttachmentUpload(record: AttachmentRecord) {
@@ -611,9 +642,9 @@ export async function migrateLegacyAttachmentsToDrive(
 
 export async function updateRemoteAttachment(
   id: string,
-  values: { fileName?: string; ownerKind?: string; ownerLocalId?: string; category?: string; sentDate?: string; memo?: string },
-): Promise<void> {
-  if (!isRemoteModeActive() || !id) return;
+  values: { fileName?: string; ownerKind?: string; ownerLocalId?: string; companyName?: string; companyId?: string; memoTitle?: string; category?: string; sentDate?: string; memo?: string },
+): Promise<AttachmentRecord | null> {
+  if (!isRemoteModeActive() || !id) return null;
   const response = await fetch("/api/files", {
     method: "PATCH",
     credentials: "same-origin",
@@ -621,6 +652,52 @@ export async function updateRemoteAttachment(
     body: JSON.stringify({ id, ...values }),
   });
   if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<AttachmentRecord>;
+}
+
+async function driveOrganizationRequest(
+  action: "cleanup-preview" | "cleanup" | "migration-preview" | "migrate" | "retry",
+): Promise<DriveOrganizationResult> {
+  ensureRuntime();
+  const response = await fetch("/api/google-drive/organize", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<DriveOrganizationResult>;
+}
+
+export function previewDriveMigration(): Promise<DriveOrganizationResult> {
+  return driveOrganizationRequest("migration-preview");
+}
+
+export function runDriveMigration(): Promise<DriveOrganizationResult> {
+  return driveOrganizationRequest("migrate");
+}
+
+export function previewEmptyDriveFolders(): Promise<DriveOrganizationResult> {
+  return driveOrganizationRequest("cleanup-preview");
+}
+
+export function cleanupEmptyDriveFolders(): Promise<DriveOrganizationResult> {
+  return driveOrganizationRequest("cleanup");
+}
+
+export function retryDriveOrganization(): Promise<DriveOrganizationResult> {
+  return driveOrganizationRequest("retry");
+}
+
+export async function getRecentDriveOperations(): Promise<Record<string, unknown>[]> {
+  ensureRuntime();
+  const response = await fetch("/api/google-drive/organize?mode=logs", {
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  if (!response.ok) throw await responseError(response);
+  const result = await response.json() as { operations?: Record<string, unknown>[] };
+  return result.operations || [];
 }
 
 export async function softDeleteAllAccountData(): Promise<void> {

@@ -24,16 +24,23 @@ import { App, loadWorkNoteData } from "../App";
 import {
   clearPendingSync,
   clearRemoteRuntime,
+  cleanupEmptyDriveFolders,
   connectGoogleDrive,
   disconnectGoogleDrive,
   flushPendingChanges,
+  getRecentDriveOperations,
   getGoogleDriveStatus,
   getServerCounts,
   initializeRemoteRuntime,
   loadServerDataset,
   migrateLegacyAttachmentsToDrive,
+  previewDriveMigration,
+  previewEmptyDriveFolders,
+  retryDriveOrganization,
+  runDriveMigration,
   softDeleteAllAccountData,
   testGoogleDriveConnection,
+  type DriveOrganizationResult,
   type GoogleDriveStatus,
   type SiteUser,
 } from "./repository";
@@ -419,6 +426,8 @@ function ServerSettings({
   const [counts, setCounts] = useState<DataCounts | null>(null);
   const [drive, setDrive] = useState<GoogleDriveStatus | null>(null);
   const [driveMessage, setDriveMessage] = useState("");
+  const [driveResult, setDriveResult] = useState<DriveOrganizationResult | null>(null);
+  const [driveOperations, setDriveOperations] = useState<Record<string, unknown>[]>([]);
   const sync = useSyncState();
 
   const refreshDrive = async () => {
@@ -524,6 +533,8 @@ function ServerSettings({
                   {drive.quota?.usage && <span>사용량 <b>{formatStorageSize(drive.quota.usage)}{drive.quota.limit ? ` / ${formatStorageSize(drive.quota.limit)}` : ""}</b></span>}
                 </div>
                 {driveMessage && <p className="drive-settings-message">{driveMessage}</p>}
+                {driveResult && <DriveOrganizationSummary result={driveResult} />}
+                {driveOperations.length > 0 && <DriveOperationList operations={driveOperations} />}
                 <div className="settings-actions">
                   <button type="button" disabled={Boolean(busy)} onClick={() => run("drive-test", async () => {
                     await testGoogleDriveConnection();
@@ -537,6 +548,44 @@ function ServerSettings({
                     setDriveMessage(`이전 완료 ${result.migrated}개 · 실패 ${result.failed}개 · 남음 ${result.remaining}개`);
                     await refreshDrive();
                   })}>기존 파일 Drive로 이전</button>
+                  <button type="button" disabled={Boolean(busy)} onClick={() => run("drive-structure", async () => {
+                    const result = await previewDriveMigration();
+                    setDriveResult(result);
+                    setDriveMessage(`폴더 구조 확인 완료 · 확인 ${result.checked || 0}개 · 이동 필요 ${result.moveRequired || 0}개`);
+                  })}>Google Drive 폴더 구조 확인</button>
+                  <button type="button" disabled={Boolean(busy)} onClick={() => run("drive-migration-preview", async () => {
+                    const result = await previewDriveMigration();
+                    setDriveResult(result);
+                    setDriveMessage(`기존 파일 정리 미리보기 · 이동 ${result.moveRequired || 0}개 · 제외 ${result.excluded || 0}개`);
+                  })}>기존 파일 정리 미리보기</button>
+                  <button type="button" disabled={Boolean(busy)} onClick={() => run("drive-organize", async () => {
+                    if (!confirm("Google Drive의 기존 파일을 업체/메모/파일 종류 폴더로 이동할까요? 파일 ID와 링크는 유지됩니다.")) return;
+                    const result = await runDriveMigration();
+                    setDriveResult(result.remaining || result);
+                    setDriveMessage(`기존 파일 정리 완료 · 성공 ${result.synchronized || 0}개 · 실패 ${result.failed || 0}개`);
+                    await refreshDrive();
+                  })}>기존 파일 마이그레이션 실행</button>
+                  <button type="button" disabled={Boolean(busy)} onClick={() => run("drive-cleanup-preview", async () => {
+                    const result = await previewEmptyDriveFolders();
+                    setDriveResult(result);
+                    setDriveMessage(`빈 폴더 미리보기 · 확인 ${result.checked || 0}개 · 정리 예정 ${result.empty || 0}개`);
+                  })}>빈 폴더 정리 미리보기</button>
+                  <button type="button" disabled={Boolean(busy)} onClick={() => run("drive-cleanup", async () => {
+                    if (!confirm("미리 확인된 Work Note 관리 빈 폴더를 Google Drive 휴지통으로 이동할까요?")) return;
+                    const result = await cleanupEmptyDriveFolders();
+                    setDriveResult(result);
+                    setDriveMessage(`빈 폴더 정리 완료 · 성공 ${result.cleaned || 0}개 · 제외 ${result.excluded || 0}개 · 실패 ${result.failed || 0}개`);
+                  })}>빈 폴더 정리 실행</button>
+                  <button type="button" disabled={Boolean(busy)} onClick={() => run("drive-retry", async () => {
+                    const result = await retryDriveOrganization();
+                    setDriveResult(result.remaining || result);
+                    setDriveMessage(`재시도 완료 · 성공 ${result.synchronized || 0}개 · 실패 ${result.failed || 0}개`);
+                  })}>실패 항목 재시도</button>
+                  <button type="button" disabled={Boolean(busy)} onClick={() => run("drive-logs", async () => {
+                    const operations = await getRecentDriveOperations();
+                    setDriveOperations(operations);
+                    setDriveMessage(`최근 동기화 결과 ${operations.length}건을 불러왔습니다.`);
+                  })}>최근 동기화 결과</button>
                   <button type="button" className="danger-button" disabled={Boolean(busy)} onClick={() => run("drive-disconnect", async () => {
                     if (!confirm("Google Drive 연결을 해제할까요? 기존 파일은 Drive와 Work Note에 그대로 유지됩니다.")) return;
                     await disconnectGoogleDrive();
@@ -638,6 +687,52 @@ function CountSummary({ counts }: { counts: DataCounts }) {
       </span>
       <span>정산 <b>{counts.settlements}</b></span>
       <span>첨부 <b>{counts.attachments}</b></span>
+    </div>
+  );
+}
+
+function DriveOrganizationSummary({ result }: { result: DriveOrganizationResult }) {
+  const items = result.folders || result.items || [];
+  return (
+    <div className="drive-organization-result">
+      <div className="drive-organization-metrics">
+        <span>확인 <b>{result.checked || 0}</b></span>
+        <span>빈 폴더 <b>{result.empty || 0}</b></span>
+        <span>이동 필요 <b>{result.moveRequired || 0}</b></span>
+        <span>완료 <b>{result.cleaned || result.synchronized || 0}</b></span>
+        <span>제외 <b>{result.excluded || 0}</b></span>
+        <span>실패 <b>{result.failed || 0}</b></span>
+      </div>
+      {items.length > 0 && (
+        <div className="drive-organization-list">
+          {items.slice(0, 30).map((item, index) => (
+            <article key={String(item.id || item.folder_id || index)}>
+              <strong>{String(item.targetPath || item.drive_path || item.currentPath || "경로 정보 없음")}</strong>
+              <small>
+                {item.category ? `${item.category} · ` : ""}
+                {item.needsMove ? "이동 예정" : item.eligible ? "정리 예정" : String(item.excludedReason || item.reason || "확인 완료")}
+              </small>
+            </article>
+          ))}
+          {items.length > 30 && <small>외 {items.length - 30}건</small>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DriveOperationList({ operations }: { operations: Record<string, unknown>[] }) {
+  return (
+    <div className="drive-organization-list">
+      {operations.slice(0, 20).map((operation, index) => (
+        <article key={String(operation.id || index)}>
+          <strong>{String(operation.operation_type || "Drive 작업")} · {String(operation.status || "")}</strong>
+          <small>
+            {String(operation.after_path || operation.before_path || operation.target_id || "")}
+            {operation.error_message ? ` · ${String(operation.error_message)}` : ""}
+          </small>
+        </article>
+      ))}
     </div>
   );
 }

@@ -51,9 +51,6 @@ export async function ensureRootFolders(userEmail: string): Promise<string> {
   const connection = await getDriveConnection(userEmail);
   if (!connection) throw new Error("Google Drive 연결이 필요합니다.");
   const rootId = connection.rootFolderId || await createDriveFolder(userEmail, "Work Note");
-  for (const name of ["업무", "고객사", "일정", "정산", "공용 파일함", "미분류"]) {
-    await createDriveFolder(userEmail, name, rootId);
-  }
   await database().prepare(`UPDATE work_note_google_drive_connections
     SET root_folder_id = ?, root_folder_name = 'Work Note', updated_at = ? WHERE user_email = ?`)
     .bind(rootId, new Date().toISOString(), userEmail).run();

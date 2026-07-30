@@ -179,19 +179,19 @@ const QUOTE_STATUS_OPTIONS = ["미진행", "발송 완료", "진행 중", "불�
 const REVENUE_TYPE_OPTIONS = ["장비 매출", "타사 장비", "기타"];
 
 const FILE_CATEGORY_OPTIONS = [
+  "자동 분류",
   "견적서",
-  "발송자료",
-  "메일 캡처",
-  "사업자등록증",
-  "통장 사본",
-  "회사 서류",
-  "출력 파일",
-  "정산자료",
+  "발송서류",
+  "계약서",
+  "거래명세서",
   "세금계산서",
-  "입금증",
-  "샘플/BMT",
-  "계약/발주",
-  "기타 파일"
+  "발주서",
+  "납품서류",
+  "출력·샘플자료",
+  "도면·3D파일",
+  "기술자료",
+  "이미지",
+  "기타"
 ];
 const WORK_STATUS_OPTIONS = ["대기", "진행 중", "확인 필요", "보류", "완료"];
 const SETTLEMENT_STATUS_OPTIONS = ["예정", "선금 예정", "선금 완료", "차감 진행 중", "확인 필요", "보류", "완료"];
@@ -2425,6 +2425,7 @@ function SalesPortal({
     }
 
     const uploadedAt = new Date().toISOString();
+    const ownerContext = attachmentDriveContext(data, "sales", noteId);
     const records = files.map((file) => {
       const id = createId("file_");
       const attachmentMeta: AttachmentRecord = {
@@ -2438,14 +2439,16 @@ function SalesPortal({
         category: meta.category,
         sentDate: meta.sentDate,
         memo: meta.memo,
-        uploadedAt
+        uploadedAt,
+        ...ownerContext
       };
       return { meta: attachmentMeta, record: { ...attachmentMeta, blob: file } };
     });
 
     const stored = await Promise.all(records.map(async ({ meta, record }) => {
       const result = await persistNewAttachmentRecord(record);
-      return { ...meta, storageProvider: result.ok ? "google_drive" : "local_pending", uploadStatus: result.ok ? "completed" : "failed", uploadError: result.error || "" };
+      return { ...meta, ...(result.record || {}), storageProvider: result.ok ? "google_drive" : "local_pending",
+        uploadStatus: result.ok ? "completed" : "failed", uploadError: result.error || "" };
     }));
     updateSalesAttachments(noteId, (attachments) => [...attachments, ...stored], "영업 파일 업로드");
     const failed = stored.filter((item) => item.uploadStatus === "failed");
@@ -2477,7 +2480,15 @@ function SalesPortal({
       if (stored?.blob) {
         await putLocalAttachmentRecord({ ...stored, ...nextAttachmentMeta, blob: stored.blob });
       }
-      await updateRemoteAttachment(attachmentId, values);
+      const remote = await updateRemoteAttachment(attachmentId, values);
+      if (remote) {
+        updateSalesAttachments(
+          noteId,
+          (attachments) => attachments.map((attachment, index) =>
+            recordId(attachment, index) === attachmentId ? { ...attachment, ...remote } : attachment),
+          "영업 파일 Drive 동기화"
+        );
+      }
     } catch {
       // Metadata remains in the local dataset and will be retried with the next edit.
     }
@@ -3494,6 +3505,7 @@ function SalesFileManager({
   const [moveTargetKey, setMoveTargetKey] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "card">("list");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const memoFolderUrl = attachments.map((item) => firstText(item, ["driveMemoFolderUrl"])).find(Boolean) || "";
 
   const addFiles = (files: File[]) => {
     setSelectedFiles((current) => {
@@ -3608,6 +3620,7 @@ function SalesFileManager({
           <input type="date" value={uploadedTo} onChange={(event) => setUploadedTo(event.target.value)} aria-label="업로드 종료일" title="업로드 종료일" />
         </div>
         <div className="file-view-toggle segmented"><button type="button" className={viewMode === "list" ? "is-active" : ""} onClick={() => setViewMode("list")} title="목록 보기"><ListChecks size={15} /></button><button type="button" className={viewMode === "card" ? "is-active" : ""} onClick={() => setViewMode("card")} title="카드 보기"><LayoutDashboard size={15} /></button></div>
+        {memoFolderUrl && <a className="drive-folder-link" href={memoFolderUrl} target="_blank" rel="noreferrer"><FolderOpen size={15} /> Google Drive 폴더 열기</a>}
       </div>
 
       {visibleAttachments.length > 0 && <div className="file-bulk-bar">
@@ -3661,7 +3674,8 @@ function AttachmentMetaEditor({ noteId, attachmentKey, attachment, selected, onS
 }) {
   const originalName = firstText(attachment, ["originalFileName", "fileName", "name", "filename"]) || "첨부자료";
   const [fileName, setFileName] = useState(firstText(attachment, ["fileName", "name", "filename"]) || originalName);
-  const [category, setCategory] = useState(firstText(attachment, ["category"]) || FILE_CATEGORY_OPTIONS[0]);
+  const storedCategory = firstText(attachment, ["category"]);
+  const [category, setCategory] = useState(FILE_CATEGORY_OPTIONS.includes(storedCategory) ? storedCategory : FILE_CATEGORY_OPTIONS[0]);
   const [sentDate, setSentDate] = useState(firstText(attachment, ["sentDate"]));
   const [memo, setMemo] = useState(firstText(attachment, ["memo"]));
   const [moveTargetKey, setMoveTargetKey] = useState("");
@@ -3687,7 +3701,12 @@ function AttachmentMetaEditor({ noteId, attachmentKey, attachment, selected, onS
   return <article className={`attachment-editor-card ${selected ? "is-selected" : ""}`}>
     <div className="attachment-header">
       <label className="file-select-check"><input type="checkbox" checked={selected} onChange={(event) => onSelect(event.target.checked)} /><span className="sr-only">파일 선택</span></label>
-      <div className="attachment-file-copy"><strong title={originalName}>{originalName}</strong><span>{formatFileSize(Number(attachment.fileSize) || 0)}{firstText(attachment, ["uploadedAt"]) ? ` · 등록 ${formatDateTime(firstText(attachment, ["uploadedAt"]))}` : ""} · {firstText(attachment, ["storageProvider"]) === "google_drive" ? "Drive 동기화" : "이 기기"}</span></div>
+      <div className="attachment-file-copy"><strong title={originalName}>{originalName}</strong>
+        <span>{formatFileSize(Number(attachment.fileSize) || 0)}{firstText(attachment, ["uploadedAt"]) ? ` · 등록 ${formatDateTime(firstText(attachment, ["uploadedAt"]))}` : ""} · {firstText(attachment, ["storageProvider"]) === "google_drive" ? firstText(attachment, ["syncStatus", "uploadStatus"]) || "Drive 동기화" : "이 기기"}</span>
+        {firstText(attachment, ["drivePath"]) && <span className="drive-path" title={firstText(attachment, ["drivePath"])}>{firstText(attachment, ["drivePath"])}</span>}
+        {firstText(attachment, ["lastSyncedAt"]) && <span>최근 동기화 {formatDateTime(firstText(attachment, ["lastSyncedAt"]))}</span>}
+        {firstText(attachment, ["uploadError"]) && <span className="attachment-sync-error">{firstText(attachment, ["uploadError"])}</span>}
+      </div>
       <AttachmentActions attachment={{ ...attachment, fileName }} />
     </div>
     <div className="attachment-edit-grid">
@@ -3748,6 +3767,7 @@ function createAttachmentHandlers({
     }
 
     const uploadedAt = new Date().toISOString();
+    const ownerContext = attachmentDriveContext(data, ownerType, recordKey);
     const records = files.map((file) => {
       const id = createId("file_");
       const attachmentMeta: AttachmentRecord = {
@@ -3761,14 +3781,16 @@ function createAttachmentHandlers({
         category: meta.category,
         sentDate: meta.sentDate,
         memo: meta.memo,
-        uploadedAt
+        uploadedAt,
+        ...ownerContext
       };
       return { meta: attachmentMeta, record: { ...attachmentMeta, blob: file } };
     });
 
     const stored = await Promise.all(records.map(async ({ meta, record }) => {
       const result = await persistNewAttachmentRecord(record);
-      return { ...meta, storageProvider: result.ok ? "google_drive" : "local_pending", uploadStatus: result.ok ? "completed" : "failed", uploadError: result.error || "" };
+      return { ...meta, ...(result.record || {}), storageProvider: result.ok ? "google_drive" : "local_pending",
+        uploadStatus: result.ok ? "completed" : "failed", uploadError: result.error || "" };
     }));
     updateRecordAttachments(recordKey, (attachments) => [...attachments, ...stored], `${reasonLabel} 업로드`);
     const failed = stored.filter((item) => item.uploadStatus === "failed");
@@ -3800,7 +3822,15 @@ function createAttachmentHandlers({
       if (stored?.blob) {
         await putLocalAttachmentRecord({ ...stored, ...nextAttachmentMeta, blob: stored.blob });
       }
-      await updateRemoteAttachment(attachmentId, values);
+      const remote = await updateRemoteAttachment(attachmentId, values);
+      if (remote) {
+        updateRecordAttachments(
+          recordKey,
+          (attachments) => attachments.map((attachment, index) =>
+            recordId(attachment, index) === attachmentId ? { ...attachment, ...remote } : attachment),
+          `${reasonLabel} Drive 동기화`
+        );
+      }
     } catch {
       // Metadata remains in the local dataset and will be retried with the next edit.
     }
@@ -5087,6 +5117,7 @@ function AttachmentActions({ attachment, compact = false }: { attachment: AnyRec
   const [preview, setPreview] = useState<{ url: string; name: string; fileType: string; zoom: number } | null>(null);
   const canPreview = isPreviewableAttachment(attachment);
   const fileName = firstText(attachment, ["fileName", "name", "filename"]) || "attachment";
+  const driveWebViewLink = firstText(attachment, ["driveWebViewLink"]) || (firstText(attachment, ["driveFileId"]) ? `https://drive.google.com/file/d/${encodeURIComponent(firstText(attachment, ["driveFileId"]))}/view` : "");
 
   const handleDownload = async () => {
     try {
@@ -5138,6 +5169,12 @@ function AttachmentActions({ attachment, compact = false }: { attachment: AnyRec
           <Download size={compact ? 14 : 15} />
           {!compact && "다운로드"}
         </button>
+        {driveWebViewLink && (
+          <a href={driveWebViewLink} target="_blank" rel="noreferrer" title="Google Drive에서 열기">
+            <FolderOpen size={compact ? 14 : 15} />
+            {!compact && "Drive에서 열기"}
+          </a>
+        )}
       </div>
       {preview && (
         <div className="file-preview-overlay" role="dialog" aria-modal="true" aria-label={`${preview.name} 미리보기`}>
@@ -5970,6 +6007,35 @@ function attachmentOwnerTitle(type: AttachmentOwnerType, owner: AnyRecord): stri
   if (type === "settlement") return workTitle(owner, "settlement");
   if (type === "output") return workTitle(owner, "output");
   return workTitle(owner, "other");
+}
+
+function attachmentDriveContext(data: WorkNoteData, type: AttachmentOwnerType, ownerId: string): AnyRecord {
+  const collection = data[attachmentCollectionKeyForOwner(type)] as AnyRecord[];
+  const owner = collection.find((record, index) => recordId(record, index) === ownerId) || {};
+  const linkedCompanyId = firstText(owner, ["companyId", "salesCompanyId", "relatedCompanyId"]);
+  const linkedCompany = linkedCompanyId
+    ? data.companies.find((company, index) => recordId(company, index) === linkedCompanyId)
+    : null;
+  const rawCompany = type === "company"
+    ? companyName(owner)
+    : companyName(linkedCompany || {}) || companyName(owner) ||
+      (type === "sales" || type === "materialSales" ? salesCustomer(owner) : "");
+  let memoTitle = firstText(owner, ["title", "taskTitle", "subject", "workTitle"]);
+  if (!memoTitle && type === "company") memoTitle = "업체 파일";
+  if (!memoTitle && type === "sales") {
+    memoTitle = firstText(owner, ["interest", "nextAction"]) || "장비 영업";
+  }
+  if (!memoTitle && type === "materialSales") {
+    memoTitle = materialSalesItemsSummary(owner) || "소재·소모품 영업";
+  }
+  if (!memoTitle && type === "settlement") memoTitle = workTitle(owner, "settlement");
+  if (!memoTitle && type === "output") memoTitle = workTitle(owner, "output");
+  if (!memoTitle) memoTitle = workTitle(owner, "other");
+  return {
+    companyId: linkedCompanyId || firstText(linkedCompany || owner, ["id"]) || "",
+    companyName: rawCompany && !["고객 미정", "관련 업체 없음"].includes(rawCompany) ? rawCompany : "업체 미정",
+    memoTitle,
+  };
 }
 
 function attachmentCollectionKeyForOwner(type: AttachmentOwnerType): AttachmentCollectionKey {
@@ -8823,12 +8889,14 @@ async function putLocalAttachmentRecord(record: AttachmentRecord): Promise<void>
   });
 }
 
-async function persistNewAttachmentRecord(record: AttachmentRecord): Promise<{ ok: boolean; error?: string }> {
+async function persistNewAttachmentRecord(record: AttachmentRecord): Promise<{ ok: boolean; error?: string; record?: AttachmentRecord }> {
   await putLocalAttachmentRecord(record);
-  if (!isRemoteModeActive()) return { ok: true };
+  if (!isRemoteModeActive()) return { ok: true, record };
   try {
-    await uploadRemoteAttachment(record);
-    return { ok: true };
+    const uploaded = await uploadRemoteAttachment(record);
+    await putLocalAttachmentRecord(uploaded);
+    const { blob: _blob, ...metadata } = uploaded;
+    return { ok: true, record: metadata as AttachmentRecord };
   } catch (error) {
     queueRemoteAttachmentUpload(record);
     return { ok: false, error: error instanceof Error ? error.message : String(error) };

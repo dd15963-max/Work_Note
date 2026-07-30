@@ -40,6 +40,12 @@ async function ensureSchemaInner(): Promise<void> {
       storage_provider TEXT NOT NULL DEFAULT 'site_storage',
       drive_file_id TEXT,
       drive_folder_id TEXT,
+      drive_company_folder_id TEXT NOT NULL DEFAULT '',
+      drive_memo_folder_id TEXT NOT NULL DEFAULT '',
+      drive_category_folder_id TEXT NOT NULL DEFAULT '',
+      drive_path TEXT NOT NULL DEFAULT '',
+      drive_web_view_link TEXT NOT NULL DEFAULT '',
+      file_category TEXT NOT NULL DEFAULT '기타',
       file_name TEXT NOT NULL,
       display_file_name TEXT NOT NULL DEFAULT '',
       mime_type TEXT NOT NULL,
@@ -51,6 +57,10 @@ async function ensureSchemaInner(): Promise<void> {
       uploaded_by TEXT NOT NULL DEFAULT '',
       metadata_json TEXT NOT NULL DEFAULT '{}',
       migration_json TEXT NOT NULL DEFAULT '{}',
+      sync_status TEXT NOT NULL DEFAULT '동기화 완료',
+      last_synced_at TEXT NOT NULL DEFAULT '',
+      last_error TEXT NOT NULL DEFAULT '',
+      operation_token TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL,
       deleted_at TEXT,
@@ -102,12 +112,63 @@ async function ensureSchemaInner(): Promise<void> {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS work_note_migration_logs_user_idx
       ON work_note_migration_logs(user_email)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS work_note_drive_folders (
+      user_email TEXT NOT NULL,
+      folder_id TEXT NOT NULL,
+      managed_key TEXT NOT NULL,
+      parent_folder_id TEXT NOT NULL,
+      folder_type TEXT NOT NULL,
+      folder_name TEXT NOT NULL,
+      company_id TEXT NOT NULL DEFAULT '',
+      memo_id TEXT NOT NULL DEFAULT '',
+      file_category TEXT NOT NULL DEFAULT '',
+      drive_path TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      last_synced_at TEXT NOT NULL,
+      trashed_at TEXT,
+      PRIMARY KEY (user_email, folder_id)
+    )`),
+    db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS work_note_drive_folders_key_idx
+      ON work_note_drive_folders(user_email, managed_key)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS work_note_drive_folders_parent_idx
+      ON work_note_drive_folders(user_email, parent_folder_id, folder_type)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS work_note_drive_operations (
+      id TEXT PRIMARY KEY,
+      user_email TEXT NOT NULL,
+      operation_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      target_id TEXT NOT NULL DEFAULT '',
+      before_path TEXT NOT NULL DEFAULT '',
+      after_path TEXT NOT NULL DEFAULT '',
+      payload TEXT NOT NULL DEFAULT '{}',
+      error_message TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS work_note_drive_operations_user_idx
+      ON work_note_drive_operations(user_email, created_at)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS work_note_drive_operations_status_idx
+      ON work_note_drive_operations(user_email, status)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS work_note_drive_locks (
+      user_email TEXT NOT NULL,
+      lock_key TEXT NOT NULL,
+      owner_token TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (user_email, lock_key)
+    )`),
   ]);
 
   const columns: Array<[string, string]> = [
     ["storage_provider", "TEXT NOT NULL DEFAULT 'site_storage'"],
     ["drive_file_id", "TEXT"],
     ["drive_folder_id", "TEXT"],
+    ["drive_company_folder_id", "TEXT NOT NULL DEFAULT ''"],
+    ["drive_memo_folder_id", "TEXT NOT NULL DEFAULT ''"],
+    ["drive_category_folder_id", "TEXT NOT NULL DEFAULT ''"],
+    ["drive_path", "TEXT NOT NULL DEFAULT ''"],
+    ["drive_web_view_link", "TEXT NOT NULL DEFAULT ''"],
+    ["file_category", "TEXT NOT NULL DEFAULT '기타'"],
     ["display_file_name", "TEXT NOT NULL DEFAULT ''"],
     ["extension", "TEXT NOT NULL DEFAULT ''"],
     ["upload_status", "TEXT NOT NULL DEFAULT 'completed'"],
@@ -115,6 +176,10 @@ async function ensureSchemaInner(): Promise<void> {
     ["uploaded_by", "TEXT NOT NULL DEFAULT ''"],
     ["migration_json", "TEXT NOT NULL DEFAULT '{}'"],
     ["created_at", "TEXT NOT NULL DEFAULT ''"],
+    ["sync_status", "TEXT NOT NULL DEFAULT '동기화 완료'"],
+    ["last_synced_at", "TEXT NOT NULL DEFAULT ''"],
+    ["last_error", "TEXT NOT NULL DEFAULT ''"],
+    ["operation_token", "TEXT NOT NULL DEFAULT ''"],
   ];
   const tableInfo = await db.prepare("PRAGMA table_info(work_note_attachments)").all<{ name: string }>();
   const existingColumns = new Set(tableInfo.results.map((column) => column.name));
