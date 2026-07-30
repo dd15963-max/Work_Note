@@ -16,6 +16,8 @@ node_modules/
 *backup*.json
 *백업*.json
 *.local.json
+client_secret_*.json
+google-oauth-client.json
 *.csv
 *.pdf
 *.doc
