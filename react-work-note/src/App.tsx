@@ -3584,11 +3584,11 @@ function SalesFileManager({
           <Upload size={17} /><span>파일 선택 또는 드래그</span>
           <input key={fileInputKey} type="file" multiple onChange={(event) => addFiles(Array.from(event.target.files || []))} />
         </label>
-        <div className="file-upload-fields">
-          <label className="field"><span>분류</span><select value={category} onChange={(event) => setCategory(event.target.value)}>{FILE_CATEGORY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-          <TextField label="발송/등록일" type="date" value={sentDate} onChange={setSentDate} />
-          <TextField label="파일 메모" value={memo} onChange={setMemo} placeholder="예: 발송 메일 캡처, 수정본, 최종 견적서" />
-          <button type="button" className="icon-text-button primary" disabled={busy || !selectedFiles.length} onClick={handleUpload}><Upload size={16} /> {busy ? "업로드 중" : `${selectedFiles.length || ""}개 업로드`}</button>
+        <div className="file-upload-grid">
+          <div className="file-upload-field is-category"><label className="field"><span>분류</span><select value={category} onChange={(event) => setCategory(event.target.value)}>{FILE_CATEGORY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label></div>
+          <div className="file-upload-field is-date"><TextField label="발송/등록일" type="date" value={sentDate} onChange={setSentDate} /></div>
+          <div className="file-upload-field is-memo"><TextField label="파일 메모" value={memo} onChange={setMemo} placeholder="예: 발송 메일 캡처, 수정본, 최종 견적서" /></div>
+          <button type="button" className="icon-text-button primary file-upload-action" disabled={busy || !selectedFiles.length} onClick={handleUpload}><Upload size={16} /> {busy ? "업로드 중" : `${selectedFiles.length || ""}개 업로드`}</button>
         </div>
         <div className="selected-file-list" aria-label="선택한 파일">
           {selectedFiles.map((file) => <button type="button" key={`${file.name}-${file.size}-${file.lastModified}`} onClick={() => setSelectedFiles((current) => current.filter((item) => item !== file))} title="선택 취소"><span>{file.name} · {formatFileSize(file.size)}</span><X size={13} /></button>)}
@@ -3611,14 +3611,18 @@ function SalesFileManager({
       </div>
 
       {visibleAttachments.length > 0 && <div className="file-bulk-bar">
-        <label><input type="checkbox" checked={visibleAttachments.every((item) => selectedIds.includes(item.id))} onChange={toggleAll} /> 전체 선택</label>
-        <span>{selectedIds.length}개 선택</span>
-        {onMove && moveTargets.length > 0 && <div className="file-bulk-move">
-          <select value={moveTargetKey} onChange={(event) => setMoveTargetKey(event.target.value)} aria-label="파일 이동 대상"><option value="">이동할 항목 선택</option>{moveTargets.map((target) => <option key={`${target.type}:${target.id}`} value={`${target.type}:${target.id}`}>{target.label}</option>)}</select>
-          <button type="button" disabled={!selectedIds.length || !moveTargetKey || busy} onClick={bulkMove}><FolderOpen size={15} /> 이동</button>
-        </div>}
-        <button type="button" disabled={!selectedIds.length || busy} onClick={bulkDownload}><Download size={15} /> 다운로드</button>
-        <button type="button" className="danger-button" disabled={!selectedIds.length || busy} onClick={bulkDelete}><Trash2 size={15} /> 삭제</button>
+        <div className="file-bulk-summary">
+          <label><input type="checkbox" checked={visibleAttachments.every((item) => selectedIds.includes(item.id))} onChange={toggleAll} /> 전체 선택</label>
+          <span>{selectedIds.length}개 선택</span>
+        </div>
+        <div className="file-bulk-actions">
+          {onMove && moveTargets.length > 0 && <div className="file-bulk-move">
+            <select value={moveTargetKey} onChange={(event) => setMoveTargetKey(event.target.value)} aria-label="파일 이동 대상"><option value="">이동할 항목 선택</option>{moveTargets.map((target) => <option key={`${target.type}:${target.id}`} value={`${target.type}:${target.id}`}>{target.label}</option>)}</select>
+            <button type="button" disabled={!selectedIds.length || !moveTargetKey || busy} onClick={bulkMove}><FolderOpen size={15} /> 이동</button>
+          </div>}
+          <button type="button" disabled={!selectedIds.length || busy} onClick={bulkDownload}><Download size={15} /> 다운로드</button>
+          <button type="button" className="danger-button" disabled={!selectedIds.length || busy} onClick={bulkDelete}><Trash2 size={15} /> 삭제</button>
+        </div>
       </div>}
 
       <div className={`attachment-editor-list is-${viewMode}`}>
@@ -3655,8 +3659,8 @@ function AttachmentMetaEditor({ noteId, attachmentKey, attachment, selected, onS
   onUpdateMeta: (noteId: string, attachmentKey: string, values: { category: string; sentDate: string; memo: string; fileName?: string }) => Promise<void>;
   onDelete: (noteId: string, attachmentKey: string, options?: { skipConfirm?: boolean }) => Promise<void>;
 }) {
-  const originalName = firstText(attachment, ["fileName", "name", "filename"]) || "첨부자료";
-  const [fileName, setFileName] = useState(originalName);
+  const originalName = firstText(attachment, ["originalFileName", "fileName", "name", "filename"]) || "첨부자료";
+  const [fileName, setFileName] = useState(firstText(attachment, ["fileName", "name", "filename"]) || originalName);
   const [category, setCategory] = useState(firstText(attachment, ["category"]) || FILE_CATEGORY_OPTIONS[0]);
   const [sentDate, setSentDate] = useState(firstText(attachment, ["sentDate"]));
   const [memo, setMemo] = useState(firstText(attachment, ["memo"]));
@@ -3681,19 +3685,19 @@ function AttachmentMetaEditor({ noteId, attachmentKey, attachment, selected, onS
   };
 
   return <article className={`attachment-editor-card ${selected ? "is-selected" : ""}`}>
-    <div className="attachment-title-row">
+    <div className="attachment-header">
       <label className="file-select-check"><input type="checkbox" checked={selected} onChange={(event) => onSelect(event.target.checked)} /><span className="sr-only">파일 선택</span></label>
-      <div className="attachment-title-copy"><strong>{fileName}</strong><span>{formatFileSize(Number(attachment.fileSize) || 0)}{firstText(attachment, ["uploadedAt"]) ? ` · 등록 ${formatDateTime(firstText(attachment, ["uploadedAt"]))}` : ""} · {firstText(attachment, ["storageProvider"]) === "google_drive" ? "Drive 동기화" : "이 기기"}</span></div>
+      <div className="attachment-file-copy"><strong title={originalName}>{originalName}</strong><span>{formatFileSize(Number(attachment.fileSize) || 0)}{firstText(attachment, ["uploadedAt"]) ? ` · 등록 ${formatDateTime(firstText(attachment, ["uploadedAt"]))}` : ""} · {firstText(attachment, ["storageProvider"]) === "google_drive" ? "Drive 동기화" : "이 기기"}</span></div>
       <AttachmentActions attachment={{ ...attachment, fileName }} />
     </div>
-    <div className="attachment-editor-grid">
-      <TextField label="표시 파일명" value={fileName} onChange={setFileName} />
-      <label className="field"><span>분류</span><select value={category} onChange={(event) => setCategory(event.target.value)}>{FILE_CATEGORY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-      <TextField label="발송/등록일" type="date" value={sentDate} onChange={setSentDate} />
-      <TextField label="메모" value={memo} onChange={setMemo} placeholder="파일별 메모" />
-      <div className="attachment-editor-actions"><button type="button" onClick={saveMeta} disabled={busy}>저장</button><button type="button" className="danger-button" onClick={deleteFile} disabled={busy}>삭제</button></div>
-      {onMove && moveTargets.length > 0 && <div className="attachment-item-move"><select value={moveTargetKey} onChange={(event) => setMoveTargetKey(event.target.value)} aria-label={`${fileName} 이동 대상`}><option value="">다른 항목으로 이동</option>{moveTargets.map((target) => <option key={`${target.type}:${target.id}`} value={`${target.type}:${target.id}`}>{target.label}</option>)}</select><button type="button" disabled={busy || !moveTargetKey} onClick={moveFile}><FolderOpen size={15} /> 이동</button></div>}
+    <div className="attachment-edit-grid">
+      <div className="attachment-edit-field is-name"><TextField label="표시 파일명" value={fileName} onChange={setFileName} /></div>
+      <div className="attachment-edit-field is-category"><label className="field"><span>분류</span><select value={category} onChange={(event) => setCategory(event.target.value)}>{FILE_CATEGORY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label></div>
+      <div className="attachment-edit-field is-date"><TextField label="발송/등록일" type="date" value={sentDate} onChange={setSentDate} /></div>
+      <div className="attachment-edit-field is-memo"><TextField label="메모" value={memo} onChange={setMemo} placeholder="파일별 메모" /></div>
+      <div className="attachment-edit-actions"><button type="button" onClick={saveMeta} disabled={busy}>저장</button><button type="button" className="danger-button" onClick={deleteFile} disabled={busy}>삭제</button></div>
     </div>
+    {onMove && moveTargets.length > 0 && <div className="attachment-move-row"><select value={moveTargetKey} onChange={(event) => setMoveTargetKey(event.target.value)} aria-label={`${fileName} 이동 대상`}><option value="">다른 항목으로 이동</option>{moveTargets.map((target) => <option key={`${target.type}:${target.id}`} value={`${target.type}:${target.id}`}>{target.label}</option>)}</select><button type="button" disabled={busy || !moveTargetKey} onClick={moveFile}><FolderOpen size={15} /> 이동</button></div>}
   </article>;
 }
 
