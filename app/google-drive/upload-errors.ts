@@ -146,8 +146,8 @@ export function classifyUploadError(error: unknown, fallbackStage = "unknown"): 
       code = "UPLOAD_SESSION_EXPIRED"; retryable = true; autoRecoverable = true; httpStatus = 409;
     } else if (/DRIVE_NOT_CONNECTED|Google Drive 연결이 필요/i.test(haystack)) {
       code = "DRIVE_NOT_CONNECTED"; userActionRequired = true; httpStatus = 409;
-    } else if (status === 401 || /invalid_grant|unauthorized|auth.*expired/i.test(haystack)) {
-      code = /refresh|invalid_grant/i.test(haystack) ? "DRIVE_RECONNECT_REQUIRED" : "GOOGLE_AUTH_EXPIRED";
+    } else if (status === 401 || /invalid_grant|unauthorized|auth.*expired|token (?:has been )?expired|expired or revoked|token.*revoked/i.test(haystack)) {
+      code = /refresh|invalid_grant|expired or revoked|token.*revoked/i.test(haystack) ? "DRIVE_RECONNECT_REQUIRED" : "GOOGLE_AUTH_EXPIRED";
       retryable = code === "GOOGLE_AUTH_EXPIRED";
       autoRecoverable = retryable;
       userActionRequired = !retryable;

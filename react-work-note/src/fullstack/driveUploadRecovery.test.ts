@@ -236,6 +236,13 @@ describe("Google Drive large-file recovery", () => {
     expect(recoveryActionForErrorCode(expired.code)).toBe("refresh_token");
     expect(invalidGrant.code).toBe("DRIVE_RECONNECT_REQUIRED");
     expect(recoveryActionForErrorCode(invalidGrant.code)).toBe("reconnect_drive");
+
+    const revoked = classifyUploadError(
+      { status: 400, message: "GoogleDriveHttpError: Token has been expired or revoked." },
+      "token_refresh",
+    );
+    expect(revoked.code).toBe("DRIVE_RECONNECT_REQUIRED");
+    expect(revoked.userActionRequired).toBe(true);
   });
 
   it("폴더 404는 canonical 폴더 복구 후 재시도 대상으로 분류한다", () => {

@@ -195,13 +195,17 @@ export function attachmentFailureCopy(attachment: Partial<AttachmentRecord>): Fa
   const normalizedStatus = normalizeAttachmentSyncStatus(
     attachment.syncStatus || attachment.uploadStatus,
   );
-  const fallback = FAILURE_COPY[code] || {
-    message: String(attachment.syncErrorMessage || attachment.uploadError || "Google Drive 저장을 완료하지 못했습니다."),
-    resolution: "오류 상태를 새로고침한 뒤 다시 시도해 주세요.",
-    reconnect: normalizedStatus === "reconnect_required",
-  };
+  const technicalDetail = String(attachment.syncErrorDetail || attachment.uploadError || "");
+  const revokedToken = /token (?:has been )?expired|expired or revoked|token.*revoked|invalid_grant/i.test(technicalDetail);
+  const fallback = revokedToken
+    ? FAILURE_COPY.auth_expired!
+    : FAILURE_COPY[code] || {
+      message: String(attachment.syncErrorMessage || attachment.uploadError || "Google Drive 저장을 완료하지 못했습니다."),
+      resolution: "오류 상태를 새로고침한 뒤 다시 시도해 주세요.",
+      reconnect: normalizedStatus === "reconnect_required",
+    };
   return {
-    message: String(attachment.syncErrorMessage || fallback.message),
+    message: revokedToken ? fallback.message : String(attachment.syncErrorMessage || fallback.message),
     resolution: String(attachment.resolution || fallback.resolution),
     reconnect: fallback.reconnect || normalizedStatus === "reconnect_required",
   };

@@ -163,6 +163,18 @@ describe("Google Drive UI requirements", () => {
     }));
   });
 
+  it("recognizes Google's revoked-token detail in existing unknown failure records", () => {
+    expect(attachmentFailureCopy({
+      syncErrorCode: "unknown",
+      syncErrorMessage: "Google Drive 저장 중 알 수 없는 오류가 발생했습니다. 원본은 삭제되지 않았습니다.",
+      syncErrorDetail: "GoogleDriveHttpError: Token has been expired or revoked.",
+    }).reconnect).toBe(true);
+    expect(attachmentFailureCopy({
+      syncErrorCode: "unknown",
+      syncErrorDetail: "GoogleDriveHttpError: Token has been expired or revoked.",
+    }).message).toContain("인증이 만료");
+  });
+
   it("keeps canonical lowercase and legacy server aliases compatible", () => {
     expect(attachmentFailureCopy({ syncErrorCode: "memory_limit" }).message)
       .toContain("메모리 한도");
