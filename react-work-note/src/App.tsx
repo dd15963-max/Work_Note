@@ -3763,7 +3763,6 @@ function AttachmentMetaEditor({ noteId, attachmentKey, attachment, selected, onS
     <div className="attachment-header">
       <label className="file-select-check"><input type="checkbox" checked={selected} onChange={(event) => onSelect(event.target.checked)} /><span className="sr-only">파일 선택</span></label>
       <div className="attachment-file-copy"><strong title={originalName}>{originalName}</strong><span>{formatFileSize(Number(attachment.fileSize) || 0)}{firstText(attachment, ["uploadedAt"]) ? ` · 등록 ${formatDateTime(firstText(attachment, ["uploadedAt"]))}` : ""} · {attachmentSyncStatusLabel(normalizedStatus)}</span></div>
-      <AttachmentActions attachment={{ ...attachment, fileName }} />
     </div>
     {isFailedAttachmentStatus(normalizedStatus) && (
       <p className="attachment-static-drive-notice">
@@ -3775,9 +3774,14 @@ function AttachmentMetaEditor({ noteId, attachmentKey, attachment, selected, onS
       <div className="attachment-edit-field is-category"><label className="field"><span>분류</span><select value={category} onChange={(event) => setCategory(event.target.value)}>{FILE_CATEGORY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label></div>
       <div className="attachment-edit-field is-date"><TextField label="발송/등록일" type="date" value={sentDate} onChange={setSentDate} /></div>
       <div className="attachment-edit-field is-memo"><TextField label="메모" value={memo} onChange={setMemo} placeholder="파일별 메모" /></div>
-      <div className="attachment-edit-actions"><button type="button" onClick={saveMeta} disabled={busy}>저장</button><button type="button" className="danger-button" onClick={deleteFile} disabled={busy}>삭제</button></div>
     </div>
-    {onMove && moveTargets.length > 0 && <div className="attachment-move-row"><select value={moveTargetKey} onChange={(event) => setMoveTargetKey(event.target.value)} aria-label={`${fileName} 이동 대상`}><option value="">다른 항목으로 이동</option>{moveTargets.map((target) => <option key={`${target.type}:${target.id}`} value={`${target.type}:${target.id}`}>{target.label}</option>)}</select><button type="button" disabled={busy || !moveTargetKey} onClick={moveFile}><FolderOpen size={15} /> 이동</button></div>}
+    <div className="attachment-card-footer">
+      {onMove && moveTargets.length > 0 && <div className="attachment-move-row"><select value={moveTargetKey} onChange={(event) => setMoveTargetKey(event.target.value)} aria-label={`${fileName} 이동 대상`}><option value="">다른 항목으로 이동</option>{moveTargets.map((target) => <option key={`${target.type}:${target.id}`} value={`${target.type}:${target.id}`}>{target.label}</option>)}</select><button type="button" disabled={busy || !moveTargetKey} onClick={moveFile}><FolderOpen size={15} /> 이동</button></div>}
+      <div className="attachment-card-actions">
+        <div className="attachment-edit-actions"><button type="button" onClick={saveMeta} disabled={busy}>저장</button><button type="button" className="danger-button" onClick={deleteFile} disabled={busy}>삭제</button></div>
+        <AttachmentActions attachment={{ ...attachment, fileName }} />
+      </div>
+    </div>
   </article>;
 }
 
