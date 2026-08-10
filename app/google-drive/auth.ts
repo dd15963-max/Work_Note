@@ -318,8 +318,7 @@ export async function markDriveReconnectReady(userEmail: string): Promise<void> 
     database().prepare(`UPDATE work_note_upload_sessions
       SET status = 'retry_required', error_code = '', user_message = '',
         error_detail = '', failure_stage = '', auto_recoverable = 0,
-        user_action_required = 0, last_error = '',
-        last_retry_result = 'Google Drive 재연결 완료 · 재시도 대기', updated_at = ?
+        user_action_required = 0, updated_at = ?
       WHERE user_email = ? AND status = 'reconnect_required'`)
       .bind(now, userEmail),
     database().prepare(`UPDATE work_note_attachments

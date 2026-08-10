@@ -50,6 +50,7 @@ describe("Google Drive UI requirements", () => {
     expect(appSource.slice(managerStart, managerEnd)).not.toContain('className="file-bulk-move"');
     expect(appSource.slice(editorStart, editorEnd)).not.toContain('className="attachment-move-row"');
     expect(uxRefreshCss).toContain("FILE_CARD_ACTIONS_START");
+    expect(uxRefreshCss).toMatch(/\.attachment-card-footer\s*\{[\s\S]*grid-column:\s*3 \/ -1/);
     expect(uxRefreshCss).toMatch(/\.attachment-card-actions\s*\{[\s\S]*justify-content:\s*flex-end/);
   });
 
@@ -73,10 +74,12 @@ describe("Google Drive UI requirements", () => {
     const start = appSource.indexOf("function AttachmentMetaEditor(");
     const end = appSource.indexOf("function createAttachmentHandlers(", start);
     const editor = appSource.slice(start, end);
-    expect(editor.indexOf('className="attachment-edit-grid"')).toBeLessThan(
-      editor.indexOf('className="attachment-card-footer"'),
-    );
-    expect(editor.indexOf('className="attachment-card-footer"')).toBeLessThan(
+    const gridStart = editor.indexOf('className="attachment-edit-grid"');
+    const memoStart = editor.indexOf('className="attachment-edit-field is-memo"');
+    const footerStart = editor.indexOf('className="attachment-card-footer"');
+    expect(gridStart).toBeLessThan(memoStart);
+    expect(memoStart).toBeLessThan(footerStart);
+    expect(footerStart).toBeLessThan(
       editor.lastIndexOf("<AttachmentActions"),
     );
   });
