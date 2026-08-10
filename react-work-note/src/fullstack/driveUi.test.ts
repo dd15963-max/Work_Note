@@ -13,6 +13,7 @@ const appSource = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
 const fullstackSource = readFileSync(new URL("./FullstackRoot.tsx", import.meta.url), "utf8");
 const repositorySource = readFileSync(new URL("./repository.ts", import.meta.url), "utf8");
 const driveAuthSource = readFileSync(new URL("../../../app/google-drive/auth.ts", import.meta.url), "utf8");
+const oauthCallbackSource = readFileSync(new URL("../../../app/api/google-drive/oauth/callback/route.ts", import.meta.url), "utf8");
 const appCss = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const uxRefreshCss = readFileSync(new URL("../ux-refresh.css", import.meta.url), "utf8");
 
@@ -93,6 +94,10 @@ describe("Google Drive UI requirements", () => {
     expect(driveAuthSource).toContain("encrypted_drive_session_uri = ''");
     expect(driveAuthSource).toContain("stored?.google_email === googleEmail ? stored.root_folder_id");
     expect(fullstackSource).toContain('run("reconnect"');
+    expect(driveAuthSource).toContain("status = 'reconnect_required'");
+    expect(driveAuthSource).toContain("error_code = '', user_message = ''");
+    expect(oauthCallbackSource.indexOf("await ensureRootFolders(state.userEmail)"))
+      .toBeLessThan(oauthCallbackSource.indexOf("await markDriveReconnectReady(state.userEmail)"));
     expect(appSource).toContain("void reconnectGoogleDrive(window.location.pathname");
   });
 

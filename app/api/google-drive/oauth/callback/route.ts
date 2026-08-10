@@ -2,6 +2,7 @@
   consumeOauthState,
   exchangeAuthorizationCode,
   googleAccountEmail,
+  markDriveReconnectReady,
   saveDriveConnection,
 } from "@/app/google-drive/auth";
 import { ensureRootFolders } from "@/app/google-drive/files";
@@ -31,6 +32,7 @@ export async function GET(request: Request) {
     const googleEmail = await googleAccountEmail(tokens.access_token);
     await saveDriveConnection(state.userEmail, googleEmail, tokens);
     await ensureRootFolders(state.userEmail);
+    await markDriveReconnectReady(state.userEmail);
     return redirectResult(request, state.returnTo, "drive", "connected");
   } catch (error) {
     return redirectResult(request, "/", "driveError", error instanceof Error ? error.message : String(error));

@@ -312,6 +312,26 @@ export async function driveFetch(userEmail: string, url: string, init: RequestIn
   throw await googleError(last!);
 }
 
+export async function markDriveReconnectReady(userEmail: string): Promise<void> {
+  const now = new Date().toISOString();
+  await database().batch([
+    database().prepare(`UPDATE work_note_upload_sessions
+      SET status = 'retry_required', error_code = '', user_message = '',
+        error_detail = '', failure_stage = '', auto_recoverable = 0,
+        user_action_required = 0, last_error = '',
+        last_retry_result = 'Google Drive 재연결 완료 · 재시도 대기', updated_at = ?
+      WHERE user_email = ? AND status = 'reconnect_required'`)
+      .bind(now, userEmail),
+    database().prepare(`UPDATE work_note_attachments
+      SET upload_status = 'retry_required', sync_status = 'retry_required',
+        sync_error_code = '', sync_error_message = '', sync_error_detail = '',
+        failure_stage = '', auto_recoverable = 1, user_action_required = 0,
+        last_retry_result = 'Google Drive 재연결 완료 · 재시도 대기', updated_at = ?
+      WHERE user_email = ? AND sync_status = 'reconnect_required'`)
+      .bind(now, userEmail),
+  ]);
+}
+
 export async function disconnectDrive(userEmail: string): Promise<void> {
   const connection = await getDriveConnection(userEmail);
   if (!connection) return;
@@ -328,8 +348,13 @@ export async function disconnectDrive(userEmail: string): Promise<void> {
     database().prepare(`UPDATE work_note_upload_sessions
       SET encrypted_drive_session_uri = '', drive_session_created_at = '',
         confirmed_bytes = 0, current_chunk = 0,
-        status = CASE WHEN source_status = 'available' THEN 'retry_required' ELSE status END,
+        status = CASE WHEN source_status = 'available' THEN 'reconnect_required' ELSE status END,
         updated_at = ? WHERE user_email = ? AND status <> 'synced'`)
+      .bind(now, userEmail),
+    database().prepare(`UPDATE work_note_attachments
+      SET upload_status = CASE WHEN source_status = 'available' THEN 'reconnect_required' ELSE upload_status END,
+        sync_status = CASE WHEN source_status = 'available' THEN 'reconnect_required' ELSE sync_status END,
+        updated_at = ? WHERE user_email = ? AND sync_status <> 'synced'`)
       .bind(now, userEmail),
   ]);
 }
