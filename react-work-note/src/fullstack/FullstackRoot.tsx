@@ -38,6 +38,7 @@ import {
   previewDriveMigration,
   previewDuplicateDriveFolders,
   previewEmptyDriveFolders,
+  reconnectGoogleDrive,
   refreshRemoteAttachments,
   retryDriveOrganization,
   retryRemoteAttachments,
@@ -657,7 +658,13 @@ function ServerSettings({
                   </p>
                 </div>
                 <div className="drive-connection-actions" aria-label="Google Drive 연결 관리">
-                  <button type="button" className="primary" disabled={Boolean(busy)} onClick={() => connectGoogleDrive("/")}>
+                  <button type="button" className="primary" disabled={Boolean(busy)} onClick={() => {
+                    if (!drive.connected) {
+                      connectGoogleDrive("/");
+                      return;
+                    }
+                    void run("reconnect", async () => reconnectGoogleDrive("/"));
+                  }}>
                     <RefreshCw size={16} /> {drive.connected ? "Google Drive 다시 연결" : "Google Drive 연결"}
                   </button>
                   {drive.connected && (

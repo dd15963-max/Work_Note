@@ -11,6 +11,8 @@ import {
 
 const appSource = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
 const fullstackSource = readFileSync(new URL("./FullstackRoot.tsx", import.meta.url), "utf8");
+const repositorySource = readFileSync(new URL("./repository.ts", import.meta.url), "utf8");
+const driveAuthSource = readFileSync(new URL("../../../app/google-drive/auth.ts", import.meta.url), "utf8");
 const appCss = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const uxRefreshCss = readFileSync(new URL("../ux-refresh.css", import.meta.url), "utf8");
 
@@ -83,6 +85,17 @@ describe("Google Drive UI requirements", () => {
     expect(fullstackSource).toContain('aria-controls="drive-sync-retry-log"');
     expect(fullstackSource).toContain('driveLogsOpen ? "로그 접기" : "동기화·재시도 로그 보기"');
   });
+  it("hard-resets revoked credentials and stale resumable sessions before reconnecting", () => {
+    const reconnectStart = repositorySource.indexOf("export async function reconnectGoogleDrive");
+    const reconnectBody = repositorySource.slice(reconnectStart, repositorySource.indexOf("}", reconnectStart) + 1);
+    expect(reconnectBody.indexOf("await disconnectGoogleDrive()"))
+      .toBeLessThan(reconnectBody.indexOf("connectGoogleDrive(returnTo)"));
+    expect(driveAuthSource).toContain("encrypted_drive_session_uri = ''");
+    expect(driveAuthSource).toContain("stored?.google_email === googleEmail ? stored.root_folder_id");
+    expect(fullstackSource).toContain('run("reconnect"');
+    expect(appSource).toContain("void reconnectGoogleDrive(window.location.pathname");
+  });
+
   it("keeps reconnect and disconnect controls visible outside advanced Drive management", () => {
     const cardStart = fullstackSource.indexOf('id="server-drive-settings-card"');
     const managementStart = fullstackSource.indexOf('className="settings-disclosure drive-management-disclosure"', cardStart);

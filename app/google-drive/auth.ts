@@ -205,6 +205,11 @@ export async function saveDriveConnection(
   tokens: TokenResponse,
 ): Promise<GoogleDriveConnection> {
   const existing = await getDriveConnection(userEmail);
+  const stored = await database().prepare(`SELECT google_email, root_folder_id,
+    root_folder_name, connected_at, last_synced_at
+    FROM work_note_google_drive_connections WHERE user_email = ?`)
+    .bind(userEmail)
+    .first<Pick<ConnectionRow, "google_email" | "root_folder_id" | "root_folder_name" | "connected_at" | "last_synced_at">>();
   const refreshToken = tokens.refresh_token
     ? await encryptSecret(tokens.refresh_token)
     : existing?.encryptedRefreshToken || "";
@@ -222,9 +227,10 @@ export async function saveDriveConnection(
       access_token_expires_at = excluded.access_token_expires_at,
       scope = excluded.scope, updated_at = excluded.updated_at, disconnected_at = NULL`)
     .bind(userEmail, googleEmail, refreshToken, await encryptSecret(tokens.access_token), expiresAt,
-      tokens.scope || `${IDENTITY_SCOPES} ${DRIVE_SCOPE}`, existing?.rootFolderId || "",
-      existing?.rootFolderName || "Work Note", existing?.connectedAt || now.toISOString(),
-      existing?.lastSyncedAt || "", now.toISOString())
+      tokens.scope || `${IDENTITY_SCOPES} ${DRIVE_SCOPE}`,
+      stored?.google_email === googleEmail ? stored.root_folder_id : "",
+      stored?.google_email === googleEmail ? stored.root_folder_name || "Work Note" : "Work Note",
+      stored?.connected_at || now.toISOString(), stored?.last_synced_at || "", now.toISOString())
     .run();
   return (await getDriveConnection(userEmail))!;
 }
@@ -314,8 +320,16 @@ export async function disconnectDrive(userEmail: string): Promise<void> {
     await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(refreshToken)}`, { method: "POST" });
   } catch { /* Local disconnection still succeeds. */ }
   const now = new Date().toISOString();
-  await database().prepare(`UPDATE work_note_google_drive_connections
-    SET encrypted_refresh_token = '', encrypted_access_token = '',
-      access_token_expires_at = '', disconnected_at = ?, updated_at = ? WHERE user_email = ?`)
-    .bind(now, now, userEmail).run();
+  await database().batch([
+    database().prepare(`UPDATE work_note_google_drive_connections
+      SET encrypted_refresh_token = '', encrypted_access_token = '',
+        access_token_expires_at = '', disconnected_at = ?, updated_at = ? WHERE user_email = ?`)
+      .bind(now, now, userEmail),
+    database().prepare(`UPDATE work_note_upload_sessions
+      SET encrypted_drive_session_uri = '', drive_session_created_at = '',
+        confirmed_bytes = 0, current_chunk = 0,
+        status = CASE WHEN source_status = 'available' THEN 'retry_required' ELSE status END,
+        updated_at = ? WHERE user_email = ? AND status <> 'synced'`)
+      .bind(now, userEmail),
+  ]);
 }

@@ -35,6 +35,7 @@ import {
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   connectGoogleDrive,
+  reconnectGoogleDrive,
   downloadRemoteAttachment,
   enqueueRemoteDatasetSync,
   isRemoteModeActive,
@@ -4035,7 +4036,7 @@ function SalesFileManager({
         {visibleAttachments.map(({ attachment, id }) => <AttachmentMetaEditor key={id} noteId={noteId} attachmentKey={id} attachment={attachment}
           selected={selectedIds.includes(id)} onSelect={(checked) => setSelectedIds((current) => checked ? [...new Set([...current, id])] : current.filter((item) => item !== id))}
           retrying={retryingIds.includes(id)} retryProgress={retryProgress[id]} onRetry={() => retryFailures([id])}
-          onReconnect={() => connectGoogleDrive(window.location.pathname + window.location.search + window.location.hash)}
+          onReconnect={() => void reconnectGoogleDrive(window.location.pathname + window.location.search + window.location.hash)}
           onUpdateMeta={onUpdateMeta} onDelete={onDelete} />)}
         {!visibleAttachments.length && <div className="empty-inline"><strong>{attachments.length ? "검색 결과 없음" : "첨부자료 없음"}</strong><span>{attachments.length ? "검색어나 파일 유형을 변경해 주세요." : emptyDetail}</span></div>}
       </div>

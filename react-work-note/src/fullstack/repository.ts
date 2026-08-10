@@ -1043,6 +1043,11 @@ export async function disconnectGoogleDrive(): Promise<void> {
   if (!response.ok) throw await responseError(response);
 }
 
+export async function reconnectGoogleDrive(returnTo = "/"): Promise<void> {
+  await disconnectGoogleDrive();
+  connectGoogleDrive(returnTo);
+}
+
 export async function testGoogleDriveConnection(): Promise<void> {
   ensureRuntime();
   const response = await fetch("/api/google-drive/test", { method: "POST", credentials: "same-origin" });
