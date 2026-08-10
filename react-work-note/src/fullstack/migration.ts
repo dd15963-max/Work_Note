@@ -107,36 +107,34 @@ export async function migrateLocalDataToServer(
   await syncServerDataset(data, "기존 브라우저 데이터 마이그레이션", "merge", batchId);
 
   const attachmentReferences = collectAttachmentReferences(data);
-  const storedAttachments = await listLocalAttachmentRecords();
-  const storedById = new Map(storedAttachments.map((record) => [record.id, record]));
-  const failedAttachmentIds = [...attachmentReferences.keys()].filter((id) => !storedById.get(id)?.blob);
-  const localAttachments = [...attachmentReferences.entries()].flatMap(([id, reference]) => {
-    const record = storedById.get(id);
-    return record?.blob ? [{ ...record, ownerType: reference.ownerType, ownerId: reference.ownerId }] : [];
-  });
+  const failedAttachmentIds: string[] = [];
   let uploadedAttachmentCount = 0;
-  let completed = 1 + failedAttachmentIds.length;
+  let completed = 1;
   onProgress({
     phase: "uploading",
-    message: failedAttachmentIds.length
-      ? `첨부 원본 ${failedAttachmentIds.length}개 누락 · 나머지 ${localAttachments.length}개 이전 중`
-      : `첨부파일 0/${localAttachments.length}개 이전`,
+    message: `첨부파일 0/${attachmentReferences.size}개 이전`,
     completed,
     total: counts.attachments + 1,
-    failedAttachmentIds: [...failedAttachmentIds]
+    failedAttachmentIds: []
   });
-  for (const record of localAttachments) {
-    try {
-      await uploadRemoteAttachment(record, batchId);
-      uploadedAttachmentCount += 1;
-    } catch {
-      failedAttachmentIds.push(record.id);
-      queueRemoteAttachmentUpload(record);
+  for (const [id, reference] of attachmentReferences.entries()) {
+    const stored = await getLocalAttachmentRecordById(id);
+    if (!stored?.blob) {
+      failedAttachmentIds.push(id);
+    } else {
+      const record = { ...stored, ownerType: reference.ownerType, ownerId: reference.ownerId };
+      try {
+        await uploadRemoteAttachment(record, batchId);
+        uploadedAttachmentCount += 1;
+      } catch {
+        failedAttachmentIds.push(id);
+        queueRemoteAttachmentUpload(record);
+      }
     }
     completed += 1;
     onProgress({
       phase: "uploading",
-      message: `첨부파일 ${completed - 1}/${counts.attachments}개 확인`,
+      message: `첨부파일 ${completed - 1}/${attachmentReferences.size}개 확인`,
       completed,
       total: counts.attachments + 1,
       failedAttachmentIds: [...failedAttachmentIds]
@@ -165,11 +163,10 @@ export async function migrateLocalDataToServer(
 
 export async function retryAttachmentMigration(ids: string[], onProgress: (completed: number, total: number) => void): Promise<string[]> {
   const wanted = [...new Set(ids.filter(Boolean))];
-  const recordsById = new Map((await listLocalAttachmentRecords()).map((record) => [record.id, record]));
   const failed: string[] = [];
   let completed = 0;
   for (const id of wanted) {
-    const record = recordsById.get(id);
+    const record = await getLocalAttachmentRecordById(id);
     if (!record?.blob) {
       failed.push(id);
     } else {
@@ -185,14 +182,15 @@ export async function retryAttachmentMigration(ids: string[], onProgress: (compl
   }
   return failed;
 }
-export async function listLocalAttachmentRecords(): Promise<AttachmentRecord[]> {
-  if (!window.indexedDB) return [];
+
+async function getLocalAttachmentRecordById(id: string): Promise<AttachmentRecord | null> {
+  if (!window.indexedDB || !id) return null;
   const db = await openAttachmentDb();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(ATTACHMENT_STORE_NAME, "readonly");
-    const request = transaction.objectStore(ATTACHMENT_STORE_NAME).getAll();
-    request.onsuccess = () => resolve((request.result as AttachmentRecord[]) || []);
-    request.onerror = () => reject(request.error || new Error("로컬 첨부파일 목록을 읽지 못했습니다."));
+    const request = transaction.objectStore(ATTACHMENT_STORE_NAME).get(id);
+    request.onsuccess = () => resolve((request.result as AttachmentRecord | undefined) || null);
+    request.onerror = () => reject(request.error || new Error("로컬 첨부파일을 읽지 못했습니다."));
     transaction.oncomplete = () => db.close();
     transaction.onerror = () => db.close();
   });

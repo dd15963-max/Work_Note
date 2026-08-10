@@ -26,6 +26,20 @@ type TokenResponse = {
   scope?: string;
 };
 
+export class GoogleDriveHttpError extends Error {
+  readonly status: number;
+  readonly reason: string;
+  readonly retryAfter: string;
+
+  constructor(message: string, status: number, reason = "", retryAfter = "") {
+    super(message);
+    this.name = "GoogleDriveHttpError";
+    this.status = status;
+    this.reason = reason;
+    this.retryAfter = retryAfter;
+  }
+}
+
 type ConnectionRow = {
   user_email: string;
   google_email: string;
@@ -139,9 +153,20 @@ export async function consumeOauthState(state: string) {
 
 export async function googleError(response: Response): Promise<Error> {
   let message = `Google Drive 요청 실패 (${response.status})`;
+  let reason = "";
   try {
-    const payload = await response.json() as { error?: string | { message?: string }; error_description?: string };
-    if (typeof payload.error === "object" && payload.error?.message) message = payload.error.message;
+    const payload = await response.json() as {
+      error?: string | {
+        message?: string;
+        status?: string;
+        errors?: Array<{ reason?: string; message?: string }>;
+      };
+      error_description?: string;
+    };
+    if (typeof payload.error === "object" && payload.error?.message) {
+      message = payload.error.message;
+      reason = String(payload.error.errors?.[0]?.reason || payload.error.status || "");
+    }
     else if (payload.error_description) message = payload.error_description;
     else if (typeof payload.error === "string") message = payload.error;
   } catch { /* Keep status message. */ }
@@ -149,7 +174,7 @@ export async function googleError(response: Response): Promise<Error> {
   else if (response.status === 403 && /storage|quota/i.test(message)) message = "Google Drive 저장 공간이 부족합니다.";
   else if (response.status === 404) message = "Google Drive에서 해당 파일을 찾을 수 없습니다.";
   else if (response.status === 429) message = "Google Drive 요청이 많습니다. 잠시 후 다시 시도해 주세요.";
-  return new Error(message);
+  return new GoogleDriveHttpError(message, response.status, reason, response.headers.get("Retry-After") || "");
 }
 
 export async function exchangeAuthorizationCode(code: string, codeVerifier: string): Promise<TokenResponse> {
@@ -231,24 +256,48 @@ export async function accessTokenForUser(userEmail: string): Promise<string> {
   return cacheAccessToken(userEmail, await response.json() as TokenResponse);
 }
 
+export async function invalidateDriveAccessToken(userEmail: string): Promise<void> {
+  await database().prepare(`UPDATE work_note_google_drive_connections
+    SET encrypted_access_token = '', access_token_expires_at = '' WHERE user_email = ?`)
+    .bind(userEmail).run();
+}
+
+async function recordSuccessfulDriveRequest(userEmail: string): Promise<void> {
+  const now = new Date().toISOString();
+  await database().prepare(`UPDATE work_note_google_drive_connections
+    SET last_synced_at = ?, updated_at = ? WHERE user_email = ?`)
+    .bind(now, now, userEmail).run();
+}
+
+/**
+ * Performs exactly one authenticated request and never replays the body.
+ * Use this for resumable upload chunks because a ReadableStream is consumable once.
+ */
+export async function driveFetchOnce(userEmail: string, url: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${await accessTokenForUser(userEmail)}`);
+  const response = await fetch(url, { ...init, headers });
+  if (response.status === 401) await invalidateDriveAccessToken(userEmail);
+  if (response.ok || response.status === 308) await recordSuccessfulDriveRequest(userEmail);
+  return response;
+}
+
+function bodyCanBeReplayed(body: BodyInit | null | undefined): boolean {
+  if (body == null || typeof body === "string" || body instanceof URLSearchParams) return true;
+  if (body instanceof ArrayBuffer || ArrayBuffer.isView(body) || body instanceof Blob) return true;
+  return false;
+}
+
 export async function driveFetch(userEmail: string, url: string, init: RequestInit = {}): Promise<Response> {
   let last: Response | null = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const headers = new Headers(init.headers);
-    headers.set("Authorization", `Bearer ${await accessTokenForUser(userEmail)}`);
-    const response = await fetch(url, { ...init, headers });
+  const replayable = bodyCanBeReplayed(init.body);
+  for (let attempt = 0; attempt < (replayable ? 3 : 1); attempt += 1) {
+    const response = await driveFetchOnce(userEmail, url, init);
     if (response.ok) {
-      const now = new Date().toISOString();
-      await database().prepare(`UPDATE work_note_google_drive_connections
-        SET last_synced_at = ?, updated_at = ? WHERE user_email = ?`)
-        .bind(now, now, userEmail).run();
       return response;
     }
     last = response;
     if (response.status === 401 && attempt === 0) {
-      await database().prepare(`UPDATE work_note_google_drive_connections
-        SET encrypted_access_token = '', access_token_expires_at = '' WHERE user_email = ?`)
-        .bind(userEmail).run();
       continue;
     }
     if (![429, 500, 502, 503, 504].includes(response.status)) break;

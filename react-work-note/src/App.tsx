@@ -22,7 +22,7 @@ import {
   Printer,
   RefreshCw,
   Search,
-  ShieldCheck,
+  Settings,
   SlidersHorizontal,
   Trash2,
   Upload,
@@ -34,15 +34,26 @@ import {
 } from "lucide-react";
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  connectGoogleDrive,
   downloadRemoteAttachment,
   enqueueRemoteDatasetSync,
   isRemoteModeActive,
   queueRemoteAttachmentDelete,
   queueRemoteAttachmentUpload,
+  recheckGoogleDriveConnection,
+  refreshRemoteAttachments,
+  repositoryErrorFields,
+  retryRemoteAttachments,
   softDeleteAllAccountData,
   updateRemoteAttachment,
   uploadRemoteAttachment
 } from "./fullstack/repository";
+import {
+  AttachmentFailurePanel,
+  DriveOpenButton,
+  isFailedAttachmentStatus
+} from "./fullstack/driveUi";
+import type { AttachmentSyncProgress } from "./fullstack/types";
 
 type PortalId = "schedule" | "company" | "sales" | "settlement" | "output" | "other" | "account";
 type CalendarMode = "month" | "week";
@@ -330,6 +341,7 @@ export function App() {
   const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null);
   const [data, setData] = useState<WorkNoteData>(() => loadWorkNoteData());
   const [saveMessage, setSaveMessage] = useState("");
+  const [localSettingsOpen, setLocalSettingsOpen] = useState(false);
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
@@ -339,6 +351,12 @@ export function App() {
     };
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  useEffect(() => {
+    const handleInternalDataChange = () => setData(loadWorkNoteData());
+    window.addEventListener("worknote:data-updated", handleInternalDataChange);
+    return () => window.removeEventListener("worknote:data-updated", handleInternalDataChange);
   }, []);
 
   useEffect(() => {
@@ -398,7 +416,18 @@ export function App() {
   const unifiedWorkItems = useMemo(() => collectUnifiedWorkItems(data, scheduleItems), [data, scheduleItems]);
   const globalResults = useMemo(() => collectGlobalResults(data, query), [data, query]);
 
-  const refreshData = () => setData(loadWorkNoteData());
+  const refreshData = () => {
+    const fresh = loadWorkNoteData();
+    setData(fresh);
+    setSaveMessage(`데이터 새로고침 완료 · ${formatDateTime(fresh.updatedAt || fresh.loadedAt)}`);
+  };
+  const openDataSettings = () => {
+    if (isRemoteModeActive()) {
+      window.dispatchEvent(new CustomEvent("worknote:open-data-settings", { detail: { target: "sync" } }));
+      return;
+    }
+    setLocalSettingsOpen(true);
+  };
   const clearTaskRoute = () => {
     if (/^#\/(tasks|schedule|task\/)/.test(window.location.hash)) {
       window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
@@ -525,6 +554,10 @@ export function App() {
             일정, 영업, 정산, 출력, 업체와 계정을 한 곳에서 관리하는 업무 메모장입니다.
           </p>
         </div>
+        <button className="app-data-settings-button icon-text-button" type="button" onClick={openDataSettings}>
+          <Settings size={16} />
+          현재 동기화 데이터 설정
+        </button>
       </header>
 
       <nav className="portal-nav" aria-label="업무 포탈">
@@ -623,32 +656,23 @@ export function App() {
         {activePortal === "account" && <AccountPortal data={data} query={query} onPersist={persistData} />}
       </main>
 
-      <footer className="utility-footer" aria-label="보조 기능">
-        <section className="utility-panel">
-          <div className="utility-safety">
-            <ShieldCheck size={16} />
-            <div>
-              <strong>안전 저장 모드</strong>
-              <small>
-                이 브라우저에 저장된 업무 데이터를 사용합니다. 교체/병합 불러오기 전에는 자동 스냅샷을 남기고, 전체 ZIP 백업으로 첨부 원본까지 보관할 수 있습니다.
-                {saveMessage && <b> {saveMessage}</b>}
-              </small>
-            </div>
-          </div>
-          <div className="utility-actions">
-            <StatusBadge data={data} />
-            <BackupCenter data={data} setData={setData} setSaveMessage={setSaveMessage} />
-            <button className="icon-text-button subtle" type="button" onClick={refreshData}>
-              <RefreshCw size={16} />
-              새로고침
-            </button>
-            <a className="icon-text-button subtle" href={LEGACY_APP_PATH}>
-              이전 버전
-              <ExternalLink size={15} />
-            </a>
-          </div>
-        </section>
-      </footer>
+      {!isRemoteModeActive() && localSettingsOpen && (
+        <LocalDataSettings
+          data={data}
+          setData={setData}
+          saveMessage={saveMessage}
+          setSaveMessage={setSaveMessage}
+          onRefresh={refreshData}
+          onClose={() => setLocalSettingsOpen(false)}
+        />
+      )}
+      {!isRemoteModeActive() && saveMessage && (
+        <button className="local-data-toast" type="button" onClick={() => setLocalSettingsOpen(true)}>
+          <CheckCircle2 size={15} />
+          <span>{saveMessage}</span>
+          <Settings size={15} />
+        </button>
+      )}
     </div>
   );
 }
@@ -786,24 +810,7 @@ function EditorActionBar({
   );
 }
 
-function StatusBadge({ data }: { data: WorkNoteData }) {
-  if (data.error) {
-    return (
-      <span className="status-badge warning">
-        <Archive size={16} />
-        데이터 확인 필요
-      </span>
-    );
-  }
-  return (
-    <span className="status-badge">
-      <CheckCircle2 size={16} />
-      {isRemoteModeActive() ? "서버 데이터 연결" : "로컬 데이터 연결"}
-    </span>
-  );
-}
-
-function BackupCenter({
+export function BackupSettingsPanel({
   data,
   setData,
   setSaveMessage
@@ -1029,11 +1036,11 @@ const chooseJson = (mode: BackupImportMode) => {
     }
   };
   return (
-    <details id="work-note-backup-center" className="backup-center">
-      <summary className="icon-text-button">
-        <Archive size={16} />
-        백업 센터
-      </summary>
+    <div id="work-note-backup-center" className="backup-settings-panel">
+      <div className="backup-settings-heading">
+        <Archive size={18} />
+        <div><strong>백업 센터</strong><small>ZIP은 원본 파일까지, JSON은 기록만 저장합니다.</small></div>
+      </div>
       <div className="backup-center-panel">
         <div>
           <strong>내보내기</strong>
@@ -1069,8 +1076,90 @@ const chooseJson = (mode: BackupImportMode) => {
       </div>
       <input ref={jsonInputRef} type="file" accept="application/json,.json" hidden onChange={handleJsonFile} />
       <input ref={zipInputRef} type="file" accept="application/zip,.zip" hidden onChange={handleZipFile} />
-    </details>
+    </div>
   );
+}
+
+function LocalDataSettings({
+  data,
+  setData,
+  saveMessage,
+  setSaveMessage,
+  onRefresh,
+  onClose
+}: {
+  data: WorkNoteData;
+  setData: (data: WorkNoteData) => void;
+  saveMessage: string;
+  setSaveMessage: (message: string) => void;
+  onRefresh: () => void;
+  onClose: () => void;
+}) {
+  const snapshotSummary = readSnapshotSummary();
+  const outputSavedAt = latestOutputSavedAt(data);
+  return (
+    <div className="local-settings-backdrop" onMouseDown={onClose}>
+      <section className="local-settings-panel" role="dialog" aria-modal="true" aria-labelledby="local-data-settings-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header>
+          <div><p className="eyebrow">WORK NOTE DATA</p><h2 id="local-data-settings-title">현재 동기화 데이터 설정</h2></div>
+          <button type="button" aria-label="설정 닫기" onClick={onClose}><X size={18} /></button>
+        </header>
+        <div className="local-settings-scroll">
+          <section className="data-settings-card" id="local-sync-status-card">
+            <div className="data-settings-card-heading"><div><span>A</span><h3>동기화 상태</h3></div><span className="data-status-badge is-normal">정상</span></div>
+            <div className="data-settings-status-grid">
+              <span><b>서버 데이터</b>GitHub Pages 로컬 모드</span>
+              <span><b>Google Drive</b>Sites에서만 연결 가능</span>
+              <span><b>마지막 로컬 저장</b>{formatDateTime(data.updatedAt || data.loadedAt)}</span>
+              <span><b>현재 저장 위치</b>이 브라우저 안전 저장소</span>
+              <span><b>동기화 중</b>아니요</span>
+              <span><b>동기화 실패</b>{data.error ? "오류 발생" : "없음"}</span>
+              <span><b>최종 출력 파일 저장</b>{outputSavedAt ? formatDateTime(outputSavedAt) : "기록 없음"}</span>
+              <span><b>최근 상태</b>{saveMessage || "저장 준비 완료"}</span>
+            </div>
+          </section>
+          <section className="data-settings-card">
+            <div className="data-settings-card-heading"><div><span>B</span><h3>안전 저장 및 백업</h3></div><span className="data-status-badge is-normal">정상</span></div>
+            <div className="data-settings-status-grid">
+              <span><b>안전 저장 모드</b>사용 중</span>
+              <span><b>자동 스냅샷</b>{snapshotSummary.count}개 · {snapshotSummary.lastAt ? formatDateTime(snapshotSummary.lastAt) : "기록 없음"}</span>
+            </div>
+            <BackupSettingsPanel data={data} setData={setData} setSaveMessage={setSaveMessage} />
+          </section>
+          <section className="data-settings-card">
+            <div className="data-settings-card-heading"><div><span>C</span><h3>데이터 새로고침 및 복구</h3></div></div>
+            <div className="data-settings-actions">
+              <button type="button" onClick={onRefresh}><RefreshCw size={16} /> 데이터 새로고침</button>
+              <button type="button" onClick={() => setSaveMessage("로컬 데이터 연결 상태가 정상입니다.")}><CheckCircle2 size={16} /> 연결 상태 재확인</button>
+              <a className="icon-text-button" href={LEGACY_APP_PATH}><ExternalLink size={15} /> 이전 버전 확인</a>
+            </div>
+          </section>
+          <section className="data-settings-card drive-disabled-card">
+            <div className="data-settings-card-heading"><div><span>D</span><h3>Google Drive 관리</h3></div><span className="data-status-badge is-disconnected">연결 끊김</span></div>
+            <p>GitHub Pages에서는 Google Drive 관리 기능을 사용할 수 없습니다. 비공개 Work Note Site에서 연결과 폴더 관리를 진행해 주세요.</p>
+            <DriveOpenButton label="Google Drive 폴더 열기" disabledReason="먼저 비공개 Work Note Site에서 Google Drive 연결을 완료해주세요." />
+          </section>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function readSnapshotSummary(): { count: number; lastAt: string } {
+  try {
+    const snapshots = JSON.parse(window.localStorage.getItem(REACT_AUTOSNAPSHOT_KEY) || "[]") as Array<{ at?: string }>;
+    return { count: Array.isArray(snapshots) ? snapshots.length : 0, lastAt: String(snapshots?.[0]?.at || "") };
+  } catch {
+    return { count: 0, lastAt: "" };
+  }
+}
+
+function latestOutputSavedAt(data: WorkNoteData): string {
+  const timestamps = data.outputTasks.flatMap((record) => [
+    firstText(record, ["updatedAt", "createdAt"]),
+    ...asArray(record.attachments).map((attachment) => firstText(attachment, ["lastSyncedAt", "uploadedAt", "createdAt"]))
+  ]).filter(Boolean).sort();
+  return timestamps.at(-1) || "";
 }
 
 function SchedulePortal({
@@ -3505,7 +3594,13 @@ function SalesFileManager({
   const [moveTargetKey, setMoveTargetKey] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "card">("list");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [retryingIds, setRetryingIds] = useState<string[]>([]);
+  const [retryProgress, setRetryProgress] = useState<Record<string, AttachmentSyncProgress>>({});
+  const [driveActionMessage, setDriveActionMessage] = useState("");
   const memoFolderUrl = attachments.map((item) => firstText(item, ["driveMemoFolderUrl"])).find(Boolean) || "";
+  const failedAttachmentIds = attachments
+    .filter((attachment) => isFailedAttachmentStatus(firstText(attachment, ["syncStatus", "uploadStatus"])))
+    .map((attachment, index) => recordId(attachment, index));
 
   const addFiles = (files: File[]) => {
     setSelectedFiles((current) => {
@@ -3585,6 +3680,52 @@ function SalesFileManager({
     } finally { setBusy(false); }
   };
 
+  const retryFailures = async (ids: string[]) => {
+    const targets = [...new Set(ids)].filter((id) => failedAttachmentIds.includes(id));
+    if (!targets.length) return;
+    setRetryingIds((current) => [...new Set([...current, ...targets])]);
+    setDriveActionMessage(`실패 파일 ${targets.length}개를 다시 확인하고 있습니다.`);
+    try {
+      const records = await retryAttachmentRecords(targets, (id, progress) => {
+        setRetryProgress((current) => ({ ...current, [id]: progress }));
+      });
+      const failed = records.filter((record) => isFailedAttachmentStatus(record.syncStatus));
+      setDriveActionMessage(failed.length
+        ? `재시도 완료 · 성공 ${records.length - failed.length}개 · 확인 필요 ${failed.length}개`
+        : `재시도 완료 · ${records.length}개 모두 Google Drive에 저장했습니다.`);
+    } catch (error) {
+      setDriveActionMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRetryingIds((current) => current.filter((id) => !targets.includes(id)));
+    }
+  };
+
+  const refreshFailureState = async () => {
+    if (!failedAttachmentIds.length) return;
+    setBusy(true);
+    try {
+      const records = await refreshRemoteAttachments(failedAttachmentIds);
+      await applyRemoteAttachmentRecords(records, "Drive 실패 상태 새로고침");
+      setDriveActionMessage(`실패 원인 ${records.length}개를 새로고침했습니다.`);
+    } catch (error) {
+      setDriveActionMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const checkDriveConnection = async () => {
+    setBusy(true);
+    try {
+      await recheckGoogleDriveConnection();
+      setDriveActionMessage("Google Drive 연결이 정상입니다.");
+    } catch (error) {
+      setDriveActionMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="sales-file-manager">
       <div className={`file-upload-panel file-drop-zone ${dragging ? "is-dragging" : ""}`}
@@ -3620,7 +3761,12 @@ function SalesFileManager({
           <input type="date" value={uploadedTo} onChange={(event) => setUploadedTo(event.target.value)} aria-label="업로드 종료일" title="업로드 종료일" />
         </div>
         <div className="file-view-toggle segmented"><button type="button" className={viewMode === "list" ? "is-active" : ""} onClick={() => setViewMode("list")} title="목록 보기"><ListChecks size={15} /></button><button type="button" className={viewMode === "card" ? "is-active" : ""} onClick={() => setViewMode("card")} title="카드 보기"><LayoutDashboard size={15} /></button></div>
-        {memoFolderUrl && <a className="drive-folder-link" href={memoFolderUrl} target="_blank" rel="noreferrer"><FolderOpen size={15} /> Google Drive 폴더 열기</a>}
+        <DriveOpenButton
+          href={memoFolderUrl}
+          label="Google Drive 폴더 열기"
+          className="drive-folder-button"
+          disabledReason={isRemoteModeActive() ? "폴더 정보를 불러오지 못했습니다." : "먼저 비공개 Work Note Site에서 Google Drive 연결을 완료해주세요."}
+        />
       </div>
 
       {visibleAttachments.length > 0 && <div className="file-bulk-bar">
@@ -3634,14 +3780,25 @@ function SalesFileManager({
             <button type="button" disabled={!selectedIds.length || !moveTargetKey || busy} onClick={bulkMove}><FolderOpen size={15} /> 이동</button>
           </div>}
           <button type="button" disabled={!selectedIds.length || busy} onClick={bulkDownload}><Download size={15} /> 다운로드</button>
+          <button type="button" disabled={!selectedIds.some((id) => failedAttachmentIds.includes(id)) || busy || retryingIds.length > 0} onClick={() => retryFailures(selectedIds)}>
+            <RefreshCw size={15} /> 선택한 실패 파일 다시 시도
+          </button>
+          <button type="button" disabled={!failedAttachmentIds.length || busy || retryingIds.length > 0} onClick={() => retryFailures(failedAttachmentIds)}>
+            <RefreshCw size={15} /> 모든 실패 파일 다시 시도
+          </button>
+          <button type="button" disabled={busy} onClick={checkDriveConnection}><CheckCircle2 size={15} /> Drive 연결 재확인</button>
+          <button type="button" disabled={!failedAttachmentIds.length || busy} onClick={refreshFailureState}><RefreshCw size={15} /> 실패 원인 새로고침</button>
           <button type="button" className="danger-button" disabled={!selectedIds.length || busy} onClick={bulkDelete}><Trash2 size={15} /> 삭제</button>
         </div>
       </div>}
 
+      {driveActionMessage && <p className="file-drive-action-message" role="status">{driveActionMessage}</p>}
       <div className={`attachment-editor-list is-${viewMode}`}>
         {visibleAttachments.map(({ attachment, id }) => <AttachmentMetaEditor key={id} noteId={noteId} attachmentKey={id} attachment={attachment}
           selected={selectedIds.includes(id)} onSelect={(checked) => setSelectedIds((current) => checked ? [...new Set([...current, id])] : current.filter((item) => item !== id))}
           moveTargets={moveTargets} onMove={onMove ? async (attachmentKey, target) => onMove(noteId, [attachmentKey], target) : undefined}
+          retrying={retryingIds.includes(id)} retryProgress={retryProgress[id]} onRetry={() => retryFailures([id])}
+          onReconnect={() => connectGoogleDrive(window.location.pathname + window.location.search + window.location.hash)}
           onUpdateMeta={onUpdateMeta} onDelete={onDelete} />)}
         {!visibleAttachments.length && <div className="empty-inline"><strong>{attachments.length ? "검색 결과 없음" : "첨부자료 없음"}</strong><span>{attachments.length ? "검색어나 파일 유형을 변경해 주세요." : emptyDetail}</span></div>}
       </div>
@@ -3661,7 +3818,7 @@ function attachmentTypeGroup(attachment: AnyRecord): string {
   return "other";
 }
 
-function AttachmentMetaEditor({ noteId, attachmentKey, attachment, selected, onSelect, moveTargets, onMove, onUpdateMeta, onDelete }: {
+function AttachmentMetaEditor({ noteId, attachmentKey, attachment, selected, onSelect, moveTargets, onMove, retrying, retryProgress, onRetry, onReconnect, onUpdateMeta, onDelete }: {
   noteId: string;
   attachmentKey: string;
   attachment: AnyRecord;
@@ -3669,6 +3826,10 @@ function AttachmentMetaEditor({ noteId, attachmentKey, attachment, selected, onS
   onSelect: (checked: boolean) => void;
   moveTargets: AttachmentMoveTarget[];
   onMove?: (attachmentKey: string, target: AttachmentMoveTarget) => Promise<void>;
+  retrying: boolean;
+  retryProgress?: AttachmentSyncProgress;
+  onRetry: () => void;
+  onReconnect: () => void;
   onUpdateMeta: (noteId: string, attachmentKey: string, values: { category: string; sentDate: string; memo: string; fileName?: string }) => Promise<void>;
   onDelete: (noteId: string, attachmentKey: string, options?: { skipConfirm?: boolean }) => Promise<void>;
 }) {
@@ -3705,16 +3866,23 @@ function AttachmentMetaEditor({ noteId, attachmentKey, attachment, selected, onS
         <span>{formatFileSize(Number(attachment.fileSize) || 0)}{firstText(attachment, ["uploadedAt"]) ? ` · 등록 ${formatDateTime(firstText(attachment, ["uploadedAt"]))}` : ""} · {firstText(attachment, ["storageProvider"]) === "google_drive" ? firstText(attachment, ["syncStatus", "uploadStatus"]) || "Drive 동기화" : "이 기기"}</span>
         {firstText(attachment, ["drivePath"]) && <span className="drive-path" title={firstText(attachment, ["drivePath"])}>{firstText(attachment, ["drivePath"])}</span>}
         {firstText(attachment, ["lastSyncedAt"]) && <span>최근 동기화 {formatDateTime(firstText(attachment, ["lastSyncedAt"]))}</span>}
-        {firstText(attachment, ["uploadError"]) && <span className="attachment-sync-error">{firstText(attachment, ["uploadError"])}</span>}
       </div>
       <AttachmentActions attachment={{ ...attachment, fileName }} />
     </div>
+    {isFailedAttachmentStatus(firstText(attachment, ["syncStatus", "uploadStatus"])) && (
+      <AttachmentFailurePanel
+        attachment={{ ...attachment, id: attachmentKey, syncProgress: retryProgress }}
+        retrying={retrying}
+        onRetry={onRetry}
+        onReconnect={onReconnect}
+      />
+    )}
     <div className="attachment-edit-grid">
       <div className="attachment-edit-field is-name"><TextField label="표시 파일명" value={fileName} onChange={setFileName} /></div>
       <div className="attachment-edit-field is-category"><label className="field"><span>분류</span><select value={category} onChange={(event) => setCategory(event.target.value)}>{FILE_CATEGORY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label></div>
       <div className="attachment-edit-field is-date"><TextField label="발송/등록일" type="date" value={sentDate} onChange={setSentDate} /></div>
       <div className="attachment-edit-field is-memo"><TextField label="메모" value={memo} onChange={setMemo} placeholder="파일별 메모" /></div>
-      <div className="attachment-edit-actions"><button type="button" onClick={saveMeta} disabled={busy}>저장</button><button type="button" className="danger-button" onClick={deleteFile} disabled={busy}>삭제</button></div>
+      <div className="attachment-edit-actions"><button type="button" onClick={saveMeta} disabled={busy}><CheckCircle2 size={15} /> 저장</button><button type="button" className="danger-button" onClick={deleteFile} disabled={busy}><Trash2 size={15} /> 삭제</button></div>
     </div>
     {onMove && moveTargets.length > 0 && <div className="attachment-move-row"><select value={moveTargetKey} onChange={(event) => setMoveTargetKey(event.target.value)} aria-label={`${fileName} 이동 대상`}><option value="">다른 항목으로 이동</option>{moveTargets.map((target) => <option key={`${target.type}:${target.id}`} value={`${target.type}:${target.id}`}>{target.label}</option>)}</select><button type="button" disabled={busy || !moveTargetKey} onClick={moveFile}><FolderOpen size={15} /> 이동</button></div>}
   </article>;
@@ -5159,21 +5327,21 @@ function AttachmentActions({ attachment, compact = false }: { attachment: AnyRec
   return (
     <>
       <div className={`attachment-actions ${compact ? "compact" : ""}`}>
+        <button type="button" title="다운로드" onClick={handleDownload}>
+          <Download size={compact ? 14 : 15} />
+          {!compact && "다운로드"}
+        </button>
+        <DriveOpenButton
+          href={driveWebViewLink}
+          label="Drive에서 열기"
+          compact={compact}
+          disabledReason={isRemoteModeActive() ? "Google Drive 파일 정보를 불러오지 못했습니다." : "먼저 비공개 Work Note Site에서 Google Drive 연결을 완료해주세요."}
+        />
         {canPreview && (
           <button type="button" title="미리보기" onClick={handlePreview}>
             <Eye size={compact ? 14 : 15} />
             {!compact && "미리보기"}
           </button>
-        )}
-        <button type="button" title="다운로드" onClick={handleDownload}>
-          <Download size={compact ? 14 : 15} />
-          {!compact && "다운로드"}
-        </button>
-        {driveWebViewLink && (
-          <a href={driveWebViewLink} target="_blank" rel="noreferrer" title="Google Drive에서 열기">
-            <FolderOpen size={compact ? 14 : 15} />
-            {!compact && "Drive에서 열기"}
-          </a>
         )}
       </div>
       {preview && (
@@ -8898,9 +9066,82 @@ async function persistNewAttachmentRecord(record: AttachmentRecord): Promise<{ o
     const { blob: _blob, ...metadata } = uploaded;
     return { ok: true, record: metadata as AttachmentRecord };
   } catch (error) {
-    queueRemoteAttachmentUpload(record);
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    const errorFields = repositoryErrorFields(error);
+    const r2Available = errorFields.sourceLocation === "r2";
+    const failedRecord = {
+      ...record,
+      ...errorFields,
+      sourceAvailable: r2Available || Boolean(record.blob),
+      sourceLocation: r2Available ? "r2" : record.blob ? "local" : "unknown",
+      retryCount: Number(record.retryCount || 0),
+      lastRetryResult: error instanceof Error ? error.message : String(error)
+    } as AttachmentRecord;
+    await putLocalAttachmentRecord(failedRecord);
+    queueRemoteAttachmentUpload(failedRecord);
+    const { blob: _blob, ...metadata } = failedRecord;
+    return {
+      ok: false,
+      error: String(failedRecord.syncErrorMessage || failedRecord.lastRetryResult || "Google Drive 업로드 실패"),
+      record: metadata as AttachmentRecord
+    };
   }
+}
+
+async function applyRemoteAttachmentRecords(records: AttachmentRecord[], reason: string): Promise<void> {
+  if (!records.length) return;
+  const byId = new Map<string, AttachmentRecord>(
+    records.map((record): [string, AttachmentRecord] => [String(record.id), record]),
+  );
+  for (const record of records) {
+    const local = await getLocalAttachmentRecord(record.id);
+    if (local?.blob) await putLocalAttachmentRecord({ ...local, ...record, blob: local.blob });
+  }
+  const current = loadWorkNoteData();
+  const next = { ...current };
+  const keys: AttachmentCollectionKey[] = ["companies", "notes", "materialSalesNotes", "settlementTasks", "outputTasks", "otherTasks"];
+  keys.forEach((key) => {
+    next[key] = (current[key] as AnyRecord[]).map((owner) => ({
+      ...owner,
+      attachments: asArray(owner.attachments).map((attachment, index) => {
+        const id = recordId(attachment, index);
+        return byId.has(id) ? { ...attachment, ...byId.get(id) } : attachment;
+      })
+    }));
+  });
+  saveWorkNoteData(next, reason);
+  window.dispatchEvent(new CustomEvent("worknote:data-updated"));
+}
+
+async function retryAttachmentRecords(
+  ids: string[],
+  onProgress: (attachmentId: string, progress: AttachmentSyncProgress) => void
+): Promise<AttachmentRecord[]> {
+  const completed: AttachmentRecord[] = [];
+  const remoteOnly: string[] = [];
+  for (const id of [...new Set(ids.filter(Boolean))]) {
+    const local = await getLocalAttachmentRecord(id);
+    if (!local?.blob) {
+      remoteOnly.push(id);
+      continue;
+    }
+    try {
+      completed.push(await uploadRemoteAttachment(local, "", onProgress));
+    } catch (error) {
+      completed.push({
+        ...local,
+        ...repositoryErrorFields(error),
+        retryCount: Number(local.retryCount || 0) + 1,
+        lastRetryAt: new Date().toISOString(),
+        lastRetryResult: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+  if (remoteOnly.length) {
+    const result = await retryRemoteAttachments(remoteOnly, onProgress);
+    completed.push(...result.records);
+  }
+  await applyRemoteAttachmentRecords(completed, "Drive 실패 파일 재시도");
+  return completed;
 }
 
 async function putAttachmentRecord(record: AttachmentRecord): Promise<void> {

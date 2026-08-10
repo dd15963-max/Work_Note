@@ -1,6 +1,10 @@
 import { ensureSchema } from "@/db/runtime";
 import { getDriveConnection } from "@/app/google-drive/auth";
 import {
+  mergeDuplicateFolders,
+  previewDuplicateFolders,
+} from "@/app/google-drive/folder-consolidation";
+import {
   cleanupAllManagedEmptyFolders,
   loadWorkNoteDataset,
   previewAttachmentOrganization,
@@ -9,6 +13,7 @@ import {
   synchronizeAttachmentFoldersForDataset,
 } from "@/app/google-drive/managed-folders";
 import { getSiteUser } from "@/app/site-user";
+import { sanitizeBoundaryValue } from "@/react-work-note/src/fullstack/boundarySanitizer";
 
 function jsonError(message: string, status = 500) {
   return Response.json({ error: message }, { status });
@@ -26,9 +31,14 @@ export async function GET(request: Request) {
     await ensureSchema();
     if (!await getDriveConnection(email)) return jsonError("Google Drive 연결이 필요합니다.", 409);
     const mode = new URL(request.url).searchParams.get("mode") || "structure";
+    if (mode === "duplicates") return Response.json(await previewDuplicateFolders(email));
     if (mode === "cleanup") return Response.json(await previewManagedEmptyFolders(email));
     if (mode === "migration") return Response.json(await previewAttachmentOrganization(email));
-    if (mode === "logs") return Response.json({ operations: await recentDriveOperations(email) });
+    if (mode === "logs") {
+      return Response.json({
+        operations: sanitizeBoundaryValue(await recentDriveOperations(email)),
+      });
+    }
     const [migration, cleanup] = await Promise.all([
       previewAttachmentOrganization(email),
       previewManagedEmptyFolders(email),
@@ -45,8 +55,23 @@ export async function POST(request: Request) {
   try {
     await ensureSchema();
     if (!await getDriveConnection(email)) return jsonError("Google Drive 연결이 필요합니다.", 409);
-    const payload = await request.json().catch(() => ({})) as { action?: string };
+    const payload = await request.json().catch(() => ({})) as {
+      action?: string;
+      operationToken?: string;
+      planFingerprint?: string;
+    };
     const action = String(payload.action || "");
+    if (action === "duplicates-preview") {
+      return Response.json(await previewDuplicateFolders(email));
+    }
+    if (action === "merge-duplicates") {
+      const operationToken = String(payload.operationToken || crypto.randomUUID());
+      return Response.json(await mergeDuplicateFolders({
+        userEmail: email,
+        operationToken,
+        planFingerprint: String(payload.planFingerprint || ""),
+      }));
+    }
     if (action === "cleanup-preview") {
       return Response.json(await previewManagedEmptyFolders(email));
     }
@@ -64,6 +89,8 @@ export async function POST(request: Request) {
     }
     return jsonError("지원하지 않는 Google Drive 정리 작업입니다.", 400);
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : String(error));
+    const message = error instanceof Error ? error.message : String(error);
+    const status = message.includes("미리보기 이후 변경") ? 409 : 500;
+    return jsonError(message, status);
   }
 }

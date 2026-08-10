@@ -394,3 +394,289 @@
     white-space: nowrap;
   }
 }
+
+/* Unified data settings */
+.fullstack-sync-dock {
+  max-width: min(420px, calc(100vw - 28px));
+  border-color: #c9d8eb;
+  font: inherit;
+  cursor: pointer;
+}
+
+.fullstack-sync-dock:hover {
+  background: #f7faff;
+  border-color: #9eb7d7;
+}
+
+.fullstack-sync-dock > span {
+  min-width: 0;
+}
+
+.is-spinning {
+  animation: work-note-spin 0.9s linear infinite;
+}
+
+@keyframes work-note-spin {
+  to { transform: rotate(360deg); }
+}
+
+.server-settings-panel {
+  width: min(760px, 100%);
+}
+
+.server-settings-panel,
+.server-settings-panel * {
+  box-sizing: border-box;
+}
+
+.server-settings-panel > header > div {
+  min-width: 0;
+}
+
+.server-settings-panel > header small {
+  display: block;
+  max-width: 100%;
+  margin-top: 3px;
+  color: #6c7c92;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.server-settings-scroll {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.server-settings-scroll > .data-settings-card {
+  min-width: 0;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  padding: 16px;
+  scroll-margin-top: 12px;
+}
+
+.data-settings-card-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.data-settings-card-heading > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.data-settings-card-heading > div > span {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border-radius: 7px;
+  background: #e8f0fb;
+  color: #285b9f;
+  font-size: 0.74rem;
+  font-weight: 900;
+}
+
+.data-settings-card-heading h3 {
+  min-width: 0;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.data-status-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: 25px;
+  border: 1px solid #bddcca;
+  border-radius: 999px;
+  background: #eefaf3;
+  padding: 3px 9px;
+  color: #176642;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.data-status-badge.is-saving {
+  border-color: #abc8ed;
+  background: #eef5ff;
+  color: #245da5;
+}
+
+.data-status-badge.is-disconnected,
+.data-status-badge.is-error {
+  border-color: #efc1b8;
+  background: #fff3f1;
+  color: #9a382c;
+}
+
+.data-settings-status-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.data-settings-status-grid > span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  border: 1px solid #e0e7f1;
+  border-radius: 7px;
+  background: #f8fafc;
+  padding: 10px 11px;
+  color: #53647d;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.data-settings-status-grid b {
+  color: #17243a;
+  font-size: 0.72rem;
+}
+
+.backup-settings-panel {
+  min-width: 0;
+  margin-top: 12px;
+  border: 1px solid #dbe4ef;
+  border-radius: 8px;
+  background: #fbfcfe;
+  padding: 12px;
+}
+
+.backup-settings-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-bottom: 10px;
+}
+
+.backup-settings-heading > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.backup-settings-heading small {
+  color: #687386;
+  font-weight: 500;
+}
+
+.backup-center-panel {
+  min-width: 0;
+}
+
+.backup-center-panel > div,
+.backup-center-panel .settings-actions {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.backup-center-panel button,
+.settings-actions > *,
+.drive-management-actions > * {
+  max-width: 100%;
+}
+
+.settings-actions {
+  justify-content: flex-start;
+}
+
+.drive-management-actions {
+  align-items: stretch;
+}
+
+.drive-management-actions > button {
+  flex: 1 1 190px;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.25;
+}
+
+.drive-status-grid {
+  min-width: 0;
+}
+
+.drive-status-grid span,
+.drive-status-grid b {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.drive-status-grid b {
+  white-space: normal;
+}
+
+.settings-signout-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 4px 0 12px;
+  color: #53647d;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+@media (max-width: 720px) {
+  .server-settings-panel {
+    max-height: 100dvh;
+  }
+
+  .server-settings-panel > header {
+    padding: 14px;
+  }
+
+  .server-settings-scroll {
+    padding: 10px;
+  }
+
+  .server-settings-scroll > .data-settings-card {
+    padding: 12px;
+  }
+
+  .data-settings-card-heading {
+    align-items: flex-start;
+  }
+
+  .data-settings-status-grid,
+  .drive-status-grid,
+  .server-count-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-actions,
+  .drive-storage-settings .settings-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .settings-actions > *,
+  .drive-storage-settings .settings-actions > *,
+  .backup-center-panel button {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .fullstack-sync-dock {
+    width: auto;
+    min-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-spinning {
+    animation: none;
+  }
+}

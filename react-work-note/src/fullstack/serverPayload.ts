@@ -1,3 +1,4 @@
+import { sanitizeBoundaryRecord } from "./boundarySanitizer";
 import type { AnyRecord, WorkNoteData } from "./types";
 
 function asArray(value: unknown): AnyRecord[] {
@@ -134,5 +135,7 @@ export function buildServerPayload(data: WorkNoteData): WorkNoteData & { taskSch
       }
     });
   });
-  return { ...data, taskSchedules };
+  return sanitizeBoundaryRecord({ ...data, taskSchedules }) as WorkNoteData & {
+    taskSchedules: AnyRecord[];
+  };
 }

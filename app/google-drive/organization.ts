@@ -20,6 +20,7 @@ export type DriveFileCategory = typeof DRIVE_FILE_CATEGORIES[number];
 export type AttachmentOwnerContext = {
   companyId: string;
   companyName: string;
+  companyKey: string;
   memoId: string;
   memoTitle: string;
   category: DriveFileCategory;
@@ -62,7 +63,8 @@ export function sanitizeDriveFolderName(
   maxLength = 96,
 ): string {
   const normalized = String(value || "")
-    .replace(/[\\/:]+/g, "-")
+    .normalize("NFKC")
+    .replace(/[\\/:*?"<>|]+/g, "-")
     .replace(/[\u0000-\u001f\u007f\r\n]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -70,6 +72,95 @@ export function sanitizeDriveFolderName(
     .slice(0, maxLength)
     .trim();
   return normalized || fallback;
+}
+
+export function normalizeCompanyFolderName(value: unknown): string {
+  return sanitizeDriveFolderName(value, "업체 미정");
+}
+
+export function normalizeCompanyFolderKey(value: unknown): string {
+  return normalizeCompanyFolderName(value)
+    .normalize("NFKC")
+    .toLocaleLowerCase("ko-KR");
+}
+
+export function normalizeDriveFolderComparisonKey(value: unknown): string {
+  return sanitizeDriveFolderName(value, "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("ko-KR");
+}
+
+export type CanonicalFolderCandidate = {
+  folderId: string;
+  name: string;
+  createdTime?: string;
+  healthyRegistry: boolean;
+  managedByWorkNote: boolean;
+  attachmentReferences: number;
+};
+
+export function rankCanonicalFolderCandidates<T extends CanonicalFolderCandidate>(
+  candidates: T[],
+): T[] {
+  return [...candidates].sort((left, right) => {
+    if (left.healthyRegistry !== right.healthyRegistry) {
+      return left.healthyRegistry ? -1 : 1;
+    }
+    if (left.managedByWorkNote !== right.managedByWorkNote) {
+      return left.managedByWorkNote ? -1 : 1;
+    }
+    if (left.attachmentReferences !== right.attachmentReferences) {
+      return right.attachmentReferences - left.attachmentReferences;
+    }
+    const leftCreated = left.createdTime || "9999-12-31T23:59:59.999Z";
+    const rightCreated = right.createdTime || "9999-12-31T23:59:59.999Z";
+    const createdOrder = leftCreated.localeCompare(rightCreated);
+    if (createdOrder) return createdOrder;
+    return left.folderId.localeCompare(right.folderId);
+  });
+}
+
+export function chooseCanonicalFolder<T extends CanonicalFolderCandidate>(
+  candidates: T[],
+): T | null {
+  return rankCanonicalFolderCandidates(candidates)[0] || null;
+}
+
+export function resolveManagedMemoIdentity(input: {
+  registryMemoIds?: string[];
+  appProperties?: Record<string, string>;
+  attachmentOwnerIds?: string[];
+}): { memoId: string; conflict: boolean } {
+  const identities = new Set(
+    [
+      ...(input.registryMemoIds || []),
+      input.appProperties?.memoId || "",
+      input.appProperties?.ownerId || "",
+      ...(input.attachmentOwnerIds || []),
+    ].map((value) => String(value || "").trim()).filter(Boolean),
+  );
+  return {
+    memoId: identities.size === 1 ? [...identities][0] : "",
+    conflict: identities.size > 1,
+  };
+}
+
+export function memoFolderCollisionName(
+  desired: string,
+  memoId: string,
+  occupiedNames: string[],
+): string {
+  const safeDesired = sanitizeDriveFolderName(desired, "제목 미정");
+  const occupied = new Set(occupiedNames.map(normalizeDriveFolderComparisonKey));
+  if (!occupied.has(normalizeDriveFolderComparisonKey(safeDesired))) return safeDesired;
+  const suffix = sanitizeDriveFolderName(memoId, "memo").slice(0, 8);
+  const suffixed = sanitizeDriveFolderName(`${safeDesired}_${suffix}`, safeDesired);
+  if (!occupied.has(normalizeDriveFolderComparisonKey(suffixed))) return suffixed;
+  let attempt = 2;
+  while (occupied.has(normalizeDriveFolderComparisonKey(`${suffixed}_${attempt}`))) {
+    attempt += 1;
+  }
+  return sanitizeDriveFolderName(`${suffixed}_${attempt}`, suffixed);
 }
 
 function legacyCategory(
@@ -218,7 +309,8 @@ export function resolveAttachmentOwnerContext(input: {
   const companyUnknown = !rawCompanyName ||
     ["미정", "고객 미정", "업체 미정", "관련 업체 없음"].includes(rawCompanyName) ||
     Boolean(owner?.companyUnknown);
-  const companyName = companyUnknown ? "업체 미정" : sanitizeDriveFolderName(rawCompanyName, "업체 미정");
+  const companyName = companyUnknown ? "업체 미정" : normalizeCompanyFolderName(rawCompanyName);
+  const companyKey = normalizeCompanyFolderKey(companyName);
   const companyId = text(metadata, ["companyId", "ownerCompanyId"]) ||
     (company ? text(company, ["id", "uuid"]) : "") ||
     text(owner, ["companyId", "salesCompanyId", "relatedCompanyId"]) ||
@@ -232,6 +324,7 @@ export function resolveAttachmentOwnerContext(input: {
   return {
     companyId,
     companyName,
+    companyKey,
     memoId: input.ownerLocalId || text(metadata, ["memoId", "ownerId"]) || "unknown",
     memoTitle,
     category: classifyDriveFile(
@@ -266,7 +359,7 @@ export function driveFileUrl(fileId: string): string {
 
 export function managedFolderKeys(context: AttachmentOwnerContext) {
   return {
-    company: `company:${context.companyId}`,
+    company: `company-name:${context.companyKey || normalizeCompanyFolderKey(context.companyName)}`,
     memo: `memo:${context.memoId}`,
     category: `category:${context.memoId}:${context.category}`,
   };

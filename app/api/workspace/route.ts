@@ -3,7 +3,9 @@ import {
   logDriveOperation,
   synchronizeAttachmentFoldersForDataset,
 } from "@/app/google-drive/managed-folders";
+import { normalizeAttachmentStatus } from "@/app/google-drive/status-contract";
 import { getSiteUser } from "@/app/site-user";
+import { sanitizeBoundaryRecord } from "@/react-work-note/src/fullstack/boundarySanitizer";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -51,11 +53,25 @@ function parseMetadata(value: string): JsonRecord {
   try { return asRecord(JSON.parse(value)); } catch { return {}; }
 }
 
+function publicAttachmentMetadata(value: string): JsonRecord {
+  return sanitizeBoundaryRecord(parseMetadata(value));
+}
+
+function progressPercent(processedBytes: number, totalBytes: number): number {
+  if (totalBytes <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((processedBytes / totalBytes) * 100)));
+}
+
 async function hydrateAttachmentMetadata(email: string, data: JsonRecord): Promise<JsonRecord> {
   const rows = await database().prepare(`SELECT local_id, storage_provider,
     drive_file_id, drive_folder_id, drive_company_folder_id, drive_memo_folder_id,
     drive_category_folder_id, drive_path, drive_web_view_link, file_category,
-    upload_status, sync_status, last_synced_at, last_error, metadata_json, updated_at
+    upload_status, sync_status, last_synced_at, last_error, metadata_json,
+    sync_error_code, sync_error_message, sync_error_detail, failure_stage,
+    failed_at, retry_count, last_retry_at, last_retry_result,
+    auto_recoverable, user_action_required, upload_session_id,
+    processed_bytes, total_bytes, current_chunk, source_status,
+    operation_token, updated_at
     FROM work_note_attachments WHERE user_email = ? AND deleted_at IS NULL`)
     .bind(email).all<{
       local_id: string;
@@ -73,6 +89,22 @@ async function hydrateAttachmentMetadata(email: string, data: JsonRecord): Promi
       last_synced_at: string;
       last_error: string;
       metadata_json: string;
+      sync_error_code: string;
+      sync_error_message: string;
+      sync_error_detail: string;
+      failure_stage: string;
+      failed_at: string;
+      retry_count: number;
+      last_retry_at: string;
+      last_retry_result: string;
+      auto_recoverable: number;
+      user_action_required: number;
+      upload_session_id: string;
+      processed_bytes: number;
+      total_bytes: number;
+      current_chunk: number;
+      source_status: string;
+      operation_token: string;
       updated_at: string;
     }>();
   const byId = new Map(rows.results.map((row) => [row.local_id, row]));
@@ -84,17 +116,28 @@ async function hydrateAttachmentMetadata(email: string, data: JsonRecord): Promi
     "outputTasks",
     "otherTasks",
   ];
-  const hydrated = { ...data };
+  const hydrated = sanitizeBoundaryRecord(data);
   for (const key of collectionKeys) {
     hydrated[key] = asArray(data[key]).map((record) => ({
       ...record,
       attachments: asArray(record.attachments).map((attachment) => {
-        const id = String(attachment.id || "");
+        const publicAttachment = sanitizeBoundaryRecord(attachment);
+        const id = String(publicAttachment.id || "");
         const row = byId.get(id);
-        if (!row) return attachment;
+        if (!row) return publicAttachment;
+        const totalBytes = Number(row.total_bytes || attachment.fileSize || 0);
+        const processedBytes = Number(row.processed_bytes || 0);
+        const sourceStatus = String(row.source_status || "");
+        const statusFallback = row.storage_provider === "google_drive" && row.drive_file_id
+          ? "synced"
+          : row.storage_provider === "site_storage" ? "local_only" : "pending";
+        const syncStatus = normalizeAttachmentStatus(
+          row.sync_status || row.upload_status,
+          statusFallback,
+        );
         return {
-          ...attachment,
-          ...parseMetadata(row.metadata_json),
+          ...publicAttachment,
+          ...publicAttachmentMetadata(row.metadata_json),
           id,
           storageProvider: row.storage_provider,
           driveFileId: row.drive_file_id || "",
@@ -108,15 +151,40 @@ async function hydrateAttachmentMetadata(email: string, data: JsonRecord): Promi
             ? `https://drive.google.com/drive/folders/${encodeURIComponent(row.drive_memo_folder_id)}`
             : "",
           category: row.file_category || attachment.category || "기타",
-          uploadStatus: row.upload_status,
-          syncStatus: row.sync_status || "동기화 완료",
+          uploadStatus: syncStatus,
+          syncStatus,
           lastSyncedAt: row.last_synced_at || row.updated_at,
-          uploadError: row.last_error || "",
+          uploadError: row.sync_error_message || row.last_error || "",
+          syncErrorCode: row.sync_error_code || "",
+          syncErrorMessage: row.sync_error_message || row.last_error || "",
+          syncErrorDetail: row.sync_error_detail || "",
+          syncFailedStage: row.failure_stage || "",
+          syncFailedAt: row.failed_at || "",
+          retryCount: Number(row.retry_count || 0),
+          lastRetryAt: row.last_retry_at || "",
+          lastRetryResult: row.last_retry_result || "",
+          autoRecoverable: Boolean(row.auto_recoverable),
+          userActionRequired: Boolean(row.user_action_required),
+          uploadSessionId: row.upload_session_id || "",
+          operationToken: row.operation_token || "",
+          processedBytes,
+          totalBytes,
+          currentChunk: Number(row.current_chunk || 0),
+          sourceStatus,
+          sourceAvailable: sourceStatus === "available",
+          sourceLocation: sourceStatus === "available" ? "r2" : "unknown",
+          syncProgress: {
+            stage: row.failure_stage || "",
+            processedBytes,
+            totalBytes,
+            currentChunk: Number(row.current_chunk || 0),
+            progress: progressPercent(processedBytes, totalBytes),
+          },
         };
       }),
     }));
   }
-  return hydrated;
+  return sanitizeBoundaryRecord(hydrated);
 }
 
 export async function GET(request: Request) {
@@ -173,7 +241,7 @@ export async function PUT(request: Request) {
     const email = await currentUserEmail();
     if (!email) return jsonError("ChatGPT 로그인이 필요합니다.", 401);
     await ensureSchema();
-    const payload = asRecord(await request.json());
+    const payload = sanitizeBoundaryRecord(await request.json());
     const updatedAt = String(payload.updatedAt || new Date().toISOString());
     payload.updatedAt = updatedAt;
     await database()
@@ -207,7 +275,7 @@ export async function POST(request: Request) {
     const email = await currentUserEmail();
     if (!email) return jsonError("ChatGPT 로그인이 필요합니다.", 401);
     await ensureSchema();
-    const payload = asRecord(await request.json());
+    const payload = sanitizeBoundaryRecord(await request.json());
     await database()
       .prepare(`INSERT INTO work_note_migration_logs
         (id, user_email, payload, created_at) VALUES (?, ?, ?, ?)`)

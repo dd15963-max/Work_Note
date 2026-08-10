@@ -28,6 +28,7 @@ export type UploadFileInput = {
   body: BodyInit;
   folderId: string;
   existing?: StoredFileReference | null;
+  appProperties?: Record<string, string>;
 };
 
 export type StoredFile = StoredFileReference & {
@@ -53,6 +54,7 @@ export class GoogleDriveStorageProvider implements StorageProvider {
       body: input.body,
       folderId: input.folderId,
       existingFileId: input.existing?.provider === "google_drive" ? input.existing.driveFileId : undefined,
+      appProperties: input.appProperties,
     });
     return {
       provider: "google_drive",
