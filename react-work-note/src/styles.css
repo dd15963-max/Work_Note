@@ -6535,3 +6535,206 @@ h2 {
     flex-basis: 100%;
   }
 }
+/* File cabinet card hierarchy: title, metadata, fields, status, then actions. */
+.attachment-header {
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: start;
+}
+
+.attachment-file-copy strong {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.attachment-edit-grid,
+.attachment-editor-list.is-card .attachment-edit-grid {
+  grid-template-columns:
+    minmax(0, 1.5fr)
+    minmax(120px, 0.8fr)
+    minmax(140px, 0.9fr)
+    minmax(0, 2fr);
+}
+
+.attachment-edit-field,
+.attachment-editor-list.is-card .attachment-edit-field,
+.attachment-editor-list.is-card .attachment-edit-field.is-name,
+.attachment-editor-list.is-card .attachment-edit-field.is-memo {
+  grid-column: auto;
+}
+
+.attachment-editor-list.is-card .attachment-edit-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 150px);
+}
+
+.attachment-editor-list.is-card .attachment-edit-field.is-name,
+.attachment-editor-list.is-card .attachment-edit-field.is-memo {
+  grid-column: 1 / -1;
+}
+
+.attachment-card-footer {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  border-top: 1px solid #e4ebf4;
+  padding-top: 10px;
+}
+
+.attachment-card-footer .attachment-move-row {
+  justify-content: flex-start;
+  border-top: 0;
+  padding-top: 0;
+}
+
+.attachment-card-actions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.attachment-card-actions .attachment-edit-actions {
+  min-height: 0;
+}
+
+.attachment-card-actions .attachment-actions {
+  display: inline-flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+@media (min-width: 901px) and (max-width: 1200px) {
+  .attachment-editor-list.is-card .attachment-edit-grid {
+    grid-template-columns:
+      minmax(0, 1.5fr)
+      minmax(120px, 0.8fr)
+      minmax(140px, 0.9fr)
+      minmax(0, 2fr);
+  }
+
+  .attachment-editor-list.is-card .attachment-edit-field.is-name,
+  .attachment-editor-list.is-card .attachment-edit-field.is-memo {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .attachment-edit-grid,
+  .attachment-editor-list.is-card .attachment-edit-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(140px, 160px);
+  }
+
+  .attachment-edit-field.is-name,
+  .attachment-edit-field.is-memo,
+  .attachment-editor-list.is-card .attachment-edit-field.is-name,
+  .attachment-editor-list.is-card .attachment-edit-field.is-memo {
+    grid-column: 1 / -1;
+  }
+
+  .attachment-card-footer {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .attachment-card-actions {
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 640px) {
+  .attachment-edit-grid,
+  .attachment-editor-list.is-card .attachment-edit-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .attachment-edit-field,
+  .attachment-edit-field.is-name,
+  .attachment-edit-field.is-memo,
+  .attachment-editor-list.is-card .attachment-edit-field,
+  .attachment-editor-list.is-card .attachment-edit-field.is-name,
+  .attachment-editor-list.is-card .attachment-edit-field.is-memo {
+    grid-column: auto;
+  }
+
+  .attachment-card-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .attachment-card-actions .attachment-edit-actions,
+  .attachment-card-actions .attachment-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .attachment-card-actions .attachment-edit-actions > button,
+  .attachment-card-actions .attachment-actions > button,
+  .attachment-card-actions .attachment-actions > .drive-open-button-wrap {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+/* Failed Drive cards stay compact until the user requests diagnostics. */
+.attachment-failure-panel {
+  gap: 8px;
+  padding: 10px;
+}
+
+.attachment-failure-heading {
+  align-items: center;
+}
+
+.attachment-failure-source {
+  min-width: 0;
+  margin: 0;
+  color: #6f544f;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.attachment-failure-actions details[open] {
+  flex: 1 0 100%;
+  width: 100%;
+}
+
+.attachment-failure-actions .details-label-close {
+  display: none;
+}
+
+.attachment-failure-actions details[open] .details-label-open {
+  display: none;
+}
+
+.attachment-failure-actions details[open] .details-label-close {
+  display: inline;
+}
+
+.attachment-failure-details-body {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.attachment-failure-details-body .attachment-failure-resolution {
+  border: 1px solid #eedbd7;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.75);
+  padding: 8px 9px;
+}
+
+.attachment-failure-details-body dl {
+  margin-top: 0;
+}

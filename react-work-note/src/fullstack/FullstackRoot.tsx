@@ -473,6 +473,7 @@ function ServerSettings({
   const [driveMessage, setDriveMessage] = useState("");
   const [driveResult, setDriveResult] = useState<DriveOrganizationResult | null>(null);
   const [driveOperations, setDriveOperations] = useState<Record<string, unknown>[]>([]);
+  const [driveLogsOpen, setDriveLogsOpen] = useState(false);
   const sync = useSyncState();
   const failedAttachmentIds = useMemo(
     () => collectFailedAttachmentIds(localData),
@@ -679,7 +680,15 @@ function ServerSettings({
 
                 {driveMessage && <p className="drive-settings-message" role="status">{driveMessage}</p>}
                 {driveResult && <DriveOrganizationSummary result={driveResult} />}
-                {driveOperations.length > 0 && <DriveOperationList operations={driveOperations} />}
+                {driveLogsOpen && driveOperations.length > 0 && (
+                  <section className="drive-log-disclosure" id="drive-sync-retry-log" aria-label="동기화·재시도 로그">
+                    <div className="drive-log-disclosure-heading">
+                      <strong>동기화·재시도 로그</strong>
+                      <span>{driveOperations.length}건</span>
+                    </div>
+                    <DriveOperationList operations={driveOperations} />
+                  </section>
+                )}
 
                 {drive.connected && (
                   <div className="settings-actions drive-management-actions">
@@ -754,12 +763,25 @@ function ServerSettings({
                     })}>
                       <ShieldCheck size={16} /> Google Drive 연결 재확인
                     </button>
-                    <button type="button" disabled={Boolean(busy)} onClick={() => run("logs", async () => {
-                      const operations = await getRecentDriveOperations();
-                      setDriveOperations(operations);
-                      setDriveMessage(`최근 동기화 결과 ${operations.length}건을 불러왔습니다.`);
-                    })}>
-                      최근 동기화 결과
+                    <button
+                      type="button"
+                      disabled={Boolean(busy)}
+                      aria-expanded={driveLogsOpen}
+                      aria-controls="drive-sync-retry-log"
+                      onClick={() => {
+                        if (driveOperations.length > 0) {
+                          setDriveLogsOpen((current) => !current);
+                          return;
+                        }
+                        void run("logs", async () => {
+                          const operations = await getRecentDriveOperations();
+                          setDriveOperations(operations);
+                          setDriveLogsOpen(operations.length > 0);
+                          setDriveMessage("최근 동기화·재시도 로그 " + operations.length + "건을 불러왔습니다.");
+                        });
+                      }}
+                    >
+                      {driveLogsOpen ? "로그 접기" : "동기화·재시도 로그 보기"}
                     </button>
                     <button type="button" className="danger-button" disabled={Boolean(busy)} onClick={() => run("disconnect", async () => {
                       if (!confirm("Google Drive 연결을 해제할까요? 기존 파일은 Drive와 Work Note에 그대로 유지됩니다.")) return;

@@ -44,9 +44,29 @@ describe("Google Drive UI requirements", () => {
     expect(appCss).toMatch(/\.attachment-header\s*\{[\s\S]*grid-template-columns:\s*30px minmax\(0,\s*1fr\)/);
     expect(appCss).toMatch(/\.file-bulk-actions\s*\{[\s\S]*grid-template-columns:\s*1fr/);
     expect(appCss).toContain(".attachment-actions > .drive-open-button-wrap");
+    expect(appCss).toContain(".attachment-card-footer");
+    expect(appCss).toContain("-webkit-line-clamp: 2");
     expect(appCss).toMatch(/\.local-settings-scroll\s*\{[\s\S]*overflow-x:\s*hidden/);
   });
 
+  it("keeps file actions in the bottom card footer after editable metadata", () => {
+    const start = appSource.indexOf("function AttachmentMetaEditor(");
+    const end = appSource.indexOf("function createAttachmentHandlers(", start);
+    const editor = appSource.slice(start, end);
+    expect(editor.indexOf('className="attachment-edit-grid"')).toBeLessThan(
+      editor.indexOf('className="attachment-card-footer"'),
+    );
+    expect(editor.indexOf('className="attachment-card-footer"')).toBeLessThan(
+      editor.lastIndexOf("<AttachmentActions"),
+    );
+  });
+
+  it("keeps synchronization and retry logs hidden until requested", () => {
+    expect(fullstackSource).toContain("const [driveLogsOpen, setDriveLogsOpen] = useState(false);");
+    expect(fullstackSource).toContain("driveLogsOpen && driveOperations.length > 0");
+    expect(fullstackSource).toContain('aria-controls="drive-sync-retry-log"');
+    expect(fullstackSource).toContain('driveLogsOpen ? "로그 접기" : "동기화·재시도 로그 보기"');
+  });
   it("[24] removes the fixed footer and integrates data controls into settings", () => {
     expect(appSource).not.toContain('<footer className="utility-footer"');
     expect(appSource).toContain("현재 동기화 데이터 설정");
@@ -85,6 +105,9 @@ describe("Google Drive UI requirements", () => {
     expect(html).toContain("해결 방법");
     expect(html).toContain("다시 시도");
     expect(html).toContain("상세 보기");
+
+    expect(html).toContain('class="attachment-failure-details-body"');
+    expect(html).not.toContain("<details open");
   });
 
   it.each([

@@ -251,20 +251,7 @@ export function AttachmentFailurePanel({
         <strong>{copy.message}</strong>
       </div>
 
-      <div className="attachment-failure-grid">
-        <span>
-          <b>원본 보관</b>
-          {sourceCopy}
-        </span>
-        <span><b>실패 시각</b>{formatFailureTime(attachment.syncFailedAt || attachment.lastErrorAt)}</span>
-        <span><b>재시도 횟수</b>{Number(attachment.retryCount || 0)}회</span>
-        <span><b>마지막 결과</b>{String(attachment.lastRetryResult || "재시도 기록 없음")}</span>
-      </div>
-
-      <p className="attachment-failure-resolution">
-        <ShieldCheck size={15} aria-hidden="true" />
-        <span><b>해결 방법</b>{copy.resolution}</span>
-      </p>
+      <p className="attachment-failure-source">{sourceCopy}</p>
 
       {retrying && (
         <div className="attachment-retry-progress" role="status" aria-live="polite">
@@ -288,12 +275,27 @@ export function AttachmentFailurePanel({
           </button>
         )}
         <details>
-          <summary>상세 보기</summary>
-          <dl>
+          <summary><span className="details-label-open">상세 보기</span><span className="details-label-close">접기</span></summary>
+          <div className="attachment-failure-details-body">
+        <div className="attachment-failure-grid">
+          <span>
+            <b>원본 보관</b>
+            {sourceCopy}
+          </span>
+          <span><b>실패 시각</b>{formatFailureTime(attachment.syncFailedAt || attachment.lastErrorAt)}</span>
+          <span><b>재시도 횟수</b>{Number(attachment.retryCount || 0)}회</span>
+          <span><b>마지막 결과</b>{String(attachment.lastRetryResult || "재시도 기록 없음")}</span>
+        </div>
+        <p className="attachment-failure-resolution">
+          <ShieldCheck size={15} aria-hidden="true" />
+          <span><b>해결 방법</b>{copy.resolution}</span>
+        </p>
+            <dl>
             <div><dt>오류 코드</dt><dd>{String(attachment.syncErrorCode || "unknown")}</dd></div>
             <div><dt>실패 단계</dt><dd>{String(attachment.syncFailedStage || "확인 불가")}</dd></div>
             <div><dt>기술 정보</dt><dd>{technicalDetail || "추가 기술 정보가 없습니다."}</dd></div>
           </dl>
+          </div>
         </details>
       </div>
     </section>

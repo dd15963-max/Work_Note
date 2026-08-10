@@ -680,3 +680,32 @@
     animation: none;
   }
 }
+.drive-log-disclosure {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  border: 1px solid #dbe4ef;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.drive-log-disclosure-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #26364f;
+  font-size: 0.8rem;
+}
+
+.drive-log-disclosure-heading span {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #e8eef7;
+  padding: 3px 8px;
+  color: #53647d;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
