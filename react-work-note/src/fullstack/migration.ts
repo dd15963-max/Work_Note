@@ -29,6 +29,7 @@ type AttachmentReference = { ownerType: string; ownerId: string };
 
 function collectAttachmentReferences(data: WorkNoteData): Map<string, AttachmentReference> {
   const groups: Array<{ ownerType: string; items: AnyRecord[] }> = [
+    { ownerType: "memo", items: asArray(data.generalMemos) },
     { ownerType: "company", items: asArray(data.companies) },
     { ownerType: "sales", items: asArray(data.notes) },
     { ownerType: "materialSales", items: asArray(data.materialSalesNotes) },
@@ -51,6 +52,7 @@ export function countWorkNoteData(data: WorkNoteData): DataCounts {
   const companies = asArray(data.companies);
   const settlements = asArray(data.settlementTasks);
   const counts: DataCounts = {
+    generalMemos: asArray(data.generalMemos).length,
     companies: companies.length,
     companyContacts: companies.reduce((sum, company) => sum + asArray(company.contacts).length, 0),
     internalContacts: asArray(data.internalContacts).length,
@@ -65,7 +67,7 @@ export function countWorkNoteData(data: WorkNoteData): DataCounts {
     attachments: collectAttachmentReferences(data).size,
     totalRecords: 0
   };
-  counts.totalRecords = counts.companies + counts.companyContacts + counts.internalContacts + counts.equipmentSales
+  counts.totalRecords = counts.generalMemos + counts.companies + counts.companyContacts + counts.internalContacts + counts.equipmentSales
     + counts.materialSales + counts.settlements + counts.settlementEntries + counts.outputTasks + counts.otherTasks + counts.taskSchedules + counts.accounts;
   return counts;
 }
@@ -221,7 +223,7 @@ function openAttachmentDb(): Promise<IDBDatabase> {
 
 function compareCounts(local: DataCounts, server: DataCounts, uploadedAttachments: number): string[] {
   const keys: Array<keyof DataCounts> = [
-    "companies", "companyContacts", "internalContacts", "equipmentSales", "materialSales",
+    "generalMemos", "companies", "companyContacts", "internalContacts", "equipmentSales", "materialSales",
     "settlements", "settlementEntries", "outputTasks", "otherTasks", "taskSchedules", "accounts"
   ];
   const mismatches = keys.filter((key) => Number(server[key] || 0) < Number(local[key] || 0)).map((key) => `${key} ${local[key]}/${server[key] || 0}`);

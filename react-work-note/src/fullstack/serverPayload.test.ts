@@ -6,6 +6,7 @@ function emptyData(overrides: Partial<WorkNoteData> = {}): WorkNoteData {
   return {
     version: "react-work-note-v1",
     updatedAt: "2026-07-27T00:00:00.000Z",
+    generalMemos: [],
     companies: [],
     internalContacts: [],
     notes: [],

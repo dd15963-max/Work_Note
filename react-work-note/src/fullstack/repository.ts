@@ -172,6 +172,7 @@ function emptyData(): WorkNoteData {
   return {
     version: "sites-work-note-v1",
     updatedAt: "",
+    generalMemos: [],
     companies: [],
     internalContacts: [],
     notes: [],

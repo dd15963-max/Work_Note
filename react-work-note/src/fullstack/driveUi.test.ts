@@ -69,7 +69,7 @@ describe("Google Drive UI requirements", () => {
   });
   it("[24] removes the fixed footer and integrates data controls into settings", () => {
     expect(appSource).not.toContain('<footer className="utility-footer"');
-    expect(appSource).toContain("현재 동기화 데이터 설정");
+    expect(appSource).toContain("업무 데이터");
     expect(appSource).toContain("<LocalDataSettings");
     expect(fullstackSource).toContain('id="server-sync-status-card"');
     expect(fullstackSource).toContain('id="server-drive-settings-card"');

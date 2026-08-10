@@ -126,6 +126,7 @@ export async function ensureRootFolders(userEmail: string): Promise<string> {
 }
 
 function ownerFolderName(ownerKind: string): string {
+  if (ownerKind === "memo") return "메모";
   if (ownerKind === "company") return "고객사";
   if (ownerKind === "settlement") return "정산";
   if (ownerKind === "schedule") return "일정";

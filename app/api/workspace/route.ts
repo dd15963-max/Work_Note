@@ -109,6 +109,7 @@ async function hydrateAttachmentMetadata(email: string, data: JsonRecord): Promi
     }>();
   const byId = new Map(rows.results.map((row) => [row.local_id, row]));
   const collectionKeys = [
+    "generalMemos",
     "companies",
     "notes",
     "materialSalesNotes",
@@ -197,6 +198,7 @@ export async function GET(request: Request) {
     if (url.searchParams.get("counts") !== "1") {
       return Response.json(await hydrateAttachmentMetadata(email, data));
     }
+    const generalMemos = asArray(data.generalMemos);
     const companies = asArray(data.companies);
     const internalContacts = asArray(data.internalContacts);
     const equipmentSales = asArray(data.notes);
@@ -212,6 +214,7 @@ export async function GET(request: Request) {
       .bind(email)
       .first<{ count: number }>();
     const counts = {
+      generalMemos: generalMemos.length,
       companies: companies.length,
       companyContacts: nestedCount(companies, "contacts"),
       internalContacts: internalContacts.length,
@@ -226,7 +229,7 @@ export async function GET(request: Request) {
       attachments: Number(attachmentRow?.count || 0),
       totalRecords: 0,
     };
-    counts.totalRecords = counts.companies + counts.companyContacts +
+    counts.totalRecords = counts.generalMemos + counts.companies + counts.companyContacts +
       counts.internalContacts + counts.equipmentSales + counts.materialSales +
       counts.settlements + counts.settlementEntries + counts.outputTasks +
       counts.otherTasks + counts.taskSchedules + counts.accounts;

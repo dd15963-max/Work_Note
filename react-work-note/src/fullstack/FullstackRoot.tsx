@@ -326,6 +326,7 @@ function MigrationScreen({
           </a>
         </div>
         <div className="migration-count-grid">
+          <Metric label="메모" value={counts.generalMemos} />
           <Metric label="고객사" value={counts.companies} />
           <Metric
             label="업무"
@@ -556,7 +557,7 @@ function ServerSettings({
         <header>
           <div>
             <p className="eyebrow">WORK NOTE DATA</p>
-            <h2 id="server-settings-title">현재 동기화 데이터 설정</h2>
+            <h2 id="server-settings-title">설정</h2>
             <small>{user.displayName || user.email} · {user.email}</small>
           </div>
           <button type="button" aria-label="설정 닫기" onClick={onClose}>
@@ -567,17 +568,17 @@ function ServerSettings({
         <div className="server-settings-scroll">
           <section className="data-settings-card" id="server-sync-status-card">
             <div className="data-settings-card-heading">
-              <div><span>A</span><h3>동기화 상태</h3></div>
+              <div><span>A</span><h3>일반</h3></div>
               <DataStatusBadge tone={syncTone} label={syncStatusLabel(sync.mode, sync.pendingCount)} />
             </div>
             <div className="data-settings-status-grid">
-              <span><b>서버 데이터</b>{sync.mode === "offline" ? "연결 끊김" : "D1 연결"}</span>
+              <span><b>업무 데이터</b>{sync.mode === "offline" ? "연결 끊김" : "안전하게 저장됨"}</span>
               <span><b>Google Drive</b>{!drive ? "확인 전" : drive.connected ? `연결됨 · ${drive.googleEmail || "계정 확인됨"}` : "연결 필요"}</span>
               <span><b>마지막 서버 동기화</b>{formatSettingsTime(sync.lastSyncedAt)}</span>
               <span><b>마지막 Drive 동기화</b>{formatSettingsTime(drive?.lastDriveSyncAt || drive?.lastSyncedAt)}</span>
               <span><b>현재 동기화 중</b>{sync.mode === "saving" ? "예" : "아니요"}</span>
               <span><b>동기화 실패</b>{sync.error ? "오류 발생" : failedAttachmentIds.length ? `${failedAttachmentIds.length}개 확인 필요` : "없음"}</span>
-              <span><b>현재 데이터 저장 위치</b>D1 업무 데이터 · R2 원본 · Google Drive 동기화</span>
+              <span><b>저장 구성</b>업무 기록 · 첨부 원본 · Google Drive 사본</span>
               <span><b>최종 출력 파일 저장</b>{formatSettingsTime(outputSavedAt)}</span>
             </div>
             {counts && <CountSummary counts={counts} />}
@@ -585,7 +586,7 @@ function ServerSettings({
 
           <section className="data-settings-card">
             <div className="data-settings-card-heading">
-              <div><span>B</span><h3>안전 저장 및 백업</h3></div>
+              <div><span>B</span><h3>데이터 / 저장</h3></div>
               <DataStatusBadge tone="is-normal" label="정상" />
             </div>
             <div className="data-settings-status-grid">
@@ -606,11 +607,11 @@ function ServerSettings({
             </div>
           </section>
 
-          <section className="data-settings-card">
-            <div className="data-settings-card-heading">
-              <div><span>C</span><h3>데이터 새로고침 및 복구</h3></div>
+          <details className="data-settings-card settings-disclosure">
+            <summary className="data-settings-card-heading">
+              <div><span>C</span><h3>진단 / 고급</h3><small>새로고침·복구·연결 확인</small></div>
               {sync.error && <DataStatusBadge tone="is-error" label="오류 발생" />}
-            </div>
+            </summary>
             <div className="settings-actions">
               <button type="button" disabled={Boolean(busy)} onClick={() => run("reload", onReload)}>
                 <RefreshCw size={16} /> 서버 데이터 새로고침
@@ -637,11 +638,11 @@ function ServerSettings({
                 <ShieldCheck size={16} /> 데이터 연결 상태 재확인
               </button>
             </div>
-          </section>
+          </details>
 
           <section className="data-settings-card drive-storage-settings" id="server-drive-settings-card">
             <div className="data-settings-card-heading">
-              <div><span>D</span><h3>Google Drive 관리</h3></div>
+              <div><span>D</span><h3>Google Drive</h3></div>
               <DataStatusBadge tone={driveTone} label={!drive ? "확인 전" : drive.connected ? "정상" : "연결 끊김"} />
             </div>
             {!drive && <p>Google Drive 연결 상태를 확인하고 있습니다.</p>}
@@ -655,7 +656,9 @@ function ServerSettings({
             )}
             {drive && (
               <>
-                <div className="drive-status-grid">
+                <details className="settings-disclosure settings-disclosure-nested">
+                  <summary>Drive 상태 자세히 <span>폴더·실패 파일·사용량</span></summary>
+                  <div className="drive-status-grid">
                   <span>Google Drive 연결 <b>{drive.connected ? "연결됨" : "연결 필요"}</b></span>
                   <span>정상 업체 폴더 <b>{formatOptionalDriveMetric(drive.canonicalCompanyFolderCount, "개")}</b></span>
                   <span>중복 업체 폴더 <b>{formatOptionalDriveMetric(drive.duplicateCompanyFolderCount, "개")}</b></span>
@@ -670,7 +673,8 @@ function ServerSettings({
                   {drive.quota?.usage && (
                     <span>Drive 사용량 <b>{formatStorageSize(drive.quota.usage)}{drive.quota.limit ? ` / ${formatStorageSize(drive.quota.limit)}` : ""}</b></span>
                   )}
-                </div>
+                  </div>
+                </details>
 
                 <DriveOpenButton
                   href={drive.rootFolderUrl}
@@ -691,7 +695,9 @@ function ServerSettings({
                 )}
 
                 {drive.connected && (
-                  <div className="settings-actions drive-management-actions">
+                  <details className="settings-disclosure drive-management-disclosure">
+                    <summary>Google Drive 관리 <span>폴더 정리·파일 이전·로그</span></summary>
+                    <div className="settings-actions drive-management-actions">
                     <button type="button" disabled={Boolean(busy)} onClick={() => run("duplicates-preview", async () => {
                       const result = await previewDuplicateDriveFolders();
                       setDriveResult(result);
@@ -791,7 +797,8 @@ function ServerSettings({
                     })}>
                       연결 해제
                     </button>
-                  </div>
+                    </div>
+                  </details>
                 )}
               </>
             )}
@@ -814,10 +821,10 @@ function ServerSettings({
 
           <section className="danger-zone data-settings-card">
             <h3>계정 데이터 전체 삭제</h3>
-            <p>현재 ChatGPT 계정의 D1 업무 데이터와 첨부 메타데이터를 삭제 상태로 전환합니다. 실행하려면 <b>전체 삭제</b>를 입력하세요.</p>
+            <p>현재 계정의 업무 데이터와 첨부 메타데이터를 삭제 상태로 전환합니다. 실행하려면 <b>전체 삭제</b>를 입력하세요.</p>
             <input value={deleteText} onChange={(event) => setDeleteText(event.target.value)} placeholder="전체 삭제" />
             <button type="button" className="danger-button" disabled={deleteText !== "전체 삭제" || Boolean(busy)} onClick={() => run("delete", async () => {
-              if (!confirm("현재 계정의 모든 Sites 데이터를 삭제 상태로 전환할까요?")) return;
+              if (!confirm("현재 계정의 모든 Work Note 데이터를 삭제 상태로 전환할까요?")) return;
               await softDeleteAllAccountData();
               window.localStorage.removeItem(STORAGE_KEY);
               window.location.reload();
@@ -925,6 +932,7 @@ function asDriveOrganizationResult(
 function CountSummary({ counts }: { counts: DataCounts }) {
   return (
     <div className="server-count-summary">
+      <span>메모 <b>{counts.generalMemos}</b></span>
       <span>고객사 <b>{counts.companies}</b></span>
       <span>
         업무{" "}

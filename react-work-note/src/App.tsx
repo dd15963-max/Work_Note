@@ -54,8 +54,16 @@ import {
   isFailedAttachmentStatus
 } from "./fullstack/driveUi";
 import type { AttachmentSyncProgress } from "./fullstack/types";
+import {
+  generalMemoBody,
+  generalMemoCompanyName,
+  generalMemoMatches,
+  generalMemoTitle,
+  normalizeGeneralMemo,
+  sortGeneralMemosByUpdatedAt
+} from "./generalMemo";
 
-type PortalId = "schedule" | "company" | "sales" | "settlement" | "output" | "other" | "account";
+type PortalId = "schedule" | "memo" | "company" | "sales" | "settlement" | "output" | "other" | "account";
 type CalendarMode = "month" | "week";
 type SalesPanelMode = "detail" | "company" | "files";
 type ListMode = "all" | "active" | "hold" | "closed" | "failed";
@@ -64,10 +72,10 @@ type SalesSortKey = "priority" | "updated" | "nextContact" | "company";
 type SortDirection = "asc" | "desc";
 type BackupImportMode = "replace" | "merge" | "update";
 type AnyRecord = Record<string, unknown>;
-type AttachmentCollectionKey = "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks";
-type AttachmentOwnerType = "company" | "sales" | "materialSales" | "settlement" | "output" | "other";
+type AttachmentCollectionKey = "generalMemos" | "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks";
+type AttachmentOwnerType = "memo" | "company" | "sales" | "materialSales" | "settlement" | "output" | "other";
 type AttachmentMoveTarget = { type: AttachmentOwnerType; id: string; label: string };
-type TaskCollectionKey = Exclude<AttachmentCollectionKey, "companies">;
+type TaskCollectionKey = Exclude<AttachmentCollectionKey, "companies" | "generalMemos">;
 type TaskPreset = "today" | "week" | "important" | "all";
 type TaskPeriodFilter = "today" | "week" | "month" | "all" | "custom";
 type TaskTypeFilter = "sales" | "settlement" | "output" | "other";
@@ -89,6 +97,7 @@ type TaskFilters = {
 type WorkNoteData = {
   version: string;
   updatedAt: string;
+  generalMemos: AnyRecord[];
   companies: AnyRecord[];
   internalContacts: AnyRecord[];
   notes: AnyRecord[];
@@ -212,6 +221,7 @@ const ADVANCE_DEDUCTION_STATUS_OPTIONS = ["출고 대기", "납품 완료", "입
 
 const portals: Array<{ id: PortalId; label: string; icon: typeof CalendarDays }> = [
   { id: "schedule", label: "일정", icon: CalendarDays },
+  { id: "memo", label: "메모", icon: FileText },
   { id: "company", label: "업체", icon: Building2 },
   { id: "sales", label: "영업", icon: BriefcaseBusiness },
   { id: "settlement", label: "정산", icon: WalletCards },
@@ -551,12 +561,12 @@ export function App() {
           <p className="eyebrow">WORK NOTE</p>
           <h1>업무 메모장</h1>
           <p className="header-note">
-            일정, 영업, 정산, 출력, 업체와 계정을 한 곳에서 관리하는 업무 메모장입니다.
+            메모부터 업체, 영업, 업무, 파일까지 한 곳에서 빠르게 기록하고 찾을 수 있습니다.
           </p>
         </div>
         <button className="app-data-settings-button icon-text-button" type="button" onClick={openDataSettings}>
           <Settings size={16} />
-          현재 동기화 데이터 설정
+          설정
         </button>
       </header>
 
@@ -579,7 +589,7 @@ export function App() {
           ))}
         </div>
         <div className="portal-nav-group account-group">
-          {(["company", "account"] as PortalId[]).map((id) => (
+          {(["memo", "company", "account"] as PortalId[]).map((id) => (
             <PortalButton key={id} id={id} activePortal={activePortal} setActivePortal={selectPortal} />
           ))}
         </div>
@@ -591,7 +601,7 @@ export function App() {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="고객사, 본사 담당자, 영업, 계정, 일정, 메모 통합 검색"
+            placeholder="메모, 업체, 영업, 업무, 파일 통합 검색"
           />
         </label>
         <div className="command-meta">
@@ -648,6 +658,7 @@ export function App() {
             onToggleCompleted={toggleTaskCompleted}
           />
         )}
+        {activePortal === "memo" && <GeneralMemoPortal data={data} query={query} onPersist={persistData} />}
         {activePortal === "company" && <CompanyPortal data={data} query={query} view={companyView} setView={setCompanyView} onPersist={persistData} />}
         {activePortal === "sales" && <SalesPortal data={data} query={query} onPersist={persistData} focusTarget={focusTarget} />}
         {activePortal === "settlement" && <GenericWorkPortal title="정산" records={data.settlementTasks} query={query} type="settlement" data={data} onPersist={persistData} focusTarget={focusTarget} onClearFocusTarget={() => setFocusTarget(null)} />}
@@ -700,6 +711,300 @@ function PortalButton({
       {portal.label}
     </button>
   );
+}
+
+function GeneralMemoPortal({
+  data,
+  query,
+  onPersist
+}: {
+  data: WorkNoteData;
+  query: string;
+  onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
+}) {
+  const [editingMemo, setEditingMemo] = useState<AnyRecord | null>(null);
+  const [filePanel, setFilePanel] = useState<string | null>(null);
+  const [memoQuery, setMemoQuery] = useState("");
+  const fileHandlers = createAttachmentHandlers({
+    data,
+    onPersist,
+    collectionKey: "generalMemos",
+    ownerType: "memo",
+    reasonLabel: "메모 파일"
+  });
+  const memos = sortGeneralMemosByUpdatedAt(
+    data.generalMemos
+      .filter((memo) => generalMemoMatches(memo, query))
+      .filter((memo) => generalMemoMatches(memo, memoQuery))
+  );
+
+  const saveMemo = (draft: AnyRecord) => {
+    if (!firstText(draft, ["title"])) {
+      alert("제목을 입력해 주세요.");
+      return;
+    }
+    if (!rawText(draft, ["content"]).trim()) {
+      alert("내용을 입력해 주세요.");
+      return;
+    }
+    const editingId = firstText(draft, ["id"]);
+    onPersist((current) => {
+      const now = new Date().toISOString();
+      const normalized = normalizeGeneralMemo(draft, current.companies, () => createId("memo_"), now);
+      const id = firstText(normalized, ["id"]);
+      const previous = current.generalMemos.find((memo, index) => recordId(memo, index) === id);
+      const nextMemo = {
+        ...previous,
+        ...normalized,
+        attachments: previous ? asArray(previous.attachments) : asArray(draft.attachments),
+        createdAt: firstText(previous || normalized, ["createdAt"]) || now,
+        updatedAt: now
+      };
+      const exists = current.generalMemos.some((memo, index) => recordId(memo, index) === id);
+      return {
+        ...current,
+        generalMemos: exists
+          ? current.generalMemos.map((memo, index) => recordId(memo, index) === id ? nextMemo : memo)
+          : [nextMemo, ...current.generalMemos]
+      };
+    }, editingId ? "메모 수정" : "새 메모");
+    setEditingMemo(null);
+  };
+
+  const deleteMemo = async (memo: AnyRecord, index: number) => {
+    const id = recordId(memo, index);
+    const attachments = asArray(memo.attachments);
+    const message = attachments.length
+      ? `"${generalMemoTitle(memo)}" 메모와 첨부파일 ${attachments.length}개를 삭제할까요? Drive 파일은 휴지통으로 이동합니다.`
+      : `"${generalMemoTitle(memo)}" 메모를 삭제할까요?`;
+    if (!confirm(message)) return;
+    try {
+      for (const attachment of attachments) {
+        const attachmentId = firstText(attachment, ["id"]);
+        if (attachmentId) await deleteAttachmentRecord(attachmentId);
+      }
+    } catch (error) {
+      alert(`첨부파일을 정리하지 못해 메모 삭제를 중단했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    onPersist((current) => ({
+      ...current,
+      generalMemos: current.generalMemos.filter((item, itemIndex) => recordId(item, itemIndex) !== id)
+    }), "메모 삭제");
+    if (filePanel === id) setFilePanel(null);
+  };
+
+  return (
+    <section className="general-memo-portal">
+      <div className="general-memo-hero panel">
+        <div>
+          <p className="eyebrow">QUICK MEMO</p>
+          <h2>메모</h2>
+          <p>업무 중 떠오른 내용부터 먼저 적고, 업체와 파일은 필요할 때 연결하세요.</p>
+        </div>
+        <button type="button" className="primary" onClick={() => setEditingMemo(createBlankGeneralMemo())}>
+          <Plus size={16} /> 새 메모
+        </button>
+      </div>
+
+      <div className="general-memo-toolbar panel">
+        <label className="search-box">
+          <Search size={17} />
+          <input value={memoQuery} onChange={(event) => setMemoQuery(event.target.value)} placeholder="제목, 내용, 관련 업체 검색" />
+        </label>
+        <span>{memos.length}개 · 최근 수정순</span>
+      </div>
+
+      {editingMemo && (
+        <EditorDrawer onClose={() => setEditingMemo(null)}>
+          <GeneralMemoEditor
+            draft={editingMemo}
+            setDraft={setEditingMemo}
+            companies={data.companies}
+            onSave={saveMemo}
+            onCancel={() => setEditingMemo(null)}
+          />
+        </EditorDrawer>
+      )}
+
+      <div className="general-memo-list">
+        {memos.map((memo, index) => {
+          const id = recordId(memo, index);
+          const attachments = asArray(memo.attachments);
+          const company = generalMemoCompanyName(memo);
+          return (
+            <article className="general-memo-card panel" key={id} data-record-id={id}>
+              <div className="general-memo-card-main">
+                <div className="general-memo-card-heading">
+                  <div>
+                    <strong>{generalMemoTitle(memo)}</strong>
+                    <span>{company || "관련 업체 없음"}</span>
+                  </div>
+                  {attachments.length > 0 && <Badge tone="blue"><FileText size={13} /> 파일 {attachments.length}</Badge>}
+                </div>
+                <p className="general-memo-preview">{generalMemoBody(memo)}</p>
+                <div className="general-memo-meta">
+                  <span>수정 {formatDateTime(firstText(memo, ["updatedAt", "createdAt"]))}</span>
+                  {firstText(memo, ["createdAt"]) && <span>작성 {formatDateTime(firstText(memo, ["createdAt"]))}</span>}
+                </div>
+              </div>
+              <AttachmentPreview record={memo} />
+              <div className="card-actions general-memo-actions">
+                <button type="button" onClick={() => setFilePanel(filePanel === id ? null : id)}>
+                  <FileText size={15} /> 파일 {attachments.length}
+                </button>
+                <button type="button" onClick={() => setEditingMemo(prepareGeneralMemoDraft(memo, index))}>
+                  <Pencil size={15} /> 수정
+                </button>
+                <button type="button" className="danger-button" onClick={() => void deleteMemo(memo, index)}>
+                  <Trash2 size={15} /> 삭제
+                </button>
+              </div>
+              {filePanel === id && (
+                <div className="inline-file-panel">
+                  <SalesFileManager
+                    noteId={id}
+                    attachments={attachments}
+                    onUpload={fileHandlers.uploadAttachments}
+                    onUpdateMeta={fileHandlers.updateAttachmentMeta}
+                    onDelete={fileHandlers.deleteAttachment}
+                    moveTargets={attachmentMoveTargets(data, "memo", id)}
+                    onMove={fileHandlers.moveAttachments}
+                    emptyDetail="이 메모와 함께 보관할 자료를 추가하면 Google Drive에서도 같은 메모 이름으로 정리됩니다."
+                  />
+                </div>
+              )}
+            </article>
+          );
+        })}
+        {!memos.length && <EmptyState title="메모 없음" detail={memoQuery || query ? "검색어에 맞는 메모가 없습니다." : "새 메모를 눌러 첫 기록을 남겨보세요."} />}
+      </div>
+    </section>
+  );
+}
+
+function GeneralMemoEditor({
+  draft,
+  setDraft,
+  companies,
+  onSave,
+  onCancel
+}: {
+  draft: AnyRecord;
+  setDraft: (draft: AnyRecord) => void;
+  companies: AnyRecord[];
+  onSave: (draft: AnyRecord) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <section className="editor-panel general-memo-editor">
+      <div className="editor-heading">
+        <div>
+          <p className="eyebrow">{firstText(draft, ["id"]) ? "EDIT MEMO" : "QUICK MEMO"}</p>
+          <h2>{firstText(draft, ["id"]) ? "메모 수정" : "새 메모"}</h2>
+          <p>제목과 내용만 작성해 바로 저장할 수 있습니다.</p>
+        </div>
+        <button type="button" onClick={onCancel} aria-label="메모 편집 닫기"><X size={17} /></button>
+      </div>
+      <div className="form-grid general-memo-form">
+        <TextField
+          label="제목"
+          value={firstText(draft, ["title"])}
+          onChange={(value) => setDraft({ ...draft, title: value })}
+          placeholder="예: 금주 확인사항"
+          wide
+        />
+        <label className="field wide-field general-memo-content-field">
+          <span>내용</span>
+          <textarea
+            value={rawText(draft, ["content"])}
+            onChange={(event) => setDraft({ ...draft, content: event.target.value })}
+            placeholder="자유롭게 메모하세요."
+            rows={11}
+            autoFocus
+          />
+        </label>
+      </div>
+      <details className="general-memo-options">
+        <summary>관련 업체 연결 <span>선택</span></summary>
+        <MemoCompanyPicker draft={draft} setDraft={setDraft} companies={companies} />
+      </details>
+      {!firstText(draft, ["id"]) && <p className="general-memo-file-hint"><FileText size={15} /> 메모를 저장한 뒤 목록의 ‘파일’에서 자료를 첨부할 수 있습니다.</p>}
+      <EditorActionBar onSave={() => onSave(draft)} onCancel={onCancel} />
+    </section>
+  );
+}
+
+function MemoCompanyPicker({
+  draft,
+  setDraft,
+  companies
+}: {
+  draft: AnyRecord;
+  setDraft: (draft: AnyRecord) => void;
+  companies: AnyRecord[];
+}) {
+  const selectedId = firstText(draft, ["companyId"]);
+  const selected = companies.find((company, index) => recordId(company, index) === selectedId) || null;
+  const [search, setSearch] = useState(selected ? companyName(selected) : "");
+  const [open, setOpen] = useState(false);
+  const options = useMemo(
+    () => companies.filter((company) => matchesText(company, search)).slice(0, 60),
+    [companies, search]
+  );
+
+  const select = (id: string) => {
+    const company = companies.find((item, index) => recordId(item, index) === id) || null;
+    setDraft({ ...draft, companyId: id, company: company ? companyName(company) : "" });
+    setSearch(company ? companyName(company) : "");
+    setOpen(false);
+  };
+
+  return (
+    <div className="memo-company-picker" onBlur={() => window.setTimeout(() => setOpen(false), 120)}>
+      <label className="field">
+        <span>업체 검색/선택</span>
+        <input
+          type="search"
+          value={search}
+          onFocus={() => setOpen(true)}
+          onChange={(event) => { setSearch(event.target.value); setOpen(true); }}
+          placeholder="업체명을 검색하세요"
+        />
+      </label>
+      {open && (
+        <div className="combo-options" role="listbox">
+          <button type="button" role="option" onMouseDown={(event) => event.preventDefault()} onClick={() => select("")}>
+            <strong>관련 업체 없음</strong><span>일반 메모로 저장</span>
+          </button>
+          {options.map((company, index) => {
+            const id = recordId(company, index);
+            return <button type="button" role="option" key={id} onMouseDown={(event) => event.preventDefault()} onClick={() => select(id)}>
+              <strong>{companyName(company) || "업체명 미입력"}</strong>
+              <span>{joinParts([firstText(company, ["status", "tradeStatus"]), firstText(company, ["mainPhone", "phone"])], " · ") || "업체 정보"}</span>
+            </button>;
+          })}
+          {!options.length && <p>검색 결과가 없습니다.</p>}
+        </div>
+      )}
+      <div className="selection-summary"><strong>{selected ? companyName(selected) : "관련 업체 없음"}</strong><span>선택 사항</span></div>
+    </div>
+  );
+}
+
+function createBlankGeneralMemo(): AnyRecord {
+  return { id: "", title: "", content: "", companyId: "", company: "", attachments: [] };
+}
+
+function prepareGeneralMemoDraft(memo: AnyRecord, index: number): AnyRecord {
+  return {
+    ...createBlankGeneralMemo(),
+    ...memo,
+    id: recordId(memo, index),
+    title: generalMemoTitle(memo) === "제목 없는 메모" ? "" : generalMemoTitle(memo),
+    content: generalMemoBody(memo),
+    attachments: asArray(memo.attachments)
+  };
 }
 
 function MemoListControls({
@@ -1101,14 +1406,14 @@ function LocalDataSettings({
     <div className="local-settings-backdrop" onMouseDown={onClose}>
       <section className="local-settings-panel" role="dialog" aria-modal="true" aria-labelledby="local-data-settings-title" onMouseDown={(event) => event.stopPropagation()}>
         <header>
-          <div><p className="eyebrow">WORK NOTE DATA</p><h2 id="local-data-settings-title">현재 동기화 데이터 설정</h2></div>
+          <div><p className="eyebrow">WORK NOTE</p><h2 id="local-data-settings-title">설정</h2></div>
           <button type="button" aria-label="설정 닫기" onClick={onClose}><X size={18} /></button>
         </header>
         <div className="local-settings-scroll">
           <section className="data-settings-card" id="local-sync-status-card">
-            <div className="data-settings-card-heading"><div><span>A</span><h3>동기화 상태</h3></div><span className="data-status-badge is-normal">정상</span></div>
+            <div className="data-settings-card-heading"><div><span>A</span><h3>일반</h3></div><span className="data-status-badge is-normal">정상</span></div>
             <div className="data-settings-status-grid">
-              <span><b>서버 데이터</b>GitHub Pages 로컬 모드</span>
+              <span><b>업무 데이터</b>이 브라우저에 저장</span>
               <span><b>Google Drive</b>Sites에서만 연결 가능</span>
               <span><b>마지막 로컬 저장</b>{formatDateTime(data.updatedAt || data.loadedAt)}</span>
               <span><b>현재 저장 위치</b>이 브라우저 안전 저장소</span>
@@ -1119,23 +1424,23 @@ function LocalDataSettings({
             </div>
           </section>
           <section className="data-settings-card">
-            <div className="data-settings-card-heading"><div><span>B</span><h3>안전 저장 및 백업</h3></div><span className="data-status-badge is-normal">정상</span></div>
+            <div className="data-settings-card-heading"><div><span>B</span><h3>데이터 / 저장</h3></div><span className="data-status-badge is-normal">정상</span></div>
             <div className="data-settings-status-grid">
               <span><b>안전 저장 모드</b>사용 중</span>
               <span><b>자동 스냅샷</b>{snapshotSummary.count}개 · {snapshotSummary.lastAt ? formatDateTime(snapshotSummary.lastAt) : "기록 없음"}</span>
             </div>
             <BackupSettingsPanel data={data} setData={setData} setSaveMessage={setSaveMessage} />
           </section>
-          <section className="data-settings-card">
-            <div className="data-settings-card-heading"><div><span>C</span><h3>데이터 새로고침 및 복구</h3></div></div>
+          <details className="data-settings-card settings-disclosure">
+            <summary className="data-settings-card-heading"><div><span>C</span><h3>진단 / 고급</h3><small>새로고침·이전 버전</small></div></summary>
             <div className="data-settings-actions">
               <button type="button" onClick={onRefresh}><RefreshCw size={16} /> 데이터 새로고침</button>
               <button type="button" onClick={() => setSaveMessage("로컬 데이터 연결 상태가 정상입니다.")}><CheckCircle2 size={16} /> 연결 상태 재확인</button>
               <a className="icon-text-button" href={LEGACY_APP_PATH}><ExternalLink size={15} /> 이전 버전 확인</a>
             </div>
-          </section>
+          </details>
           <section className="data-settings-card drive-disabled-card">
-            <div className="data-settings-card-heading"><div><span>D</span><h3>Google Drive 관리</h3></div><span className="data-status-badge is-disconnected">연결 끊김</span></div>
+            <div className="data-settings-card-heading"><div><span>D</span><h3>Google Drive</h3></div><span className="data-status-badge is-disconnected">연결 끊김</span></div>
             <p>GitHub Pages에서는 Google Drive 관리 기능을 사용할 수 없습니다. 비공개 Work Note Site에서 연결과 폴더 관리를 진행해 주세요.</p>
             <DriveOpenButton label="Google Drive 폴더 열기" disabledReason="먼저 비공개 Work Note Site에서 Google Drive 연결을 완료해주세요." />
           </section>
@@ -1859,6 +2164,7 @@ function CustomerCompanyPortal({
     onPersist((current) => ({
       ...current,
       companies: current.companies.filter((item, itemIndex) => recordId(item, itemIndex) !== id),
+      generalMemos: clearCompanyLinks(current.generalMemos, id, name),
       notes: clearCompanyLinks(current.notes, id, name),
       materialSalesNotes: clearCompanyLinks(current.materialSalesNotes, id, name),
       settlementTasks: clearCompanyLinks(current.settlementTasks, id, name),
@@ -5719,6 +6025,7 @@ export function loadWorkNoteData(): WorkNoteData {
   const base: WorkNoteData = {
     version: "unknown",
     updatedAt: "",
+    generalMemos: [],
     companies: [],
     internalContacts: [],
     notes: [],
@@ -5740,6 +6047,7 @@ export function loadWorkNoteData(): WorkNoteData {
       ...base,
       version: firstText(parsed, ["version"]) || "unknown",
       updatedAt: firstText(parsed, ["updatedAt"]),
+      generalMemos: asArray(parsed.generalMemos),
       companies: asArray(parsed.companies),
       internalContacts: asArray(parsed.internalContacts),
       notes: asArray(parsed.notes),
@@ -6015,6 +6323,7 @@ function saveWorkNoteData(data: WorkNoteData, reason: string): WorkNoteData {
     ...existing,
     version: data.version && data.version !== "unknown" ? data.version : "react-work-note-v1",
     updatedAt: now,
+    generalMemos: asArray(data.generalMemos),
     companies: asArray(data.companies),
     internalContacts: asArray(data.internalContacts),
     notes: asArray(data.notes),
@@ -6064,7 +6373,7 @@ function createReactAutoSnapshot(reason: string) {
 }
 
 function validateWorkNotePayload(payload: AnyRecord) {
-  const arrayKeys = ["companies", "internalContacts", "notes", "materialSalesNotes", "settlementTasks", "outputTasks", "otherTasks", "accounts"];
+  const arrayKeys = ["generalMemos", "companies", "internalContacts", "notes", "materialSalesNotes", "settlementTasks", "outputTasks", "otherTasks", "accounts"];
   const invalidKey = arrayKeys.find((key) => !Array.isArray(payload[key]));
   if (invalidKey) {
     throw new Error(`${invalidKey} 데이터 형식이 올바르지 않습니다.`);
@@ -6076,6 +6385,7 @@ function createEmptyWorkNoteData(): WorkNoteData {
   return {
     version: "react-work-note-v1",
     updatedAt: now,
+    generalMemos: [],
     companies: [],
     internalContacts: [],
     notes: [],
@@ -6100,6 +6410,7 @@ function createBackupPayload(data: WorkNoteData, reason: string, options: AnyRec
     attachmentStorage: firstText(options, ["attachmentStorage"]) || "indexedDB",
     fileOriginalsIncluded: Boolean(options.fileOriginalsIncluded),
     missingFileOriginals: Number(options.missingFileOriginals) || 0,
+    generalMemos: Array.isArray(options.generalMemos) ? options.generalMemos : state.generalMemos,
     companies: Array.isArray(options.companies) ? options.companies : state.companies,
     internalContacts: Array.isArray(options.internalContacts) ? options.internalContacts : state.internalContacts,
     notes: Array.isArray(options.notes) ? options.notes : state.notes,
@@ -6111,8 +6422,9 @@ function createBackupPayload(data: WorkNoteData, reason: string, options: AnyRec
   };
 }
 
-function cloneBackupState(data: WorkNoteData): Pick<WorkNoteData, "companies" | "internalContacts" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts"> {
+function cloneBackupState(data: WorkNoteData): Pick<WorkNoteData, "generalMemos" | "companies" | "internalContacts" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts"> {
   return {
+    generalMemos: JSON.parse(JSON.stringify(asArray(data.generalMemos))),
     companies: JSON.parse(JSON.stringify(asArray(data.companies))),
     internalContacts: JSON.parse(JSON.stringify(asArray(data.internalContacts))),
     notes: JSON.parse(JSON.stringify(asArray(data.notes))),
@@ -6173,6 +6485,7 @@ function collectAttachmentMetadata(data: WorkNoteData): Array<{ id: string; owne
 }
 
 function attachmentOwnerTitle(type: AttachmentOwnerType, owner: AnyRecord): string {
+  if (type === "memo") return generalMemoTitle(owner);
   if (type === "company") return companyName(owner) || "업체";
   if (type === "sales") return salesCustomer(owner);
   if (type === "materialSales") return salesCustomer(owner);
@@ -6190,9 +6503,12 @@ function attachmentDriveContext(data: WorkNoteData, type: AttachmentOwnerType, o
     : null;
   const rawCompany = type === "company"
     ? companyName(owner)
+    : type === "memo"
+      ? companyName(linkedCompany || {}) || generalMemoCompanyName(owner)
     : companyName(linkedCompany || {}) || companyName(owner) ||
       (type === "sales" || type === "materialSales" ? salesCustomer(owner) : "");
   let memoTitle = firstText(owner, ["title", "taskTitle", "subject", "workTitle"]);
+  if (!memoTitle && type === "memo") memoTitle = generalMemoTitle(owner);
   if (!memoTitle && type === "company") memoTitle = "업체 파일";
   if (!memoTitle && type === "sales") {
     memoTitle = firstText(owner, ["interest", "nextAction"]) || "장비 영업";
@@ -6211,6 +6527,7 @@ function attachmentDriveContext(data: WorkNoteData, type: AttachmentOwnerType, o
 }
 
 function attachmentCollectionKeyForOwner(type: AttachmentOwnerType): AttachmentCollectionKey {
+  if (type === "memo") return "generalMemos";
   if (type === "company") return "companies";
   if (type === "sales") return "notes";
   if (type === "materialSales") return "materialSalesNotes";
@@ -6263,8 +6580,9 @@ function moveAttachmentsInWorkNote(
   return { ...current, [sourceKey]: nextCollection(sourceKey), [targetKey]: nextCollection(targetKey) } as WorkNoteData;
 }
 
-function getBackupRecordCounts(data: Pick<WorkNoteData, "companies" | "internalContacts" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts">): Record<string, number> {
+function getBackupRecordCounts(data: Pick<WorkNoteData, "generalMemos" | "companies" | "internalContacts" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts">): Record<string, number> {
   return {
+    generalMemos: asArray(data.generalMemos).length,
     companies: asArray(data.companies).length,
     internalContacts: asArray(data.internalContacts).length,
     notes: asArray(data.notes).length,
@@ -6283,6 +6601,7 @@ function compareBackupCounts(expected: Record<string, number>, actual: Record<st
 }
 
 const CSV_EXPORT_FILE_NAMES: Record<string, string> = {
+  "메모": "memos.csv",
   "업체": "companies.csv",
   "본사담당자": "internal-contacts.csv",
   "장비영업": "equipment-sales.csv",
@@ -6325,6 +6644,18 @@ function createWorkNoteXlsxSheets(data: WorkNoteData): XlsxSheet[] {
   const addSheet = (name: string, rows: XlsxCellValue[][]) => {
     sheets.push({ name, rows: rows.length > 1 ? rows : [...rows, ["데이터 없음"]] });
   };
+
+  addSheet("메모", [
+    ["제목", "내용", "관련 업체", "첨부 수", "작성", "최종 수정"],
+    ...asArray(data.generalMemos).map((memo) => [
+      generalMemoTitle(memo),
+      summarizeForCsv(generalMemoBody(memo)),
+      generalMemoCompanyName(memo),
+      asArray(memo.attachments).length,
+      formatDateTime(firstText(memo, ["createdAt"])),
+      formatDateTime(firstText(memo, ["updatedAt"]))
+    ])
+  ]);
 
   addSheet("업체", [
     ["업체명", "사업자번호", "대표자", "업종/분류", "거래상태", "주소", "대표 연락처", "대표 이메일", "기본 담당자", "담당자 연락처", "담당자 이메일", "담당 영업", "기술 담당", "출력 담당", "기타 담당", "담당자 수", "첨부 수", "최종 수정", "메모"],
@@ -6588,6 +6919,7 @@ function amountForXlsx(value: string): string | number {
 }
 
 function attachmentOwnerLabel(type: AttachmentOwnerType): string {
+  if (type === "memo") return "메모";
   if (type === "company") return "업체";
   if (type === "sales") return "장비영업";
   if (type === "materialSales") return "소재영업";
@@ -6763,6 +7095,7 @@ async function createFullBackupZipBlob(data: WorkNoteData): Promise<{ blob: Blob
     attachmentStorage: "zip/attachments",
     fileOriginalsIncluded: missingCount === 0,
     missingFileOriginals: missingCount,
+    generalMemos: backupState.generalMemos,
     companies: backupState.companies,
     internalContacts: backupState.internalContacts,
     notes: backupState.notes,
@@ -6783,8 +7116,9 @@ async function createFullBackupZipBlob(data: WorkNoteData): Promise<{ blob: Blob
   };
 }
 
-function getAttachmentOwnerGroups(data: Pick<WorkNoteData, "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks">): Array<{ type: AttachmentOwnerType; items: AnyRecord[] }> {
+function getAttachmentOwnerGroups(data: Pick<WorkNoteData, "generalMemos" | "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks">): Array<{ type: AttachmentOwnerType; items: AnyRecord[] }> {
   return [
+    { type: "memo", items: asArray(data.generalMemos) },
     { type: "company", items: asArray(data.companies) },
     { type: "sales", items: asArray(data.notes) },
     { type: "materialSales", items: asArray(data.materialSalesNotes) },
@@ -6794,7 +7128,7 @@ function getAttachmentOwnerGroups(data: Pick<WorkNoteData, "companies" | "notes"
   ];
 }
 
-function collectAttachmentIdsFromData(data: Pick<WorkNoteData, "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks">): Set<string> {
+function collectAttachmentIdsFromData(data: Pick<WorkNoteData, "generalMemos" | "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks">): Set<string> {
   const ids = new Set<string>();
   getAttachmentOwnerGroups(data).forEach((ownerGroup) => {
     ownerGroup.items.forEach((owner) => {
@@ -7016,6 +7350,7 @@ function normalizeBackupToWorkNote(backupData: AnyRecord): WorkNoteData {
   return migrateWorkNoteData({
     version: firstText(backupData, ["version"]) || "react-work-note-v1",
     updatedAt: firstText(backupData, ["updatedAt", "backupCreatedAt"]) || new Date().toISOString(),
+    generalMemos: asArray(backupData.generalMemos),
     companies: asArray(backupData.companies),
     internalContacts: asArray(backupData.internalContacts),
     notes: asArray(backupData.notes),
@@ -7029,7 +7364,7 @@ function normalizeBackupToWorkNote(backupData: AnyRecord): WorkNoteData {
 }
 
 function collectZipAttachmentRecords(
-  backupData: Pick<WorkNoteData, "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks">,
+  backupData: Pick<WorkNoteData, "generalMemos" | "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks">,
   zipEntries: Map<string, { path: string; data: Uint8Array }>
 ): { records: AttachmentRecord[]; missingCount: number } {
   const records: AttachmentRecord[] = [];
@@ -7065,7 +7400,7 @@ function collectZipAttachmentRecords(
 
 async function restoreZipAttachmentRecords(
   files: { records: AttachmentRecord[]; missingCount: number },
-  targetData: Pick<WorkNoteData, "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks">
+  targetData: Pick<WorkNoteData, "generalMemos" | "companies" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks">
 ): Promise<void> {
   const targetIds = collectAttachmentIdsFromData(targetData);
   for (const record of files.records) {
@@ -7075,8 +7410,8 @@ async function restoreZipAttachmentRecords(
   }
 }
 
-const BACKUP_IMPORT_COLLECTION_KEYS: Array<keyof Pick<WorkNoteData, "companies" | "internalContacts" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts">> = [
-  "companies", "internalContacts", "notes", "materialSalesNotes", "settlementTasks", "outputTasks", "otherTasks", "accounts"
+const BACKUP_IMPORT_COLLECTION_KEYS: Array<keyof Pick<WorkNoteData, "generalMemos" | "companies" | "internalContacts" | "notes" | "materialSalesNotes" | "settlementTasks" | "outputTasks" | "otherTasks" | "accounts">> = [
+  "generalMemos", "companies", "internalContacts", "notes", "materialSalesNotes", "settlementTasks", "outputTasks", "otherTasks", "accounts"
 ];
 
 function describeBackupImport(current: WorkNoteData, incoming: WorkNoteData, mode: BackupImportMode, restoredOriginals: number): string {
@@ -7099,7 +7434,7 @@ function describeBackupImport(current: WorkNoteData, incoming: WorkNoteData, mod
   const modeLabel = mode === "merge" ? "기존 서버 데이터와 병합" : mode === "update" ? "동일 ID 데이터만 업데이트" : "서버 데이터 전체 교체";
   return [
     `가져오기 방식: ${modeLabel}`,
-    `고객사 ${incoming.companies.length}건 · 업무 ${taskCount}건 · 정산 ${incoming.settlementTasks.length}건`,
+    `메모 ${incoming.generalMemos.length}건 · 고객사 ${incoming.companies.length}건 · 업무 ${taskCount}건 · 정산 ${incoming.settlementTasks.length}건`,
     `일정 ${scheduleCount}건 · 첨부 기록 ${attachmentCount}건${restoredOriginals ? ` · 원본 ${restoredOriginals}개` : ""}`,
     `동일 ID ${duplicateIds}건 · 신규 추가 예상 ${additions}건 · 덮어쓰기 예상 ${duplicateIds}건`,
     mode === "replace" ? `현재 데이터 중 교체로 제외될 수 있는 기록 ${removals}건` : "현재 데이터는 자동 삭제되지 않습니다."
@@ -7138,6 +7473,7 @@ function mergeBackupData(current: WorkNoteData, incomingRaw: AnyRecord): WorkNot
     ...normalizeBackupToWorkNote(current),
     version: incoming.version || current.version || "react-work-note-v1",
     updatedAt: new Date().toISOString(),
+    generalMemos: [],
     companies: [],
     internalContacts: mergeRecordList("internalContact", current.internalContacts, incoming.internalContacts),
     notes: [],
@@ -7153,12 +7489,14 @@ function mergeBackupData(current: WorkNoteData, incomingRaw: AnyRecord): WorkNot
   remapInternalContactLinks(incoming.companies, internalContactIdMap);
   next.companies = mergeRecordList("company", current.companies, incoming.companies);
   const companyIdMap = createIdMap(current.companies, incoming.companies, next.companies, "company");
+  remapCompanyLinks(incoming.generalMemos, companyIdMap);
   remapCompanyLinks(incoming.notes, companyIdMap);
   remapCompanyLinks(incoming.materialSalesNotes, companyIdMap);
   remapCompanyLinks(incoming.settlementTasks, companyIdMap);
   remapCompanyLinks(incoming.outputTasks, companyIdMap);
   remapCompanyLinks(incoming.otherTasks, companyIdMap);
 
+  next.generalMemos = mergeRecordList("memo", current.generalMemos, incoming.generalMemos);
   next.notes = mergeRecordList("sales", current.notes, incoming.notes);
   next.materialSalesNotes = mergeRecordList("materialSales", current.materialSalesNotes, incoming.materialSalesNotes);
   const salesIdMap = createIdMap(current.notes, incoming.notes, next.notes, "sales");
@@ -8121,7 +8459,7 @@ function isWorkDraftValid(record: AnyRecord, type: "settlement" | "output" | "ot
 }
 
 function countLinkedCompanyRecords(data: WorkNoteData, companyId: string): number {
-  return [data.notes, data.materialSalesNotes, data.settlementTasks, data.outputTasks, data.otherTasks]
+  return [data.generalMemos, data.notes, data.materialSalesNotes, data.settlementTasks, data.outputTasks, data.otherTasks]
     .flat()
     .filter((record) => firstText(record, ["companyId"]) === companyId).length;
 }
@@ -8685,6 +9023,7 @@ function scrollTaxInvoiceItemIntoView(id: string) {
 function collectGlobalResults(data: WorkNoteData, query: string) {
   if (!query.trim()) return [];
   const groups: Array<{ portal: PortalId; companyView?: "customer" | "headquarters"; records: AnyRecord[]; title: (record: AnyRecord) => string; meta: (record: AnyRecord) => string }> = [
+    { portal: "memo", records: data.generalMemos, title: generalMemoTitle, meta: (record) => generalMemoCompanyName(record) || summarizeForList(generalMemoBody(record), 70) },
     { portal: "company", companyView: "customer", records: data.companies, title: companyName, meta: (record) => firstText(record, ["status", "tradeStatus", "phone", "email"]) },
     { portal: "company", companyView: "headquarters", records: data.internalContacts, title: (record) => firstText(record, ["name"]) || "본사 담당자", meta: (record) => joinParts([firstText(record, ["department"]), firstText(record, ["title"]), asTextArray(record.duties).join(", ")], " · ") },
     { portal: "sales", records: data.notes, title: salesCustomer, meta: (record) => firstText(record, ["nextAction", "status", "product"]) },
@@ -9102,7 +9441,7 @@ async function applyRemoteAttachmentRecords(records: AttachmentRecord[], reason:
   }
   const current = loadWorkNoteData();
   const next = { ...current };
-  const keys: AttachmentCollectionKey[] = ["companies", "notes", "materialSalesNotes", "settlementTasks", "outputTasks", "otherTasks"];
+  const keys: AttachmentCollectionKey[] = ["generalMemos", "companies", "notes", "materialSalesNotes", "settlementTasks", "outputTasks", "otherTasks"];
   keys.forEach((key) => {
     next[key] = (current[key] as AnyRecord[]).map((owner) => ({
       ...owner,

@@ -5,6 +5,7 @@ export type AnyRecord = Record<string, unknown>;
 export type WorkNoteData = {
   version: string;
   updatedAt: string;
+  generalMemos: AnyRecord[];
   companies: AnyRecord[];
   internalContacts: AnyRecord[];
   notes: AnyRecord[];
@@ -18,6 +19,7 @@ export type WorkNoteData = {
 };
 
 export type DataCounts = {
+  generalMemos: number;
   companies: number;
   companyContacts: number;
   internalContacts: number;

@@ -438,4 +438,3 @@
   window.setInterval(scheduleApply, 1200);
   new MutationObserver(scheduleApply).observe(document.documentElement, { childList: true, subtree: true });
 })();
-

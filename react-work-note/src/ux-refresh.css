@@ -1,0 +1,435 @@
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.app-shell {
+  width: min(100%, 1600px);
+}
+
+.app-header {
+  align-items: center;
+  min-height: 0;
+}
+
+.app-header .header-note {
+  max-width: 680px;
+}
+
+.app-data-settings-button {
+  flex: 0 0 auto;
+}
+
+.portal-content,
+.panel,
+.general-memo-card,
+.general-memo-card-main,
+.general-memo-card-heading > div {
+  min-width: 0;
+}
+
+.general-memo-portal {
+  display: grid;
+  gap: 16px;
+}
+
+.general-memo-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 24px;
+  background:
+    radial-gradient(circle at 92% 5%, rgba(73, 103, 255, 0.12), transparent 32%),
+    var(--surface, #fff);
+}
+
+.general-memo-hero h2,
+.general-memo-hero p {
+  margin: 0;
+}
+
+.general-memo-hero h2 {
+  margin-top: 3px;
+  font-size: clamp(1.55rem, 2.5vw, 2.15rem);
+}
+
+.general-memo-hero > div > p:last-child {
+  margin-top: 7px;
+  color: var(--text-subtle, #667085);
+}
+
+.general-memo-hero > button {
+  min-width: 122px;
+  min-height: 44px;
+  justify-content: center;
+}
+
+.general-memo-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+}
+
+.general-memo-toolbar .search-box {
+  width: min(100%, 540px);
+  margin: 0;
+}
+
+.general-memo-toolbar > span {
+  color: var(--text-subtle, #667085);
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.general-memo-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+  align-items: start;
+  gap: 14px;
+}
+
+.general-memo-list > .empty-state {
+  grid-column: 1 / -1;
+}
+
+.general-memo-card {
+  display: grid;
+  gap: 13px;
+  padding: 18px;
+  overflow: hidden;
+}
+
+.general-memo-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.general-memo-card-heading > div {
+  display: grid;
+  gap: 4px;
+}
+
+.general-memo-card-heading strong {
+  color: var(--text, #172033);
+  font-size: 1.05rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.general-memo-card-heading span,
+.general-memo-meta {
+  color: var(--text-subtle, #667085);
+  font-size: 0.8rem;
+}
+
+.general-memo-card .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.general-memo-preview {
+  display: -webkit-box;
+  margin: 12px 0 0;
+  min-height: 4.7em;
+  overflow: hidden;
+  color: var(--text, #344054);
+  line-height: 1.58;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.general-memo-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  margin-top: 14px;
+}
+
+.general-memo-actions {
+  justify-content: flex-end;
+  margin-top: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border, #e4e7ec);
+}
+
+.general-memo-card .inline-file-panel {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.general-memo-editor {
+  width: min(760px, 100%);
+}
+
+.general-memo-content-field textarea {
+  min-height: 230px;
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.general-memo-options,
+.settings-disclosure {
+  border: 1px solid var(--border, #e4e7ec);
+  border-radius: 14px;
+  background: var(--surface-muted, #f8fafc);
+}
+
+.general-memo-options {
+  margin: 16px 0;
+}
+
+.general-memo-options > summary,
+.settings-disclosure > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 700;
+}
+
+.general-memo-options > summary::-webkit-details-marker,
+.settings-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.general-memo-options > summary::after,
+.settings-disclosure > summary::after {
+  content: "+";
+  margin-left: auto;
+  color: var(--text-subtle, #667085);
+  font-size: 1.15rem;
+}
+
+.general-memo-options[open] > summary::after,
+.settings-disclosure[open] > summary::after {
+  content: "−";
+}
+
+.general-memo-options > summary span,
+.settings-disclosure > summary span,
+.settings-disclosure > summary small {
+  color: var(--text-subtle, #667085);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.memo-company-picker {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  padding: 0 16px 16px;
+}
+
+.memo-company-picker .combo-options {
+  top: 70px;
+  right: 16px;
+  left: 16px;
+}
+
+.general-memo-file-hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 12px 0 0;
+  color: var(--text-subtle, #667085);
+  font-size: 0.84rem;
+}
+
+.server-settings-panel > header h2 {
+  font-size: 1.35rem;
+}
+
+.server-settings-scroll {
+  gap: 12px;
+}
+
+.server-settings-scroll > .data-settings-card {
+  margin: 0;
+}
+
+.settings-disclosure.data-settings-card {
+  display: block;
+  padding: 0;
+}
+
+.settings-disclosure.data-settings-card > summary {
+  padding: 18px;
+}
+
+.settings-disclosure.data-settings-card > .settings-actions {
+  padding: 0 18px 18px;
+}
+
+.settings-disclosure-nested,
+.drive-management-disclosure {
+  margin-top: 14px;
+}
+
+.settings-disclosure-nested > .drive-status-grid,
+.drive-management-disclosure > .drive-management-actions {
+  margin: 0;
+  padding: 0 14px 14px;
+}
+
+.drive-management-disclosure > summary {
+  color: var(--text, #344054);
+}
+
+.drive-log-disclosure {
+  max-height: min(44vh, 440px);
+  overflow: auto;
+}
+
+.card-heading strong,
+.attachment-file-copy strong,
+.attachment-file-copy span,
+.selected-file-list span,
+.file-card-title,
+.result-card strong {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@media (min-width: 1200px) {
+  .general-memo-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .app-header {
+    gap: 14px;
+  }
+
+  .general-memo-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    padding-inline: 12px;
+  }
+
+  .app-header {
+    align-items: flex-start;
+  }
+
+  .app-header .header-note,
+  .command-meta {
+    display: none;
+  }
+
+  .app-data-settings-button {
+    min-width: 42px;
+    padding-inline: 11px;
+  }
+
+  .portal-nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    overflow: visible;
+  }
+
+  .portal-nav-group {
+    display: contents;
+  }
+
+  .portal-button {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    padding-inline: 8px;
+  }
+
+  .general-memo-hero,
+  .general-memo-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .general-memo-hero,
+  .general-memo-card {
+    padding: 16px;
+  }
+
+  .general-memo-hero > button,
+  .general-memo-toolbar .search-box {
+    width: 100%;
+  }
+
+  .general-memo-toolbar > span {
+    white-space: normal;
+  }
+
+  .general-memo-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .general-memo-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .general-memo-actions button {
+    min-width: 0;
+    justify-content: center;
+    padding-inline: 8px;
+  }
+
+  .general-memo-card .sales-file-manager,
+  .general-memo-card .file-upload-grid,
+  .general-memo-card .attachment-edit-grid,
+  .general-memo-card .attachment-card-footer {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .server-settings-panel {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .settings-disclosure > summary {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 390px) {
+  .app-shell {
+    padding-inline: 10px;
+  }
+
+  .portal-button {
+    font-size: 0.78rem;
+  }
+
+  .general-memo-card-heading {
+    flex-direction: column;
+  }
+
+  .general-memo-actions button {
+    font-size: 0;
+  }
+
+  .general-memo-actions button svg {
+    width: 17px;
+    height: 17px;
+  }
+}

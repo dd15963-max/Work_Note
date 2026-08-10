@@ -28,6 +28,7 @@ export type AttachmentOwnerContext = {
 
 const CATEGORY_SET = new Set<string>(DRIVE_FILE_CATEGORIES);
 const OWNER_COLLECTIONS: Record<string, string> = {
+  memo: "generalMemos",
   company: "companies",
   sales: "notes",
   materialSales: "materialSalesNotes",
@@ -265,6 +266,7 @@ function temporaryMemoTitle(ownerKind: string, owner: JsonRecord | null, uploade
   ]);
   if (explicit) return explicit;
   const typeLabel: Record<string, string> = {
+    memo: "일반 메모",
     company: "업체 파일",
     sales: "장비 영업",
     materialSales: "소재·소모품 영업",

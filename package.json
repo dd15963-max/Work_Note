@@ -13,7 +13,8 @@
     "check": "tsc --noEmit",
     "test": "vitest run --config vitest.config.ts",
     "db:generate": "drizzle-kit generate",
-    "verify:sites": "npm run check && npm run test && npm run build"
+    "verify:sites": "npm run check && npm run test && npm run build",
+    "build:pages": "vite build --config vite.pages.config.ts"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
