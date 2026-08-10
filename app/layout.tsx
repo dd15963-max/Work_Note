@@ -22,7 +22,7 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-title" content="Work Note" />
-        <link rel="stylesheet" href="/file-manager-modal.css?v=sites" />
+        <link rel="stylesheet" href="/file-manager-modal.css?v=corner-actions-2" />
         <link rel="stylesheet" href="/sales-invoice-fields.css?v=sites" />
       </head>
       <body>

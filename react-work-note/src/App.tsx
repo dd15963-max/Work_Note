@@ -4106,11 +4106,11 @@ function AttachmentMetaEditor({ noteId, attachmentKey, attachment, selected, onS
       <div className="attachment-edit-field is-category"><label className="field"><span>분류</span><select value={category} onChange={(event) => setCategory(event.target.value)}>{FILE_CATEGORY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label></div>
       <div className="attachment-edit-field is-date"><TextField label="발송/등록일" type="date" value={sentDate} onChange={setSentDate} /></div>
       <div className="attachment-edit-field is-memo"><TextField label="메모" value={memo} onChange={setMemo} placeholder="파일별 메모" /></div>
-      <div className="attachment-card-footer">
-        <div className="attachment-card-actions">
-          <div className="attachment-edit-actions"><button type="button" onClick={saveMeta} disabled={busy}><CheckCircle2 size={15} /> 저장</button><button type="button" className="danger-button" onClick={deleteFile} disabled={busy}><Trash2 size={15} /> 삭제</button></div>
-          <AttachmentActions attachment={{ ...attachment, fileName }} />
-        </div>
+    </div>
+    <div className="attachment-card-footer">
+      <div className="attachment-card-actions">
+        <div className="attachment-edit-actions"><button type="button" onClick={saveMeta} disabled={busy}><CheckCircle2 size={15} /> 저장</button><button type="button" className="danger-button" onClick={deleteFile} disabled={busy}><Trash2 size={15} /> 삭제</button></div>
+        <AttachmentActions attachment={{ ...attachment, fileName }} />
       </div>
     </div>
   </article>;
@@ -9303,28 +9303,33 @@ async function retryAttachmentRecords(
   onProgress: (attachmentId: string, progress: AttachmentSyncProgress) => void
 ): Promise<AttachmentRecord[]> {
   const completed: AttachmentRecord[] = [];
-  const remoteOnly: string[] = [];
   for (const id of [...new Set(ids.filter(Boolean))]) {
     const local = await getLocalAttachmentRecord(id);
-    if (!local?.blob) {
-      remoteOnly.push(id);
+    const remoteRetry = await retryRemoteAttachments([id], onProgress);
+    const remoteRecord = remoteRetry.records[0];
+    const remoteError = remoteRetry.errors[0]?.error;
+    const sourceMustBeRestored = Boolean(
+      local?.blob
+      && remoteError
+      && ["R2_SOURCE_MISSING", "R2_UPLOAD_EXPIRED"].includes(remoteError.code),
+    );
+
+    if (!sourceMustBeRestored) {
+      if (remoteRecord) completed.push(remoteRecord);
       continue;
     }
+
     try {
-      completed.push(await uploadRemoteAttachment(local, "", onProgress));
+      completed.push(await uploadRemoteAttachment(local!, "", onProgress));
     } catch (error) {
       completed.push({
-        ...local,
+        ...local!,
         ...repositoryErrorFields(error),
-        retryCount: Number(local.retryCount || 0) + 1,
+        retryCount: Number(local!.retryCount || 0) + 1,
         lastRetryAt: new Date().toISOString(),
         lastRetryResult: error instanceof Error ? error.message : String(error)
       });
     }
-  }
-  if (remoteOnly.length) {
-    const result = await retryRemoteAttachments(remoteOnly, onProgress);
-    completed.push(...result.records);
   }
   await applyRemoteAttachmentRecords(completed, "Drive 실패 파일 재시도");
   return completed;

@@ -490,21 +490,21 @@ body,
 
 /* FILE_CARD_ACTIONS_START */
 .attachment-card-footer {
-  grid-column: 3 / -1;
-  display: flex;
+  grid-column: 1 / -1;
+  width: 100%;
   min-width: 0;
+  display: flex;
+  align-self: end;
+  justify-self: stretch;
   align-items: center;
   justify-content: flex-end;
   border-top: 0;
   padding-top: 0;
 }
 
-.attachment-editor-list.is-card .attachment-card-footer {
-  grid-column: 1 / -1;
-}
-
 .attachment-card-actions {
-  width: auto;
+  display: flex;
+  width: max-content;
   max-width: 100%;
   margin-left: auto;
   align-items: center;
@@ -517,10 +517,6 @@ body,
 .attachment-card-actions .attachment-actions {
   max-width: 100%;
   justify-content: flex-end;
-}
-
-.attachment-card-actions .attachment-actions {
-  flex: 0 0 auto;
   flex-wrap: nowrap;
 }
 
@@ -533,20 +529,14 @@ body,
   overflow: visible;
 }
 
-@media (max-width: 900px) {
-  .attachment-card-footer {
-    grid-column: 1 / -1;
-  }
-
-  .attachment-card-actions,
-  .attachment-card-actions .attachment-actions {
-    flex-wrap: wrap;
-  }
-}
-
 @media (max-width: 640px) {
   .attachment-card-actions {
     width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .attachment-card-actions .attachment-actions {
+    flex-wrap: wrap;
   }
 }
 /* FILE_CARD_ACTIONS_END */

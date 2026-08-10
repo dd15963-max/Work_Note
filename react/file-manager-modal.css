@@ -369,3 +369,32 @@ body.file-modal-open .file-preview-overlay {
     font-size: 18px;
   }
 }
+
+/* FILE_CARD_CORNER_ACTIONS_START */
+.inline-file-panel .attachment-card-footer,
+.sales-detail-panel.file-modal-panel .attachment-card-footer {
+  grid-column: 2;
+  width: 100%;
+  min-width: 0;
+  align-self: end;
+  justify-self: stretch;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.inline-file-panel .attachment-card-actions,
+.sales-detail-panel.file-modal-panel .attachment-card-actions {
+  width: max-content;
+  max-width: 100%;
+  margin-left: auto;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+@media (max-width: 1080px) {
+  .inline-file-panel .attachment-card-footer,
+  .sales-detail-panel.file-modal-panel .attachment-card-footer {
+    grid-column: 1 / -1;
+  }
+}
+/* FILE_CARD_CORNER_ACTIONS_END */

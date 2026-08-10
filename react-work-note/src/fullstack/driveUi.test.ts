@@ -17,6 +17,8 @@ const oauthCallbackSource = readFileSync(new URL("../../../app/api/google-drive/
 const driveStatusSource = readFileSync(new URL("../../../app/api/google-drive/status/route.ts", import.meta.url), "utf8");
 const appCss = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const uxRefreshCss = readFileSync(new URL("../ux-refresh.css", import.meta.url), "utf8");
+const fileManagerCss = readFileSync(new URL("../../../react/file-manager-modal.css", import.meta.url), "utf8");
+const pagesFileManagerCss = readFileSync(new URL("../../public/file-manager-modal.css", import.meta.url), "utf8");
 
 describe("Google Drive UI requirements", () => {
   it("[21] renders Google Drive folder opening as a formal secure button", () => {
@@ -50,7 +52,11 @@ describe("Google Drive UI requirements", () => {
     expect(appSource.slice(managerStart, managerEnd)).not.toContain('className="file-bulk-move"');
     expect(appSource.slice(editorStart, editorEnd)).not.toContain('className="attachment-move-row"');
     expect(uxRefreshCss).toContain("FILE_CARD_ACTIONS_START");
-    expect(uxRefreshCss).toMatch(/\.attachment-card-footer\s*\{[\s\S]*grid-column:\s*3 \/ -1/);
+    expect(uxRefreshCss).toMatch(/\.attachment-card-footer\s*\{[\s\S]*grid-column:\s*1 \/ -1/);
+    for (const css of [fileManagerCss, pagesFileManagerCss]) {
+      expect(css).toContain("FILE_CARD_CORNER_ACTIONS_START");
+      expect(css).toMatch(/\.inline-file-panel \.attachment-card-footer,[\s\S]*grid-column:\s*2/);
+    }
     expect(uxRefreshCss).toMatch(/\.attachment-card-actions\s*\{[\s\S]*justify-content:\s*flex-end/);
   });
 
@@ -75,10 +81,8 @@ describe("Google Drive UI requirements", () => {
     const end = appSource.indexOf("function createAttachmentHandlers(", start);
     const editor = appSource.slice(start, end);
     const gridStart = editor.indexOf('className="attachment-edit-grid"');
-    const memoStart = editor.indexOf('className="attachment-edit-field is-memo"');
     const footerStart = editor.indexOf('className="attachment-card-footer"');
-    expect(gridStart).toBeLessThan(memoStart);
-    expect(memoStart).toBeLessThan(footerStart);
+    expect(gridStart).toBeLessThan(footerStart);
     expect(footerStart).toBeLessThan(
       editor.lastIndexOf("<AttachmentActions"),
     );
@@ -105,6 +109,16 @@ describe("Google Drive UI requirements", () => {
     expect(driveStatusSource.indexOf("quota = await driveStorageQuota(email)"))
       .toBeLessThan(driveStatusSource.indexOf("await markDriveReconnectReady(email)"));
     expect(appSource).toContain("void reconnectGoogleDrive(window.location.pathname");
+  });
+
+  it("routes failed local files through server recovery before restoring a missing R2 source", () => {
+    const start = appSource.indexOf("async function retryAttachmentRecords(");
+    const end = appSource.indexOf("async function putAttachmentRecord", start);
+    const retrySource = appSource.slice(start, end);
+    expect(retrySource.indexOf("retryRemoteAttachments([id]"))
+      .toBeLessThan(retrySource.indexOf("uploadRemoteAttachment(local!"));
+    expect(retrySource).toContain("R2_SOURCE_MISSING");
+    expect(retrySource).toContain("R2_UPLOAD_EXPIRED");
   });
 
   it("keeps reconnect and disconnect controls visible outside advanced Drive management", () => {
