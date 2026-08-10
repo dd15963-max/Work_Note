@@ -1,4 +1,4 @@
-import { getDriveConnection } from "@/app/google-drive/auth";
+import { getDriveConnection, markDriveReconnectReady } from "@/app/google-drive/auth";
 import { driveStorageQuota, rootFolderUrl } from "@/app/google-drive/files";
 import {
   latestTimestamp,
@@ -20,6 +20,14 @@ export async function GET() {
     await ensureSchema();
     const connection = await getDriveConnection(email);
     if (!connection) return Response.json({ connected: false, provider: "google_drive" });
+
+    let quota: Record<string, unknown> | null = null;
+    try {
+      quota = await driveStorageQuota(email);
+      await markDriveReconnectReady(email);
+    } catch {
+      quota = null;
+    }
 
     const [attachmentResult, folderResult, operationResult] = await Promise.allSettled([
       database().prepare(`SELECT storage_provider, drive_file_id,
@@ -68,8 +76,6 @@ export async function GET() {
     );
     if (lastDriveSyncAt) metrics.lastDriveSyncAt = lastDriveSyncAt;
 
-    let quota: Record<string, unknown> | null = null;
-    try { quota = await driveStorageQuota(email); } catch { quota = null; }
     return Response.json({
       connected: true,
       provider: "google_drive",

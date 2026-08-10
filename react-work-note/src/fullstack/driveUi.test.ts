@@ -14,6 +14,7 @@ const fullstackSource = readFileSync(new URL("./FullstackRoot.tsx", import.meta.
 const repositorySource = readFileSync(new URL("./repository.ts", import.meta.url), "utf8");
 const driveAuthSource = readFileSync(new URL("../../../app/google-drive/auth.ts", import.meta.url), "utf8");
 const oauthCallbackSource = readFileSync(new URL("../../../app/api/google-drive/oauth/callback/route.ts", import.meta.url), "utf8");
+const driveStatusSource = readFileSync(new URL("../../../app/api/google-drive/status/route.ts", import.meta.url), "utf8");
 const appCss = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const uxRefreshCss = readFileSync(new URL("../ux-refresh.css", import.meta.url), "utf8");
 
@@ -98,6 +99,8 @@ describe("Google Drive UI requirements", () => {
     expect(driveAuthSource).toContain("error_code = '', user_message = ''");
     expect(oauthCallbackSource.indexOf("await ensureRootFolders(state.userEmail)"))
       .toBeLessThan(oauthCallbackSource.indexOf("await markDriveReconnectReady(state.userEmail)"));
+    expect(driveStatusSource.indexOf("quota = await driveStorageQuota(email)"))
+      .toBeLessThan(driveStatusSource.indexOf("await markDriveReconnectReady(email)"));
     expect(appSource).toContain("void reconnectGoogleDrive(window.location.pathname");
   });
 
