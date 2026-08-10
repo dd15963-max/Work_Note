@@ -83,6 +83,21 @@ describe("Google Drive UI requirements", () => {
     expect(fullstackSource).toContain('aria-controls="drive-sync-retry-log"');
     expect(fullstackSource).toContain('driveLogsOpen ? "로그 접기" : "동기화·재시도 로그 보기"');
   });
+  it("keeps reconnect and disconnect controls visible outside advanced Drive management", () => {
+    const cardStart = fullstackSource.indexOf('id="server-drive-settings-card"');
+    const managementStart = fullstackSource.indexOf('className="settings-disclosure drive-management-disclosure"', cardStart);
+    const visibleDriveControls = fullstackSource.slice(cardStart, managementStart);
+    const advancedDriveControls = fullstackSource.slice(managementStart, fullstackSource.indexOf("</details>", managementStart));
+
+    expect(cardStart).toBeGreaterThan(-1);
+    expect(managementStart).toBeGreaterThan(cardStart);
+    expect(visibleDriveControls).toContain("Google Drive 다시 연결");
+    expect(visibleDriveControls).toContain("연결 해제");
+    expect(visibleDriveControls).toContain("기존 파일과 폴더는 유지됩니다.");
+    expect(advancedDriveControls).not.toContain('run("disconnect"');
+    expect(uxRefreshCss).toContain("DRIVE_CONNECTION_ACTIONS_START");
+  });
+
   it("[24] removes the fixed footer and integrates data controls into settings", () => {
     expect(appSource).not.toContain('<footer className="utility-footer"');
     expect(appSource).toContain("업무 데이터");

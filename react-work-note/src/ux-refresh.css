@@ -290,6 +290,51 @@ body,
   color: var(--text, #344054);
 }
 
+/* DRIVE_CONNECTION_ACTIONS_START */
+.drive-connection-panel {
+  border: 1px solid #dbe4ef;
+  background: #f8fafc;
+  border-radius: 10px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 13px;
+}
+
+.drive-connection-panel.is-connected {
+  border-color: #bddcca;
+  background: #f3fbf6;
+}
+
+.drive-connection-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.drive-connection-copy strong {
+  color: #17243a;
+  overflow-wrap: anywhere;
+}
+
+.drive-connection-copy p {
+  color: #53647d;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.drive-connection-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.drive-connection-actions button {
+  justify-content: center;
+  min-height: 38px;
+}
+
 .drive-log-disclosure {
   max-height: min(44vh, 440px);
   overflow: auto;
@@ -408,6 +453,15 @@ body,
 
   .settings-disclosure > summary {
     align-items: flex-start;
+  }
+
+  .drive-connection-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .drive-connection-actions button {
+    width: 100%;
   }
 }
 

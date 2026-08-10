@@ -646,13 +646,32 @@ function ServerSettings({
               <DataStatusBadge tone={driveTone} label={!drive ? "확인 전" : drive.connected ? "정상" : "연결 끊김"} />
             </div>
             {!drive && <p>Google Drive 연결 상태를 확인하고 있습니다.</p>}
-            {drive && !drive.connected && (
-              <>
-                <p>{drive.error || "Google Drive를 연결하면 첨부 원본을 개인 Drive에 비공개로 동기화할 수 있습니다."}</p>
-                <button type="button" className="primary" onClick={() => connectGoogleDrive("/")}>
-                  Google Drive 연결
-                </button>
-              </>
+            {drive && (
+              <div className={`drive-connection-panel ${drive.connected ? "is-connected" : "is-disconnected"}`}>
+                <div className="drive-connection-copy">
+                  <strong>{drive.connected ? `연결됨 · ${drive.googleEmail || "Google 계정"}` : "Google Drive 연결 필요"}</strong>
+                  <p>
+                    {drive.connected
+                      ? "권한이 만료되었거나 저장이 실패하면 다시 연결해 새 인증을 받을 수 있습니다. 기존 파일과 폴더는 유지됩니다."
+                      : drive.error || "Google Drive를 연결하면 첨부 원본을 개인 Drive에 비공개로 동기화할 수 있습니다."}
+                  </p>
+                </div>
+                <div className="drive-connection-actions" aria-label="Google Drive 연결 관리">
+                  <button type="button" className="primary" disabled={Boolean(busy)} onClick={() => connectGoogleDrive("/")}>
+                    <RefreshCw size={16} /> {drive.connected ? "Google Drive 다시 연결" : "Google Drive 연결"}
+                  </button>
+                  {drive.connected && (
+                    <button type="button" className="danger-button" disabled={Boolean(busy)} onClick={() => run("disconnect", async () => {
+                      if (!confirm("Google Drive 연결을 해제할까요? 기존 파일은 Drive와 Work Note에 그대로 유지됩니다.")) return;
+                      await disconnectGoogleDrive();
+                      await refreshDrive();
+                      setDriveMessage("Google Drive 연결을 해제했습니다.");
+                    })}>
+                      연결 해제
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
             {drive && (
               <>
@@ -788,14 +807,6 @@ function ServerSettings({
                       }}
                     >
                       {driveLogsOpen ? "로그 접기" : "동기화·재시도 로그 보기"}
-                    </button>
-                    <button type="button" className="danger-button" disabled={Boolean(busy)} onClick={() => run("disconnect", async () => {
-                      if (!confirm("Google Drive 연결을 해제할까요? 기존 파일은 Drive와 Work Note에 그대로 유지됩니다.")) return;
-                      await disconnectGoogleDrive();
-                      await refreshDrive();
-                      setDriveMessage("Google Drive 연결을 해제했습니다.");
-                    })}>
-                      연결 해제
                     </button>
                     </div>
                   </details>
