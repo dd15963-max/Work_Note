@@ -12,6 +12,7 @@ import {
 const appSource = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
 const fullstackSource = readFileSync(new URL("./FullstackRoot.tsx", import.meta.url), "utf8");
 const appCss = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+const uxRefreshCss = readFileSync(new URL("../ux-refresh.css", import.meta.url), "utf8");
 
 describe("Google Drive UI requirements", () => {
   it("[21] renders Google Drive folder opening as a formal secure button", () => {
@@ -26,17 +27,32 @@ describe("Google Drive UI requirements", () => {
     expect(html).toContain("Google Drive 폴더 열기");
   });
 
-  it("[22] renders the file-card Drive action as a button after download", () => {
+  it("[22] orders file-card actions as download, preview, then Drive", () => {
     const start = appSource.indexOf("function AttachmentActions(");
     const end = appSource.indexOf("function isPreviewableAttachment(", start);
     const attachmentActions = appSource.slice(start, end);
     expect(start).toBeGreaterThan(-1);
     expect(attachmentActions).toContain("<DriveOpenButton");
-    expect(attachmentActions).toContain('label="Drive에서 열기"');
-    expect(attachmentActions.indexOf('title="다운로드"')).toBeLessThan(
-      attachmentActions.indexOf("<DriveOpenButton"),
-    );
+    expect(attachmentActions.indexOf("<Download")).toBeLessThan(attachmentActions.indexOf("<Eye"));
+    expect(attachmentActions.indexOf("<Eye")).toBeLessThan(attachmentActions.indexOf("<DriveOpenButton"));
     expect(attachmentActions).toContain("disabledReason=");
+  });
+
+  it("removes cross-record file moves and right-aligns all remaining actions", () => {
+    const managerStart = appSource.indexOf("function SalesFileManager(");
+    const managerEnd = appSource.indexOf("function attachmentTypeGroup(", managerStart);
+    const editorStart = appSource.indexOf("function AttachmentMetaEditor(");
+    const editorEnd = appSource.indexOf("function createAttachmentHandlers(", editorStart);
+    expect(appSource.slice(managerStart, managerEnd)).not.toContain('className="file-bulk-move"');
+    expect(appSource.slice(editorStart, editorEnd)).not.toContain('className="attachment-move-row"');
+    expect(uxRefreshCss).toContain("FILE_CARD_ACTIONS_START");
+    expect(uxRefreshCss).toMatch(/\.attachment-card-actions\s*\{[\s\S]*justify-content:\s*flex-end/);
+  });
+
+  it("keeps settlement billing and delete controls inside separate grid columns", () => {
+    expect(appSource).toContain('className="danger-button payment-row-delete"');
+    expect(uxRefreshCss).toContain("SETTLEMENT_ROW_ACTIONS_START");
+    expect(uxRefreshCss).toMatch(/\.payment-row > \.invoice-row-toggle,[\s\S]*min-width:\s*0/);
   });
 
   it("[23] keeps mobile file fields and actions from overlapping or forcing horizontal scroll", () => {

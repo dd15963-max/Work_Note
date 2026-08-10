@@ -433,3 +433,55 @@ body,
     height: 17px;
   }
 }
+
+/* FILE_CARD_ACTIONS_START */
+.attachment-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.attachment-card-actions {
+  width: 100%;
+  margin-left: auto;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.attachment-card-actions .attachment-edit-actions,
+.attachment-card-actions .attachment-actions {
+  max-width: 100%;
+  justify-content: flex-end;
+}
+
+.attachment-card-actions .attachment-actions {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+}
+
+.attachment-card-actions button,
+.attachment-card-actions .drive-open-button,
+.attachment-card-actions .drive-open-button-wrap {
+  flex: 0 0 auto;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: visible;
+}
+/* FILE_CARD_ACTIONS_END */
+
+/* SETTLEMENT_ROW_ACTIONS_START */
+.payment-row > .invoice-row-toggle,
+.payment-row > .payment-row-delete {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.payment-row > .invoice-row-toggle {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* SETTLEMENT_ROW_ACTIONS_END */
