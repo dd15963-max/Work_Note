@@ -4,6 +4,7 @@ import {
   clearRemoteRuntime,
   initializeRemoteRuntime,
   retryRemoteAttachments,
+  uploadRemoteAttachment,
   uploadSourceParts,
 } from "./repository";
 import {
@@ -303,6 +304,96 @@ describe("Google Drive large-file recovery", () => {
     }
   });
 
+  it("keeps R2 source transfers concurrent, serializes Drive phases, and coalesces the same file", async () => {
+    let activeSourceTransfers = 0;
+    let maxActiveSourceTransfers = 0;
+    let activeDrivePhases = 0;
+    let maxActiveDrivePhases = 0;
+    const initCounts = new Map<string, number>();
+    const driveOrder: string[] = [];
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/files/upload?action=init") {
+        const body = JSON.parse(String(init?.body || "{}")) as { id: string };
+        initCounts.set(body.id, (initCounts.get(body.id) || 0) + 1);
+        return Response.json({
+          ok: true,
+          sessionId: "session-" + body.id,
+          operationToken: "operation-" + body.id,
+          sourceStatus: "uploading",
+          status: "uploading",
+          chunkSize: SAFE_UPLOAD_CHUNK_BYTES,
+          nextOffset: 0,
+          totalBytes: 1,
+        });
+      }
+      if (url.startsWith("/api/files/upload?action=part")) {
+        activeSourceTransfers += 1;
+        maxActiveSourceTransfers = Math.max(maxActiveSourceTransfers, activeSourceTransfers);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        activeSourceTransfers -= 1;
+        const sessionId = new URL(url, "https://work-note.test").searchParams.get("sessionId") || "";
+        return Response.json({
+          ok: true, sessionId, sourceStatus: "available", status: "pending",
+          nextOffset: 1, processedBytes: 1, totalBytes: 1,
+        });
+      }
+      if (url === "/api/files/upload?action=drive-init") {
+        const body = JSON.parse(String(init?.body || "{}")) as { sessionId: string };
+        activeDrivePhases += 1;
+        maxActiveDrivePhases = Math.max(maxActiveDrivePhases, activeDrivePhases);
+        driveOrder.push(body.sessionId);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        activeDrivePhases -= 1;
+        return Response.json({
+          ok: true, sessionId: body.sessionId, sourceStatus: "available", status: "synced",
+          processedBytes: 1, totalBytes: 1,
+        });
+      }
+      const metadata = /^\/api\/files\?id=([^&]+)&metadata=1$/.exec(url);
+      if (metadata) {
+        const id = decodeURIComponent(metadata[1]);
+        return Response.json({
+          id, fileName: id + ".pdf", fileSize: 1, syncStatus: "synced",
+          sourceStatus: "available", driveFileId: "drive-" + id,
+        });
+      }
+      throw new Error("unexpected fetch: " + url);
+    });
+    await installRemoteRepositoryRuntime(fetchMock);
+
+    const first = {
+      id: "batch-a", fileName: "batch-a.pdf", fileType: "application/pdf",
+      fileSize: 1, blob: new Blob([new Uint8Array([1])], { type: "application/pdf" }),
+    };
+    const second = {
+      id: "batch-b", fileName: "batch-b.pdf", fileType: "application/pdf",
+      fileSize: 1, blob: new Blob([new Uint8Array([2])], { type: "application/pdf" }),
+    };
+    const results = await Promise.all([
+      uploadRemoteAttachment(first),
+      uploadRemoteAttachment(first),
+      uploadRemoteAttachment(second),
+    ]);
+
+    expect(initCounts).toEqual(new Map([["batch-a", 1], ["batch-b", 1]]));
+    expect(maxActiveSourceTransfers).toBe(2);
+    expect(maxActiveDrivePhases).toBe(1);
+    expect(driveOrder).toEqual(["session-batch-a", "session-batch-b"]);
+    expect(results[0]).toBe(results[1]);
+    expect(results.every((record) => record.syncStatus === "synced")).toBe(true);
+  });
+
+  it("classifies Drive folder placement contention as automatically recoverable", () => {
+    const failure = classifyUploadError(
+      new Error("DUPLICATE_OPERATION: Google Drive 폴더 작업이 진행 중입니다."),
+      "drive_init",
+    );
+    expect(failure.code).toBe("DUPLICATE_OPERATION");
+    expect(failure.retryable).toBe(true);
+    expect(failure.autoRecoverable).toBe(true);
+  });
   it("[20] production 일괄 재시도는 정상 synced 파일을 실제 retry endpoint에서 제외한다", async () => {
     let retryMetadataReads = 0;
     const retryRequests: Array<Record<string, unknown>> = [];

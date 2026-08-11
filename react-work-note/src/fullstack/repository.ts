@@ -166,6 +166,8 @@ const ATTACHMENT_DB_VERSION = 1;
 let user: SiteUser | null = null;
 let flushing: Promise<void> | null = null;
 let flushingAttachments: Promise<void> | null = null;
+let driveUploadQueueTail: Promise<void> = Promise.resolve();
+const attachmentUploadPromises = new Map<string, Promise<AttachmentRecord>>();
 let onlineListenerAttached = false;
 
 function emptyData(): WorkNoteData {
@@ -271,6 +273,8 @@ export function initializeRemoteRuntime(nextUser: SiteUser) {
 
 export function clearRemoteRuntime() {
   user = null;
+  driveUploadQueueTail = Promise.resolve();
+  attachmentUploadPromises.clear();
   updateSyncState({
     mode: "disabled",
     message: "로그아웃",
@@ -733,7 +737,13 @@ export async function completeDriveUpload(
   });
 }
 
-export async function uploadRemoteAttachment(
+function queueDriveUploadPhase<T>(operation: () => Promise<T>): Promise<T> {
+  const queued = driveUploadQueueTail.then(operation, operation);
+  driveUploadQueueTail = queued.then(() => undefined, () => undefined);
+  return queued;
+}
+
+async function uploadRemoteAttachmentOnce(
   record: AttachmentRecord,
   migrationBatchId = "",
   onProgress?: AttachmentProgressListener,
@@ -809,14 +819,16 @@ export async function uploadRemoteAttachment(
         sourceStatus: sourceState.sourceStatus || "uploading",
       });
     }
-    reportAttachmentProgress(record.id, fileName, {
-      stage: "creating_drive_session",
-      processedBytes: fileSize,
-      totalBytes: fileSize,
-      progress: 100,
-    }, onProgress);
-    const drive = await uploadJson("drive-init", { sessionId: session.sessionId });
-    await completeDriveUpload(record.id, fileName, session.sessionId, fileSize, onProgress, drive);
+    await queueDriveUploadPhase(async () => {
+      reportAttachmentProgress(record.id, fileName, {
+        stage: "creating_drive_session",
+        processedBytes: fileSize,
+        totalBytes: fileSize,
+        progress: 100,
+      }, onProgress);
+      const drive = await uploadJson("drive-init", { sessionId: session.sessionId });
+      await completeDriveUpload(record.id, fileName, session.sessionId, fileSize, onProgress, drive);
+    });
   } catch (caught) {
     if (caught instanceof RepositoryError) applySourceStatusFallback(caught, sourceReady);
     throw caught;
@@ -839,6 +851,24 @@ export async function uploadRemoteAttachment(
     uploadSessionId: session.sessionId,
     operationToken: session.operationToken || record.operationToken,
   };
+}
+
+export function uploadRemoteAttachment(
+  record: AttachmentRecord,
+  migrationBatchId = "",
+  onProgress?: AttachmentProgressListener,
+): Promise<AttachmentRecord> {
+  if (!record.id) return uploadRemoteAttachmentOnce(record, migrationBatchId, onProgress);
+  const existing = attachmentUploadPromises.get(record.id);
+  if (existing) return existing;
+  const tracked = uploadRemoteAttachmentOnce(record, migrationBatchId, onProgress)
+    .finally(() => {
+      if (attachmentUploadPromises.get(record.id) === tracked) {
+        attachmentUploadPromises.delete(record.id);
+      }
+    });
+  attachmentUploadPromises.set(record.id, tracked);
+  return tracked;
 }
 
 export function queueRemoteAttachmentUpload(record: AttachmentRecord) {
@@ -1147,19 +1177,22 @@ export async function retryRemoteAttachments(
         totalBytes: Number(metadata.fileSize || 0),
         progress: 0,
       });
-      const state = await uploadJson("retry", {
-        sessionId: metadata.uploadSessionId,
-        attachmentId: id,
+      const retryMetadata = metadata;
+      await queueDriveUploadPhase(async () => {
+        const state = await uploadJson("retry", {
+          sessionId: retryMetadata.uploadSessionId,
+          attachmentId: id,
+        });
+        const fileName = String(retryMetadata.fileName || retryMetadata.name || "attachment");
+        await completeDriveUpload(
+          id,
+          fileName,
+          state.sessionId,
+          Number(retryMetadata.fileSize || state.totalBytes || 0),
+          onProgress,
+          state,
+        );
       });
-      const fileName = String(metadata.fileName || metadata.name || "attachment");
-      await completeDriveUpload(
-        id,
-        fileName,
-        state.sessionId,
-        Number(metadata.fileSize || state.totalBytes || 0),
-        onProgress,
-        state,
-      );
       removePendingAttachment(id);
       metadata = await getRemoteAttachmentMetadata(id) || metadata;
       result.succeeded += 1;

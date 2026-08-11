@@ -259,7 +259,7 @@ async function acquireLock(userEmail: string, lockKey: string): Promise<string> 
     if (Number((result.meta as { changes?: number } | undefined)?.changes || 0) > 0) return token;
     await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
   }
-  throw new Error("Google Drive 폴더 작업이 진행 중입니다. 잠시 후 다시 시도해 주세요.");
+  throw new Error("DUPLICATE_OPERATION: Google Drive 폴더 작업이 진행 중입니다. 잠시 후 자동으로 다시 시도합니다.");
 }
 
 async function releaseLock(userEmail: string, lockKey: string, token: string) {
