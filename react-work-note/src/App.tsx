@@ -63,6 +63,15 @@ import {
   normalizeGeneralMemo,
   sortGeneralMemosByUpdatedAt
 } from "./generalMemo";
+import {
+  collectRelatedContactOptions,
+  defaultHeadquartersCompanyId,
+  migrateCompanyContactStructure,
+  normalizeCompanyType,
+  relatedContactIds,
+  resolveRelatedContacts,
+  type CompanyType,
+} from "./contactStructure";
 
 type PortalId = "schedule" | "memo" | "company" | "sales" | "settlement" | "output" | "other" | "account";
 type CalendarMode = "month" | "week";
@@ -139,6 +148,7 @@ type UnifiedWorkItem = {
   title: string;
   contact: string;
   assignee: string;
+  relatedAssignees: string[];
   searchText: string;
   hasAttachments: boolean;
   status: string;
@@ -253,7 +263,7 @@ const SALES_SORT_OPTIONS: Array<{ id: SalesSortKey; label: string }> = [
   { id: "priority", label: "중요도순" },
   { id: "updated", label: "최종 수정일" },
   { id: "nextContact", label: "다음 연락일" },
-  { id: "company", label: "고객사명" }
+  { id: "company", label: "업체명" }
 ];
 
 const DEFAULT_TASK_FILTERS: TaskFilters = {
@@ -342,7 +352,7 @@ function readTaskDetailFromLocation(): { portal: UnifiedWorkItem["portal"]; id: 
 }
 export function App() {
   const [activePortal, setActivePortal] = useState<PortalId>("schedule");
-  const [companyView, setCompanyView] = useState<"customer" | "headquarters">("customer");
+  const [companyView, setCompanyView] = useState<CompanyType>("customer");
   const [tasksOpen, setTasksOpen] = useState(() => isTasksLocation());
   const [taskFilters, setTaskFilters] = useState<TaskFilters>(() => readTaskFiltersFromLocation());
   const [query, setQuery] = useState("");
@@ -1217,7 +1227,7 @@ export function BackupSettingsPanel({
   };
 
   const resetWorkspace = async () => {
-    const ok = confirm("전체 메모장을 초기화할까요?\n\n영업, 정산, 출력, 기타, 고객사, 본사 담당자, 계정 기록과 이 브라우저에 저장된 첨부 원본 파일이 모두 삭제됩니다.\n필요한 자료가 있으면 먼저 전체 ZIP 백업을 만들어 주세요.");
+    const ok = confirm("전체 메모장을 초기화할까요?\n\n영업, 정산, 출력, 기타, 고객사, 협력사, 본사 담당자, 계정 기록과 이 브라우저에 저장된 첨부 원본 파일이 모두 삭제됩니다.\n필요한 자료가 있으면 먼저 전체 ZIP 백업을 만들어 주세요.");
     if (!ok) return;
 
     setBusy("전체 초기화 중");
@@ -1603,7 +1613,7 @@ function UnifiedTasksPage({
     [workItems, filters]
   );
   const assignees = useMemo(
-    () => [...new Set(workItems.map((item) => item.assignee.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko")),
+    () => [...new Set(workItems.flatMap((item) => item.relatedAssignees).map((name) => name.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko")),
     [workItems]
   );
   const completedCount = filteredItems.filter((item) => item.isCompleted).length;
@@ -1732,7 +1742,7 @@ function TaskFilterPanel({
         <div className="task-filter-select-grid">
           <label><span>상태</span><select value={filters.status} onChange={(event) => update({ status: event.target.value as TaskStatusFilter })}><option value="all">전체</option><option value="active">진행 중</option><option value="completed">완료</option><option value="incomplete">미완료</option><option value="hold">보류</option></select></label>
           <label><span>중요 업무</span><select value={filters.importantOnly ? "important" : "all"} onChange={(event) => update({ importantOnly: event.target.value === "important" })}><option value="all">전체</option><option value="important">중요 업무만</option></select></label>
-          {assignees.length > 0 && <label><span>담당자</span><select value={filters.assignee} onChange={(event) => update({ assignee: event.target.value })}><option value="">전체</option>{assignees.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>}
+          {assignees.length > 0 && <label><span>관련 담당자</span><select value={filters.assignee} onChange={(event) => update({ assignee: event.target.value })}><option value="">전체</option>{assignees.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>}
           <label><span>정렬</span><select value={filters.sort} onChange={(event) => update({ sort: event.target.value as TaskSortKey })}><option value="default">기본 정렬</option><option value="dateAsc">날짜 빠른 순</option><option value="dateDesc">날짜 늦은 순</option><option value="recent">최근 등록 순</option><option value="oldest">오래된 등록 순</option><option value="important">중요 업무 우선</option><option value="incomplete">미완료 우선</option></select></label>
         </div>
         <div className="task-filter-sheet-actions">
@@ -1767,7 +1777,7 @@ function taskFilterChips(filters: TaskFilters): TaskFilterChip[] {
   filters.types.forEach((type) => chips.push({ id: `type-${type}`, label: taskTypeLabel(type), remove: (current) => ({ ...current, types: current.types.filter((value) => value !== type) }) }));
   if (filters.status !== "all") chips.push({ id: "status", label: `상태: ${taskStatusFilterLabel(filters.status)}`, remove: (current) => ({ ...current, status: "all" }) });
   if (filters.importantOnly) chips.push({ id: "important", label: "중요 업무", remove: (current) => ({ ...current, importantOnly: false }) });
-  if (filters.assignee) chips.push({ id: "assignee", label: `담당자: ${filters.assignee}`, remove: (current) => ({ ...current, assignee: "" }) });
+  if (filters.assignee) chips.push({ id: "assignee", label: `관련 담당자: ${filters.assignee}`, remove: (current) => ({ ...current, assignee: "" }) });
   if (filters.query) chips.push({ id: "query", label: `검색: ${filters.query}`, remove: (current) => ({ ...current, query: "" }) });
   if (filters.sort !== "default") chips.push({ id: "sort", label: taskSortLabel(filters.sort), remove: (current) => ({ ...current, sort: "default" }) });
   return chips;
@@ -1790,7 +1800,7 @@ function UnifiedTaskCard({
         <span className={`work-type-badge ${item.portal}`}>{item.badge}</span>
         <span className="schedule-task-card-copy">
           <strong>{item.title}</strong>
-          <small>{joinParts([item.subtype, item.contact], " · ") || "담당자 미지정"}</small>
+          <small>{joinParts([item.subtype, item.contact, item.relatedAssignees.length ? `관련: ${item.relatedAssignees.join(", ")}` : ""], " · ") || "관련 정보 없음"}</small>
           {item.memo && <p>{summarizeForList(item.memo, 130)}</p>}
         </span>
         <span className="schedule-task-card-meta">
@@ -1867,7 +1877,7 @@ function describeTaskFilters(filters: TaskFilters): string {
   if (filters.types.length) parts.push(filters.types.map(taskTypeLabel).join(", "));
   if (filters.importantOnly) parts.push("중요");
   if (filters.status !== "all") parts.push(taskStatusFilterLabel(filters.status));
-  if (filters.assignee) parts.push(`${filters.assignee} 담당`);
+  if (filters.assignee) parts.push(`${filters.assignee} 관련`);
   parts.push("업무를 확인합니다.");
   return parts.join(" ");
 }
@@ -1901,7 +1911,7 @@ function filterUnifiedTasks(items: UnifiedWorkItem[], filters: TaskFilters): Uni
     if (filters.status === "hold" && item.statusGroup !== "hold") return false;
     if (filters.status === "active" && !["pending", "active"].includes(item.statusGroup)) return false;
     if (filters.importantOnly && !item.isImportant) return false;
-    if (filters.assignee && item.assignee !== filters.assignee) return false;
+    if (filters.assignee && !item.relatedAssignees.includes(filters.assignee)) return false;
     if (query && !item.searchText.toLocaleLowerCase("ko").includes(query)) return false;
     return true;
   });
@@ -2062,8 +2072,8 @@ function CompanyPortal({
 }: {
   data: WorkNoteData;
   query: string;
-  view: "customer" | "headquarters";
-  setView: (view: "customer" | "headquarters") => void;
+  view: CompanyType;
+  setView: (view: CompanyType) => void;
   onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
 }) {
   return (
@@ -2077,15 +2087,18 @@ function CompanyPortal({
           <button type="button" className={view === "customer" ? "is-active" : ""} onClick={() => setView("customer")}>
             <Building2 size={16} />고객사
           </button>
+          <button type="button" className={view === "partner" ? "is-active" : ""} onClick={() => setView("partner")}>
+            <BriefcaseBusiness size={16} />협력사
+          </button>
           <button type="button" className={view === "headquarters" ? "is-active" : ""} onClick={() => setView("headquarters")}>
             <BriefcaseBusiness size={16} />본사
           </button>
         </div>
       </section>
-      {view === "customer" ? (
-        <CustomerCompanyPortal data={data} query={query} onPersist={onPersist} />
-      ) : (
+      {view === "headquarters" ? (
         <InternalContactPortal data={data} query={query} onPersist={onPersist} />
+      ) : (
+        <CustomerCompanyPortal data={data} query={query} companyType={view} onPersist={onPersist} />
       )}
     </div>
   );
@@ -2093,10 +2106,12 @@ function CompanyPortal({
 function CustomerCompanyPortal({
   data,
   query,
+  companyType,
   onPersist
 }: {
   data: WorkNoteData;
   query: string;
+  companyType: Exclude<CompanyType, "headquarters">;
   onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
 }) {
   const [editingCompany, setEditingCompany] = useState<AnyRecord | null>(null);
@@ -2110,9 +2125,11 @@ function CustomerCompanyPortal({
   });
   const companies = data.companies
     .map((company, originalIndex) => ({ company, originalIndex, id: recordId(company, originalIndex) }))
+    .filter(({ company }) => normalizeCompanyType(company) === companyType)
     .filter(({ company }) => matchesRecord(company, query));
+  const companyTypeLabel = companyType === "partner" ? "협력사" : "고객사";
   const saveCompany = (draft: AnyRecord) => {
-    const normalized = normalizeCompanyDraft(draft);
+    const normalized = normalizeCompanyDraft({ ...draft, companyType });
     const normalizedName = firstText(normalized, ["name"]);
     const normalizedId = firstText(normalized, ["id"]);
     if (!normalizedName) {
@@ -2152,6 +2169,7 @@ function CustomerCompanyPortal({
     const name = companyName(company) || "선택한 업체";
     const linkedCount = countLinkedCompanyRecords(data, id);
     const attachmentCount = asArray(company.attachments).length;
+    const removedContactIds = asArray(company.contacts).map((contact, contactIndex) => recordId(contact, contactIndex));
     const message = [
       `${name} 업체를 삭제할까요?`,
       linkedCount ? `연결된 영업/업무 ${linkedCount}건은 업체명 텍스트만 남기고 연결을 해제합니다.` : "",
@@ -2159,7 +2177,7 @@ function CustomerCompanyPortal({
     ].filter(Boolean).join("\n");
     if (!confirm(message)) return;
 
-    onPersist((current) => ({
+    onPersist((current) => clearRelatedContactLinks({
       ...current,
       companies: current.companies.filter((item, itemIndex) => recordId(item, itemIndex) !== id),
       generalMemos: clearCompanyLinks(current.generalMemos, id, name),
@@ -2168,7 +2186,7 @@ function CustomerCompanyPortal({
       settlementTasks: clearCompanyLinks(current.settlementTasks, id, name),
       outputTasks: clearCompanyLinks(current.outputTasks, id, name),
       otherTasks: clearCompanyLinks(current.otherTasks, id, name)
-    }), "업체 삭제");
+    } as WorkNoteData, removedContactIds), "업체 삭제");
   };
 
   return (
@@ -2176,13 +2194,13 @@ function CustomerCompanyPortal({
       <div className="section-title-row">
         <div>
           <p className="eyebrow">COMPANIES</p>
-          <h2>고객사 관리</h2>
+          <h2>{companyTypeLabel} 관리</h2>
         </div>
         <div className="toolbar-cluster">
           <span className="count-label">{companies.length}개</span>
-          <button type="button" onClick={() => setEditingCompany(createBlankCompany())}>
+          <button type="button" onClick={() => setEditingCompany(createBlankCompany(companyType))}>
             <Plus size={16} />
-            새 고객사
+            새 {companyTypeLabel}
           </button>
         </div>
       </div>
@@ -2280,7 +2298,7 @@ function CustomerCompanyPortal({
             </article>
           );
         })}
-        {!companies.length && <EmptyState title="고객사 없음" detail="검색 조건에 맞는 고객사가 없습니다." />}
+        {!companies.length && <EmptyState title={companyTypeLabel + " 없음"} detail={"검색 조건에 맞는 " + companyTypeLabel + "가 없습니다."} />}
       </div>
     </section>
   );
@@ -2351,15 +2369,16 @@ function InternalContactPortal({
     const id = recordId(contact, index);
     const label = internalContactLabel(contact) || "선택한 담당자";
     const linkedCount = countInternalContactLinks(data.companies, id);
-    const message = linkedCount
-      ? `${label} 담당자를 삭제할까요?\n\n고객사 담당자 연결 ${linkedCount}건도 함께 해제됩니다.`
+    const taskLinkCount = countRelatedContactLinks(data, id);
+    const message = (linkedCount || taskLinkCount)
+      ? `${label} 담당자를 삭제할까요?\n\n고객사 연결 ${linkedCount}건과 관련 업무 ${taskLinkCount}건의 연결이 함께 해제됩니다.`
       : `${label} 담당자를 삭제할까요?`;
     if (!confirm(message)) return;
-    onPersist((current) => ({
+    onPersist((current) => clearRelatedContactLinks({
       ...current,
       internalContacts: current.internalContacts.filter((item, itemIndex) => recordId(item, itemIndex) !== id),
       companies: clearInternalContactLinks(current.companies, id)
-    }), "본사 담당자 삭제");
+    } as WorkNoteData, [id]), "본사 담당자 삭제");
   };
 
   return (
@@ -2558,6 +2577,7 @@ function CompanyEditor({
   onCancel: () => void;
 }) {
   const contacts = asArray(draft.contacts);
+  const isCustomerCompany = normalizeCompanyType(draft) === "customer";
   const updateField = (key: string, value: string) => setDraft({ ...draft, [key]: value });
   const updateContact = (index: number, key: string, value: string) => {
     setDraft({
@@ -2608,7 +2628,7 @@ function CompanyEditor({
         <div className="section-title-row">
           <div>
             <p className="eyebrow">CONTACTS</p>
-            <h2>담당자</h2>
+            <h2>{isCustomerCompany ? "고객사 담당자" : "협력사 담당자"}</h2>
           </div>
           <button type="button" onClick={addContact}>
             <Plus size={16} />
@@ -2624,7 +2644,7 @@ function CompanyEditor({
               <TextField label="연락처" value={firstText(contact, ["phone"])} onChange={(value) => updateContact(index, "phone", value)} placeholder="010-0000-0000" />
               <TextField label="이메일" value={firstText(contact, ["email"])} onChange={(value) => updateContact(index, "email", value)} placeholder="name@example.com" />
               <TextField label="메모" value={firstText(contact, ["memo"])} onChange={(value) => updateContact(index, "memo", value)} placeholder="역할, 주의사항" />
-              <div className="internal-owner-selector-grid">
+              {isCustomerCompany && <div className="internal-owner-selector-grid">
                 <strong className="internal-owner-selector-title">본사 담당자 연결</strong>
                 {CUSTOMER_OWNER_FIELDS.map((field) => (
                   <InternalOwnerSelect
@@ -2635,7 +2655,7 @@ function CompanyEditor({
                     onChange={(value) => updateContact(index, field.key, value)}
                   />
                 ))}
-              </div>
+              </div>}
               <button type="button" className="danger-button contact-remove-button" onClick={() => removeContact(index)}>
                 <Trash2 size={15} />
                 삭제
@@ -2941,6 +2961,7 @@ function SalesPortal({
             draft={editingNote}
             setDraft={setEditingNote}
             data={data}
+            onPersist={onPersist}
             onSave={saveNote}
             onCancel={() => setEditingNote(null)}
             fileAvailable={data.notes.some((note, index) => recordId(note, index) === firstText(editingNote, ["id"]))}
@@ -3127,6 +3148,7 @@ function SalesPortal({
                 <SalesDetailPanel
                   note={note}
                   company={linkedCompany}
+                  data={data}
                   mode={activeMode || "detail"}
                   noteId={id}
                   onUploadAttachments={uploadSalesAttachments}
@@ -3268,6 +3290,7 @@ function MaterialSalesSection({
             draft={editingRecord}
             setDraft={setEditingRecord}
             data={data}
+            onPersist={onPersist}
             onSave={saveRecord}
             onCancel={() => setEditingRecord(null)}
             fileAvailable={data.materialSalesNotes.some((record, index) => recordId(record, index) === firstText(editingRecord, ["id"]))}
@@ -3303,6 +3326,7 @@ function MaterialSalesSection({
                   </select>
                 </div>
               </div>
+              <RelatedContactSummary record={record} data={data} />
               <div className="material-sales-summary">
                 <InfoLine label="문의일자" value={formatOptionalDate(firstText(record, ["inquiryDate"])) || "-"} />
                 <InfoLine label="판매품목" value={materialSalesItemsSummary(record) || "품목 없음"} />
@@ -3348,12 +3372,129 @@ function MaterialSalesSection({
   );
 }
 
+type RelatedContactRegistration = {
+  companyType: "headquarters" | "partner";
+  companyId: string;
+  newCompanyName: string;
+  name: string;
+  position: string;
+  phone: string;
+  email: string;
+};
+
+function persistRelatedContact(
+  onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void,
+  values: RelatedContactRegistration,
+): string {
+  const contactId = createId(values.companyType === "partner" ? "partner_contact_" : "internal_contact_");
+  onPersist((current) => {
+    const now = new Date().toISOString();
+    let companies = current.companies;
+    let companyId = values.companyId;
+    if (values.companyType === "headquarters") {
+      companyId = companyId || defaultHeadquartersCompanyId();
+      if (!companies.some((company, index) => recordId(company, index) === companyId)) {
+        companies = [...companies, { id: companyId, name: values.newCompanyName || "본사", companyType: "headquarters", status: "운영 중", contacts: [], createdAt: now, updatedAt: now }];
+      }
+      return {
+        ...current,
+        companies,
+        internalContacts: [{
+          id: contactId, companyId, companyType: "headquarters", type: "headOffice",
+          name: values.name, title: values.position, mobile: values.phone, email: values.email,
+          department: "", duties: [], memo: "", createdAt: now, updatedAt: now,
+        }, ...current.internalContacts],
+      };
+    }
+    if (!companyId && values.newCompanyName.trim()) {
+      companyId = createId("company_");
+      companies = [{ id: companyId, name: values.newCompanyName.trim(), companyType: "partner", status: "검토중", contacts: [], createdAt: now, updatedAt: now }, ...companies];
+    }
+    companies = companies.map((company, index) => recordId(company, index) === companyId ? {
+      ...company, companyType: "partner", updatedAt: now,
+      contacts: [...asArray(company.contacts), { id: contactId, name: values.name, title: values.position, phone: values.phone, email: values.email, department: "", memo: "", isPrimary: asArray(company.contacts).length === 0 }],
+    } : company);
+    return { ...current, companies };
+  }, values.companyType === "partner" ? "협력사 담당자 등록" : "본사 담당자 등록");
+  return contactId;
+}
+
+function CustomerContactFields({ draft, setDraft, visible }: { draft: AnyRecord; setDraft: (draft: AnyRecord) => void; visible: boolean }) {
+  if (!visible) return <div className="selection-summary wide-field"><strong>고객사 담당자 없음</strong><span>협력사·본사 인원은 아래 관련 담당자에서 연결합니다.</span></div>;
+  const update = (key: string, value: string) => setDraft({ ...draft, [key]: value });
+  return (
+    <>
+      <TextField label="고객사 담당자" value={firstText(draft, ["contactName"])} onChange={(value) => update("contactName", value)} placeholder="담당자명" />
+      <TextField label="고객사 담당자 연락처" value={firstText(draft, ["contactPhone"])} onChange={(value) => update("contactPhone", value)} placeholder="010-0000-0000" />
+      <TextField label="고객사 담당자 이메일" value={firstText(draft, ["contactEmail"])} onChange={(value) => update("contactEmail", value)} placeholder="name@example.com" />
+    </>
+  );
+}
+function RelatedContactPicker({ draft, setDraft, data, onPersist }: {
+  draft: AnyRecord;
+  setDraft: (draft: AnyRecord) => void;
+  data: WorkNoteData;
+  onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [registering, setRegistering] = useState(false);
+  const [form, setForm] = useState<RelatedContactRegistration>({ companyType: "headquarters", companyId: "", newCompanyName: "", name: "", position: "", phone: "", email: "" });
+  const options = useMemo(() => collectRelatedContactOptions(data), [data.companies, data.internalContacts]);
+  const selectedIds = relatedContactIds(draft);
+  const selected = selectedIds.map((id) => options.find((contact) => contact.id === id)).filter(Boolean);
+  const normalizedQuery = query.trim().toLocaleLowerCase("ko");
+  const matches = options.filter((contact) => !selectedIds.includes(contact.id) && (!normalizedQuery || [contact.name, contact.position, contact.companyName, contact.phone, contact.email].join(" ").toLocaleLowerCase("ko").includes(normalizedQuery))).slice(0, 30);
+  const companies = data.companies.filter((company) => normalizeCompanyType(company) === form.companyType);
+  const setIds = (ids: string[]) => setDraft({ ...draft, relatedContactIds: [...new Set(ids.filter(Boolean))] });
+  const register = () => {
+    if (!form.name.trim()) { alert("이름을 입력해 주세요."); return; }
+    if (form.companyType === "partner" && !form.companyId && !form.newCompanyName.trim()) { alert("소속 협력사를 선택하거나 새 협력사명을 입력해 주세요."); return; }
+    const id = persistRelatedContact(onPersist, { ...form, name: form.name.trim() });
+    setIds([...selectedIds, id]);
+    setForm({ companyType: form.companyType, companyId: "", newCompanyName: "", name: "", position: "", phone: "", email: "" });
+    setRegistering(false); setQuery("");
+  };
+  return (
+    <section className="related-contact-picker wide-field">
+      <div className="related-contact-picker-heading"><div><strong>관련 담당자</strong><small>본인은 기본 담당자이므로 표시하지 않습니다.</small></div><button type="button" onClick={() => setOpen((value) => !value)}><Plus size={15} /> 관련 담당자 추가</button></div>
+      <div className="related-contact-chips">
+        {selected.map((contact) => contact && <span key={contact.id}><b>{contact.name}{contact.position ? " " + contact.position : ""}</b><small>{contact.companyName}</small><button type="button" aria-label={contact.name + " 관련 담당자 삭제"} onClick={() => setIds(selectedIds.filter((id) => id !== contact.id))}><X size={13} /></button></span>)}
+        {!selected.length && <em>필요한 경우에만 추가하세요.</em>}
+      </div>
+      {open && <div className="related-contact-popover" role="dialog" aria-label="관련 담당자 검색 및 등록">
+        <div className="related-contact-search"><Search size={16} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="이름, 소속, 직급, 연락처 검색" /><button type="button" onClick={() => setOpen(false)} aria-label="닫기"><X size={15} /></button></div>
+        {!registering && <><div className="related-contact-results">{matches.map((contact) => <button type="button" key={contact.id} onClick={() => setIds([...selectedIds, contact.id])}><strong>{contact.name}{contact.position ? " " + contact.position : ""}</strong><span>{contact.companyName} · {contact.companyType === "partner" ? "협력사" : "본사"}</span></button>)}{!matches.length && <p>검색 결과가 없습니다.</p>}</div><button type="button" className="related-contact-new" onClick={() => setRegistering(true)}><Plus size={15} /> 새 담당자 등록</button></>}
+        {registering && <div className="related-contact-registration">
+          <label><span>구분</span><select value={form.companyType} onChange={(event) => setForm({ ...form, companyType: event.target.value as "headquarters" | "partner", companyId: "", newCompanyName: "" })}><option value="headquarters">본사</option><option value="partner">협력사</option></select></label>
+          <label><span>소속 업체</span><select value={form.companyId} onChange={(event) => setForm({ ...form, companyId: event.target.value })}><option value="">{form.companyType === "headquarters" ? "본사 (기본)" : "새 협력사 직접 입력"}</option>{companies.map((company, index) => <option key={recordId(company, index)} value={recordId(company, index)}>{companyName(company)}</option>)}</select></label>
+          {!form.companyId && form.companyType === "partner" && <label><span>새 협력사명</span><input value={form.newCompanyName} onChange={(event) => setForm({ ...form, newCompanyName: event.target.value })} /></label>}
+          <label><span>이름</span><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
+          <label><span>직급</span><input value={form.position} onChange={(event) => setForm({ ...form, position: event.target.value })} /></label>
+          <label><span>연락처</span><input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label>
+          <label><span>이메일</span><input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
+          <div className="related-contact-registration-actions"><button type="button" onClick={() => setRegistering(false)}>검색으로 돌아가기</button><button type="button" className="primary-button" onClick={register}>저장 후 추가</button></div>
+        </div>}
+      </div>}
+    </section>
+  );
+}
+function RelatedContactSummary({ record, data }: { record: AnyRecord; data: WorkNoteData }) {
+  const contacts = resolveRelatedContacts(record, data);
+  if (!contacts.length) return null;
+  return (
+    <div className="related-contact-summary" aria-label="관련 담당자">
+      <strong>관련 담당자</strong>
+      <div>{contacts.map((contact) => <span key={contact.id}>{contact.name}{contact.position ? ` ${contact.position}` : ""}<small>{contact.companyName}</small></span>)}</div>
+    </div>
+  );
+}
 function CompanyCombobox({
   draft,
   setDraft,
   companies,
   companyLabel = "업체명",
-  contactLabel = "담당자 선택",
+  contactLabel = "고객사 담당자 선택",
   allowNoCompany = false
 }: {
   draft: AnyRecord;
@@ -3366,7 +3507,7 @@ function CompanyCombobox({
   const selectedCompany = firstText(draft, ["companyId"])
     ? companies.find((company, index) => recordId(company, index) === firstText(draft, ["companyId"]))
     : null;
-  const contacts = selectedCompany ? asArray(selectedCompany.contacts) : [];
+  const contacts = selectedCompany && normalizeCompanyType(selectedCompany) === "customer" ? asArray(selectedCompany.contacts) : [];
   const selectedName = selectedCompany ? companyName(selectedCompany) : firstText(draft, ["company"]);
   const [query, setQuery] = useState(selectedName);
   const [open, setOpen] = useState(false);
@@ -3393,7 +3534,7 @@ function CompanyCombobox({
       return;
     }
     const company = companies.find((item, index) => recordId(item, index) === value) || null;
-    const primaryContact = company ? asArray(company.contacts).find((contact) => Boolean(contact.isPrimary)) || asArray(company.contacts)[0] : null;
+    const primaryContact = company && normalizeCompanyType(company) === "customer" ? asArray(company.contacts).find((contact) => Boolean(contact.isPrimary)) || asArray(company.contacts)[0] : null;
     setDraft({
       ...draft,
       companyId: value,
@@ -3492,6 +3633,7 @@ function MaterialSalesEditor({
   draft,
   setDraft,
   data,
+  onPersist,
   onSave,
   onCancel,
   onOpenFiles,
@@ -3500,6 +3642,7 @@ function MaterialSalesEditor({
   draft: AnyRecord;
   setDraft: (draft: AnyRecord) => void;
   data: WorkNoteData;
+  onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
   onSave: (draft: AnyRecord) => void;
   onCancel: () => void;
   onOpenFiles: () => void;
@@ -3524,7 +3667,7 @@ function MaterialSalesEditor({
       return;
     }
     const company = data.companies.find((item, index) => recordId(item, index) === value) || null;
-    const primaryContact = company ? asArray(company.contacts).find((contact) => Boolean(contact.isPrimary)) || asArray(company.contacts)[0] : null;
+    const primaryContact = company && normalizeCompanyType(company) === "customer" ? asArray(company.contacts).find((contact) => Boolean(contact.isPrimary)) || asArray(company.contacts)[0] : null;
     setDraft({
       ...draft,
       companyId: value,
@@ -3571,11 +3714,11 @@ function MaterialSalesEditor({
           setDraft={setDraft}
           companies={data.companies}
           companyLabel="고객/업체명"
-          contactLabel="담당자 선택"
+          contactLabel="고객사 담당자 선택"
         />
-        <TextField label="담당자" value={firstText(draft, ["contactName"])} onChange={(value) => updateField("contactName", value)} placeholder="담당자명" />
-        <TextField label="연락처" value={firstText(draft, ["contactPhone"])} onChange={(value) => updateField("contactPhone", value)} placeholder="010-0000-0000" />
-        <TextField label="이메일" value={firstText(draft, ["contactEmail"])} onChange={(value) => updateField("contactEmail", value)} placeholder="name@example.com" />
+        <CustomerContactFields draft={draft} setDraft={setDraft} visible={!selectedCompany || normalizeCompanyType(selectedCompany) === "customer"} />
+
+        <RelatedContactPicker draft={draft} setDraft={setDraft} data={data} onPersist={onPersist} />
         <TextField label="문의 일자" type="date" value={firstText(draft, ["inquiryDate"])} onChange={(value) => updateField("inquiryDate", value)} />
         <SelectField label="진행 상태" value={materialSalesStatus(draft)} onChange={(value) => updateField("status", value)} options={MATERIAL_SALES_STATUS_OPTIONS} />
         <SelectField label="견적 여부" value={materialSalesQuoteStatus(draft)} onChange={(value) => updateField("quoteStatus", value)} options={MATERIAL_QUOTE_STATUS_OPTIONS} />
@@ -3619,6 +3762,7 @@ function SalesEditor({
   draft,
   setDraft,
   data,
+  onPersist,
   onSave,
   onCancel,
   onOpenFiles,
@@ -3627,6 +3771,7 @@ function SalesEditor({
   draft: AnyRecord;
   setDraft: (draft: AnyRecord) => void;
   data: WorkNoteData;
+  onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
   onSave: (draft: AnyRecord) => void;
   onCancel: () => void;
   onOpenFiles: () => void;
@@ -3649,7 +3794,7 @@ function SalesEditor({
       return;
     }
     const company = data.companies.find((item, index) => recordId(item, index) === value) || null;
-    const primaryContact = company ? asArray(company.contacts).find((contact) => Boolean(contact.isPrimary)) || asArray(company.contacts)[0] : null;
+    const primaryContact = company && normalizeCompanyType(company) === "customer" ? asArray(company.contacts).find((contact) => Boolean(contact.isPrimary)) || asArray(company.contacts)[0] : null;
     setDraft({
       ...draft,
       companyId: value,
@@ -3690,11 +3835,11 @@ function SalesEditor({
           setDraft={setDraft}
           companies={data.companies}
           companyLabel="고객/업체명"
-          contactLabel="담당자 선택"
+          contactLabel="고객사 담당자 선택"
         />
-        <TextField label="담당자" value={firstText(draft, ["contactName"])} onChange={(value) => updateField("contactName", value)} placeholder="담당자명" />
-        <TextField label="연락처" value={firstText(draft, ["contactPhone"])} onChange={(value) => updateField("contactPhone", value)} placeholder="010-0000-0000" />
-        <TextField label="이메일" value={firstText(draft, ["contactEmail"])} onChange={(value) => updateField("contactEmail", value)} placeholder="name@example.com" />
+        <CustomerContactFields draft={draft} setDraft={setDraft} visible={!selectedCompany || normalizeCompanyType(selectedCompany) === "customer"} />
+
+        <RelatedContactPicker draft={draft} setDraft={setDraft} data={data} onPersist={onPersist} />
         <TextField label="관심 장비/소재" value={firstText(draft, ["interest"])} onChange={(value) => updateField("interest", value)} placeholder="예: IMD-C" />
         <SelectField label="구분" value={firstText(draft, ["itemCategory"]) || "장비"} onChange={(value) => updateField("itemCategory", value)} options={SALES_ITEM_CATEGORY_OPTIONS} />
         <SelectField label="진행 상태" value={salesStatus(draft) || SALES_STATUS_OPTIONS[0]} onChange={(value) => updateField("status", value)} options={SALES_STATUS_OPTIONS} />
@@ -3742,6 +3887,7 @@ function SalesEditor({
 function SalesDetailPanel({
   note,
   company,
+  data,
   mode,
   noteId,
   onUploadAttachments,
@@ -3750,6 +3896,7 @@ function SalesDetailPanel({
 }: {
   note: AnyRecord;
   company: AnyRecord | null;
+  data: WorkNoteData;
   mode: SalesPanelMode;
   noteId: string;
   onUploadAttachments: (noteId: string, files: File[], meta: { category: string; sentDate: string; memo: string }) => Promise<void>;
@@ -3761,6 +3908,8 @@ function SalesDetailPanel({
   return (
     <div className="sales-detail-panel">
       {mode === "detail" && (
+        <>
+        <RelatedContactSummary record={note} data={data} />
         <div className="sales-detail-grid">
           <section>
             <p className="eyebrow">MEMO</p>
@@ -3780,6 +3929,7 @@ function SalesDetailPanel({
             <InfoLine label="최근" value={formatOptionalDate(firstText(note, ["lastContactDate"])) || "-"} />
           </section>
         </div>
+        </>
       )}
 
       {mode === "company" && (
@@ -4392,6 +4542,7 @@ function GenericWorkPortal({
             type={type}
             title={title}
             data={data}
+            onPersist={onPersist}
             focusTaxInvoiceItemId={focusTarget?.portal === type ? focusTarget.taxInvoiceItemId : undefined}
             focusSettlementRowId={focusedSettlementRowId}
             onSave={saveWorkRecord}
@@ -4439,6 +4590,7 @@ function GenericWorkPortal({
                   setEditingRecord(prepareWorkDraft(record, originalIndex, type));
                 }}
               />
+              <RelatedContactSummary record={record} data={data} />
               <div className="card-actions">
                 <button type="button" onClick={() => setFilePanel(filePanel === id ? null : id)}>
                   <FileText size={15} />
@@ -4480,6 +4632,7 @@ function WorkEditor({
   type,
   title,
   data,
+  onPersist,
   focusTaxInvoiceItemId,
   focusSettlementRowId,
   onSave,
@@ -4492,6 +4645,7 @@ function WorkEditor({
   type: "settlement" | "output" | "other";
   title: string;
   data: WorkNoteData;
+  onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
   focusTaxInvoiceItemId?: string;
   focusSettlementRowId?: string;
   onSave: (draft: AnyRecord) => void;
@@ -4553,7 +4707,7 @@ function WorkEditor({
       return;
     }
     const company = data.companies.find((item, index) => recordId(item, index) === value) || null;
-    const primaryContact = company ? asArray(company.contacts).find((contact) => Boolean(contact.isPrimary)) || asArray(company.contacts)[0] : null;
+    const primaryContact = company && normalizeCompanyType(company) === "customer" ? asArray(company.contacts).find((contact) => Boolean(contact.isPrimary)) || asArray(company.contacts)[0] : null;
     setDraft({
       ...draft,
       companyId: value,
@@ -4630,12 +4784,12 @@ function WorkEditor({
           setDraft={setDraft}
           companies={data.companies}
           companyLabel={requiresTaskTitle ? "관련 업체 (선택)" : "업체명"}
-          contactLabel="담당자 선택"
+          contactLabel="고객사 담당자 선택"
           allowNoCompany={requiresTaskTitle}
         />
-        <TextField label={type === "output" ? "담당자(요청자)" : "담당자"} value={firstText(draft, ["contactName"])} onChange={(value) => updateField("contactName", value)} placeholder="담당자명" />
-        <TextField label="담당자 연락처" value={firstText(draft, ["contactPhone"])} onChange={(value) => updateField("contactPhone", value)} placeholder="010-0000-0000" />
-        <TextField label="담당자 이메일" value={firstText(draft, ["contactEmail"])} onChange={(value) => updateField("contactEmail", value)} placeholder="name@example.com" />
+        <CustomerContactFields draft={draft} setDraft={setDraft} visible={!selectedCompany || normalizeCompanyType(selectedCompany) === "customer"} />
+
+        <RelatedContactPicker draft={draft} setDraft={setDraft} data={data} onPersist={onPersist} />
 
         {(type === "settlement" || type === "output") && (
           <>
@@ -4690,7 +4844,6 @@ function WorkEditor({
         {type === "other" && (
           <>
             <TextField label="구분" value={firstText(draft, ["category"])} onChange={(value) => updateField("category", value)} placeholder="예: 내부, 구매, 행정" />
-            <TextField label="담당/요청자" value={firstText(draft, ["owner"])} onChange={(value) => updateField("owner", value)} placeholder="담당자 또는 요청자" />
             <TextField label="기한 시작" type="date" value={firstText(draft, ["startDate"])} onChange={(value) => updateField("startDate", value)} />
             <TextField
               label="기한 종료"
@@ -5953,7 +6106,7 @@ export function loadWorkNoteData(): WorkNoteData {
 }
 
 function migrateWorkNoteData(data: WorkNoteData): WorkNoteData {
-  return migrateImportantFlags(migrateWorkTaskTitles(migrateSettlementRowFields(migrateSettlementTaxInvoiceRows(migrateLegacyMaterialSalesNotes(migrateInternalContacts(data))))));
+  return migrateImportantFlags(migrateWorkTaskTitles(migrateSettlementRowFields(migrateSettlementTaxInvoiceRows(migrateLegacyMaterialSalesNotes(migrateInternalContacts(migrateCompanyContactStructure(data)))))));
 }
 
 function migrateSettlementRowFields(data: WorkNoteData): WorkNoteData {
@@ -7277,7 +7430,7 @@ function describeBackupImport(current: WorkNoteData, incoming: WorkNoteData, mod
   const modeLabel = mode === "merge" ? "기존 서버 데이터와 병합" : mode === "update" ? "동일 ID 데이터만 업데이트" : "서버 데이터 전체 교체";
   return [
     `가져오기 방식: ${modeLabel}`,
-    `메모 ${incoming.generalMemos.length}건 · 고객사 ${incoming.companies.length}건 · 업무 ${taskCount}건 · 정산 ${incoming.settlementTasks.length}건`,
+    `메모 ${incoming.generalMemos.length}건 · 업체 ${incoming.companies.length}건 · 업무 ${taskCount}건 · 정산 ${incoming.settlementTasks.length}건`,
     `일정 ${scheduleCount}건 · 첨부 기록 ${attachmentCount}건${restoredOriginals ? ` · 원본 ${restoredOriginals}개` : ""}`,
     `동일 ID ${duplicateIds}건 · 신규 추가 예상 ${additions}건 · 덮어쓰기 예상 ${duplicateIds}건`,
     mode === "replace" ? `현재 데이터 중 교체로 제외될 수 있는 기록 ${removals}건` : "현재 데이터는 자동 삭제되지 않습니다."
@@ -7541,6 +7694,7 @@ function createBlankSalesNote(): AnyRecord {
     contactName: "",
     contactPhone: "",
     contactEmail: "",
+    relatedContactIds: [],
     interest: "",
     itemCategory: "장비",
     status: SALES_STATUS_OPTIONS[0],
@@ -7594,7 +7748,8 @@ function normalizeSalesDraft(draft: AnyRecord, companies: AnyRecord[]): AnyRecor
   const company = firstText(draft, ["companyId"])
     ? companies.find((item, index) => recordId(item, index) === firstText(draft, ["companyId"]))
     : null;
-  const contact = company && firstText(draft, ["contactId"])
+  const customerContactAllowed = !company || normalizeCompanyType(company) === "customer";
+  const contact = company && customerContactAllowed && firstText(draft, ["contactId"])
     ? asArray(company.contacts).find((item, index) => recordId(item, index) === firstText(draft, ["contactId"]))
     : null;
   const companyUnknown = Boolean(draft.companyUnknown);
@@ -7602,12 +7757,13 @@ function normalizeSalesDraft(draft: AnyRecord, companies: AnyRecord[]): AnyRecor
   return {
     id: firstText(draft, ["id"]) || createId("note_"),
     companyId: companyUnknown ? "" : firstText(draft, ["companyId"]),
-    contactId: companyUnknown ? "" : firstText(draft, ["contactId"]),
+    contactId: (companyUnknown || !customerContactAllowed) ? "" : firstText(draft, ["contactId"]),
     companyUnknown,
     company: companyUnknown ? "" : (company ? companyName(company) : firstText(draft, ["company"])),
-    contactName: companyUnknown ? "" : (contact ? firstText(contact, ["name", "contactName"]) : firstText(draft, ["contactName"])),
-    contactPhone: companyUnknown ? "" : (contact ? firstText(contact, ["phone", "contactPhone"]) : firstText(draft, ["contactPhone"])),
-    contactEmail: companyUnknown ? "" : (contact ? firstText(contact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])),
+    contactName: (companyUnknown || !customerContactAllowed) ? "" : (contact ? firstText(contact, ["name", "contactName"]) : firstText(draft, ["contactName"])),
+    contactPhone: (companyUnknown || !customerContactAllowed) ? "" : (contact ? firstText(contact, ["phone", "contactPhone"]) : firstText(draft, ["contactPhone"])),
+    contactEmail: (companyUnknown || !customerContactAllowed) ? "" : (contact ? firstText(contact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])),
+    relatedContactIds: relatedContactIds(draft),
     interest: firstText(draft, ["interest"]),
     itemCategory: normalizeSalesItemCategory(firstText(draft, ["itemCategory"])),
     status: normalizeSalesStatus(firstText(draft, ["status"])),
@@ -7649,6 +7805,7 @@ function createBlankMaterialSalesNote(): AnyRecord {
     contactName: "",
     contactPhone: "",
     contactEmail: "",
+    relatedContactIds: [],
     inquiryDate: "",
     items: [createBlankMaterialSalesItem()],
     status: MATERIAL_SALES_STATUS_OPTIONS[0],
@@ -7692,7 +7849,8 @@ function normalizeMaterialSalesDraft(draft: AnyRecord, companies: AnyRecord[]): 
   const company = firstText(draft, ["companyId"])
     ? companies.find((item, index) => recordId(item, index) === firstText(draft, ["companyId"]))
     : null;
-  const contact = company && firstText(draft, ["contactId"])
+  const customerContactAllowed = !company || normalizeCompanyType(company) === "customer";
+  const contact = company && customerContactAllowed && firstText(draft, ["contactId"])
     ? asArray(company.contacts).find((item, index) => recordId(item, index) === firstText(draft, ["contactId"]))
     : null;
   const companyUnknown = Boolean(draft.companyUnknown);
@@ -7700,12 +7858,13 @@ function normalizeMaterialSalesDraft(draft: AnyRecord, companies: AnyRecord[]): 
   return {
     id: firstText(draft, ["id"]) || createId("material_sales_"),
     companyId: companyUnknown ? "" : firstText(draft, ["companyId"]),
-    contactId: companyUnknown ? "" : firstText(draft, ["contactId"]),
+    contactId: (companyUnknown || !customerContactAllowed) ? "" : firstText(draft, ["contactId"]),
     companyUnknown,
     company: companyUnknown ? "" : (company ? companyName(company) : firstText(draft, ["company"])),
-    contactName: companyUnknown ? "" : (contact ? firstText(contact, ["name", "contactName"]) : firstText(draft, ["contactName"])),
-    contactPhone: companyUnknown ? "" : (contact ? firstText(contact, ["phone", "contactPhone"]) : firstText(draft, ["contactPhone"])),
-    contactEmail: companyUnknown ? "" : (contact ? firstText(contact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])),
+    contactName: (companyUnknown || !customerContactAllowed) ? "" : (contact ? firstText(contact, ["name", "contactName"]) : firstText(draft, ["contactName"])),
+    contactPhone: (companyUnknown || !customerContactAllowed) ? "" : (contact ? firstText(contact, ["phone", "contactPhone"]) : firstText(draft, ["contactPhone"])),
+    contactEmail: (companyUnknown || !customerContactAllowed) ? "" : (contact ? firstText(contact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])),
+    relatedContactIds: relatedContactIds(draft),
     inquiryDate: firstText(draft, ["inquiryDate"]),
     items: normalizeMaterialSalesItems(asArray(draft.items)),
     status: MATERIAL_SALES_STATUS_OPTIONS.includes(firstText(draft, ["status"])) ? firstText(draft, ["status"]) : MATERIAL_SALES_STATUS_OPTIONS[0],
@@ -7839,7 +7998,10 @@ function normalizeInternalContactDraft(draft: AnyRecord): AnyRecord {
     extension: firstText(draft, ["extension"]),
     email: firstText(draft, ["email"]),
     duties: [...new Set(asTextArray(draft.duties))],
-    memo: firstText(draft, ["memo"])
+    memo: firstText(draft, ["memo"]),
+    companyId: firstText(draft, ["companyId"]) || defaultHeadquartersCompanyId(),
+    companyType: "headquarters",
+    type: "headOffice"
   };
 }
 
@@ -7847,6 +8009,27 @@ function internalContactLabel(contact: AnyRecord): string {
   return joinParts([firstText(contact, ["name"]), firstText(contact, ["title"])], " ");
 }
 
+function clearRelatedContactLinks(data: WorkNoteData, removedIds: string[]): WorkNoteData {
+  const removed = new Set(removedIds.filter(Boolean));
+  if (!removed.size) return data;
+  const cleanRecords = (records: AnyRecord[]) => records.map((record) => ({
+    ...record,
+    relatedContactIds: relatedContactIds(record).filter((id) => !removed.has(id)),
+  }));
+  return {
+    ...data,
+    notes: cleanRecords(data.notes),
+    materialSalesNotes: cleanRecords(data.materialSalesNotes),
+    settlementTasks: cleanRecords(data.settlementTasks),
+    outputTasks: cleanRecords(data.outputTasks),
+    otherTasks: cleanRecords(data.otherTasks),
+  };
+}
+
+function countRelatedContactLinks(data: WorkNoteData, contactId: string): number {
+  return [data.notes, data.materialSalesNotes, data.settlementTasks, data.outputTasks, data.otherTasks]
+    .reduce((count, records) => count + records.filter((record) => relatedContactIds(record).includes(contactId)).length, 0);
+}
 function countInternalContactLinks(companies: AnyRecord[], internalContactId: string): number {
   return companies.reduce((count, company) => count + asArray(company.contacts).reduce((contactCount, contact) => (
     contactCount + CUSTOMER_OWNER_FIELDS.filter((field) => firstText(contact, [field.key]) === internalContactId).length
@@ -7878,9 +8061,10 @@ function internalOwnerInlineSummary(contact: AnyRecord, internalContacts: AnyRec
     return owner ? `${field.shortLabel} ${internalContactLabel(owner)}` : "";
   }).filter(Boolean).join(", ");
 }
-function createBlankCompany(): AnyRecord {
+function createBlankCompany(companyType: CompanyType = "customer"): AnyRecord {
   return {
     id: "",
+    companyType,
     name: "",
     businessNumber: "",
     representative: "",
@@ -7940,6 +8124,7 @@ function normalizeCompanyDraft(draft: AnyRecord): AnyRecord {
 
   return {
     id: firstText(draft, ["id"]) || createId("company_"),
+    companyType: normalizeCompanyType(draft),
     name: firstText(draft, ["name"]),
     businessNumber: firstText(draft, ["businessNumber"]),
     representative: firstText(draft, ["representative"]),
@@ -8005,6 +8190,7 @@ function createBlankWorkTask(type: "settlement" | "output" | "other"): AnyRecord
     contactName: "",
     contactPhone: "",
     contactEmail: "",
+    relatedContactIds: [],
     startDate: today,
     endDate: today,
     includeWeekends: false,
@@ -8089,19 +8275,21 @@ function normalizeWorkDraft(draft: AnyRecord, type: "settlement" | "output" | "o
   const company = firstText(draft, ["companyId"])
     ? data.companies.find((item, index) => recordId(item, index) === firstText(draft, ["companyId"]))
     : null;
-  const contact = company && firstText(draft, ["contactId"])
+  const customerContactAllowed = !company || normalizeCompanyType(company) === "customer";
+  const contact = company && customerContactAllowed && firstText(draft, ["contactId"])
     ? asArray(company.contacts).find((item, index) => recordId(item, index) === firstText(draft, ["contactId"]))
     : null;
   const companyUnknown = Boolean(draft.companyUnknown);
   const common = {
     id: firstText(draft, ["id"]) || createId(`${type}_`),
     companyId: companyUnknown ? "" : firstText(draft, ["companyId"]),
-    contactId: companyUnknown ? "" : firstText(draft, ["contactId"]),
+    contactId: (companyUnknown || !customerContactAllowed) ? "" : firstText(draft, ["contactId"]),
     companyUnknown,
     company: companyUnknown ? "" : (company ? companyName(company) : firstText(draft, ["company"])),
-    contactName: companyUnknown ? "" : (contact ? firstText(contact, ["name", "contactName"]) : firstText(draft, ["contactName"])),
-    contactPhone: companyUnknown ? "" : (contact ? firstText(contact, ["phone", "contactPhone"]) : firstText(draft, ["contactPhone"])),
-    contactEmail: companyUnknown ? "" : (contact ? firstText(contact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])),
+    contactName: (companyUnknown || !customerContactAllowed) ? "" : (contact ? firstText(contact, ["name", "contactName"]) : firstText(draft, ["contactName"])),
+    contactPhone: (companyUnknown || !customerContactAllowed) ? "" : (contact ? firstText(contact, ["phone", "contactPhone"]) : firstText(draft, ["contactPhone"])),
+    contactEmail: (companyUnknown || !customerContactAllowed) ? "" : (contact ? firstText(contact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])),
+    relatedContactIds: relatedContactIds(draft),
     startDate: firstText(draft, ["startDate"]),
     endDate: firstText(draft, ["endDate"]),
     includeWeekends: Boolean(draft.includeWeekends),
@@ -8516,6 +8704,8 @@ function collectUnifiedWorkItems(data: WorkNoteData, scheduleItems: ScheduleItem
     const hasImportantSettlementRow = collectionKey === "settlementTasks"
       && normalizePaymentSchedule(asArray(record.paymentSchedule)).some((row) => Boolean(row.isImportant));
 
+    const relatedAssignees = resolveRelatedContacts(record, data).map((contact) => [contact.name, contact.position].filter(Boolean).join(" "));
+
     return {
       id: key,
       sourceId,
@@ -8529,7 +8719,8 @@ function collectUnifiedWorkItems(data: WorkNoteData, scheduleItems: ScheduleItem
         ? joinParts([workCompanyDisplay(record), contactBundle(record)], " · ")
         : contactBundle(record),
       assignee: firstText(record, ["contactName", "managerName", "requester", "requesterName", "owner", "assignee"]),
-      searchText: [title, subtype, status, schedule, memo, contactBundle(record), safeRecordSearchText(record)].filter(Boolean).join(" "),
+      relatedAssignees,
+      searchText: [title, subtype, status, schedule, memo, contactBundle(record), ...relatedAssignees, safeRecordSearchText(record)].filter(Boolean).join(" "),
       hasAttachments: asArray(record.attachments).length > 0,
       status,
       statusGroup: unifiedTaskStatusGroup(status, isCompleted),
@@ -8865,9 +9056,10 @@ function scrollTaxInvoiceItemIntoView(id: string) {
 }
 function collectGlobalResults(data: WorkNoteData, query: string) {
   if (!query.trim()) return [];
-  const groups: Array<{ portal: PortalId; companyView?: "customer" | "headquarters"; records: AnyRecord[]; title: (record: AnyRecord) => string; meta: (record: AnyRecord) => string }> = [
+  const groups: Array<{ portal: PortalId; companyView?: CompanyType; records: AnyRecord[]; title: (record: AnyRecord) => string; meta: (record: AnyRecord) => string }> = [
     { portal: "memo", records: data.generalMemos, title: generalMemoTitle, meta: (record) => generalMemoCompanyName(record) || summarizeForList(generalMemoBody(record), 70) },
-    { portal: "company", companyView: "customer", records: data.companies, title: companyName, meta: (record) => firstText(record, ["status", "tradeStatus", "phone", "email"]) },
+    { portal: "company", companyView: "customer", records: data.companies.filter((company) => normalizeCompanyType(company) === "customer"), title: companyName, meta: (record) => firstText(record, ["status", "tradeStatus", "phone", "email"]) },
+    { portal: "company", companyView: "partner", records: data.companies.filter((company) => normalizeCompanyType(company) === "partner"), title: companyName, meta: (record) => firstText(record, ["status", "tradeStatus", "phone", "email"]) },
     { portal: "company", companyView: "headquarters", records: data.internalContacts, title: (record) => firstText(record, ["name"]) || "본사 담당자", meta: (record) => joinParts([firstText(record, ["department"]), firstText(record, ["title"]), asTextArray(record.duties).join(", ")], " · ") },
     { portal: "sales", records: data.notes, title: salesCustomer, meta: (record) => firstText(record, ["nextAction", "status", "product"]) },
     { portal: "sales", records: data.materialSalesNotes, title: salesCustomer, meta: (record) => materialSalesItemsSummary(record) || materialSalesStatus(record) },

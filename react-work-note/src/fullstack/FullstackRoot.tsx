@@ -328,7 +328,7 @@ function MigrationScreen({
         </div>
         <div className="migration-count-grid">
           <Metric label="메모" value={counts.generalMemos} />
-          <Metric label="고객사" value={counts.companies} />
+          <Metric label="업체" value={counts.companies} />
           <Metric
             label="업무"
             value={
@@ -951,7 +951,7 @@ function CountSummary({ counts }: { counts: DataCounts }) {
   return (
     <div className="server-count-summary">
       <span>메모 <b>{counts.generalMemos}</b></span>
-      <span>고객사 <b>{counts.companies}</b></span>
+      <span>업체 <b>{counts.companies}</b></span>
       <span>
         업무{" "}
         <b>

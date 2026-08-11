@@ -6738,3 +6738,158 @@ h2 {
 .attachment-failure-details-body dl {
   margin-top: 0;
 }
+
+/* Related contacts */
+.related-contact-picker {
+  position: relative;
+  padding: 14px;
+  border: 1px solid #d8e2ef;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+.related-contact-picker-heading,
+.related-contact-search,
+.related-contact-registration-actions,
+.related-contact-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.related-contact-picker-heading > div {
+  display: grid;
+  gap: 3px;
+}
+.related-contact-picker-heading small,
+.related-contact-chips em {
+  color: #66758a;
+  font-size: 12px;
+  font-style: normal;
+}
+.related-contact-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.related-contact-chips > span,
+.related-contact-summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid #c7d8ee;
+  border-radius: 999px;
+  background: #fff;
+  color: #17243a;
+}
+.related-contact-chips > span small,
+.related-contact-summary span small {
+  color: #66758a;
+  font-size: 11px;
+}
+.related-contact-chips > span button {
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+.related-contact-popover {
+  position: absolute;
+  z-index: 45;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(620px, 100%);
+  max-height: min(68vh, 620px);
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid #bdcde2;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 18px 50px rgba(28, 48, 76, 0.2);
+}
+.related-contact-search {
+  position: sticky;
+  top: -14px;
+  z-index: 1;
+  margin: -14px -14px 12px;
+  padding: 12px 14px;
+  background: #fff;
+  border-bottom: 1px solid #e3eaf3;
+}
+.related-contact-search input {
+  flex: 1;
+  min-width: 0;
+}
+.related-contact-results {
+  display: grid;
+  gap: 6px;
+}
+.related-contact-results > button {
+  display: grid;
+  justify-items: start;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+}
+.related-contact-results > button span {
+  color: #66758a;
+  font-size: 12px;
+}
+.related-contact-new {
+  width: 100%;
+  margin-top: 10px;
+  justify-content: center;
+}
+.related-contact-registration {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.related-contact-registration label {
+  display: grid;
+  gap: 5px;
+}
+.related-contact-registration label span {
+  font-size: 12px;
+  font-weight: 700;
+  color: #4d5c72;
+}
+.related-contact-registration-actions {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+.related-contact-summary {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin: 10px 0;
+}
+.related-contact-summary > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.related-contact-summary > strong {
+  color: #53647b;
+  font-size: 12px;
+}
+@media (max-width: 720px) {
+  .related-contact-picker-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .related-contact-popover {
+    position: fixed;
+    inset: 8vh 12px auto;
+    width: auto;
+    max-height: 84vh;
+  }
+  .related-contact-registration {
+    grid-template-columns: 1fr;
+  }
+}
