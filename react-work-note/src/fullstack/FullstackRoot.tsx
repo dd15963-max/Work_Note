@@ -585,11 +585,11 @@ function ServerSettings({
             {counts && <CountSummary counts={counts} />}
           </section>
 
-          <section className="data-settings-card">
-            <div className="data-settings-card-heading">
-              <div><span>B</span><h3>데이터 / 저장</h3></div>
-              <DataStatusBadge tone="is-normal" label="정상" />
-            </div>
+          <details className="data-settings-card settings-disclosure" id="server-data-storage-card">
+            <summary className="data-settings-card-heading">
+              <div><span>B</span><h3>데이터 / 저장</h3><small>백업·복원·이전</small></div>
+              <DataStatusBadge tone="is-normal" label="선택" />
+            </summary>
             <div className="data-settings-status-grid">
               <span><b>안전 저장 모드</b>사용 중</span>
               <span><b>자동 스냅샷</b>{snapshot.count}개 · {formatSettingsTime(snapshot.lastAt)}</span>
@@ -606,7 +606,7 @@ function ServerSettings({
                 <Upload size={16} /> 로컬 데이터를 Sites로 이전
               </button>
             </div>
-          </section>
+          </details>
 
           <details className="data-settings-card settings-disclosure">
             <summary className="data-settings-card-heading">

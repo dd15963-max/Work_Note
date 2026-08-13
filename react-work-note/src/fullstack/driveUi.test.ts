@@ -136,6 +136,25 @@ describe("Google Drive UI requirements", () => {
     expect(uxRefreshCss).toContain("DRIVE_CONNECTION_ACTIONS_START");
   });
 
+  it("keeps backup actions clickable, compact, and collapsed until requested", () => {
+    const start = appSource.indexOf("export function BackupSettingsPanel");
+    const end = appSource.indexOf("function LocalDataSettings", start);
+    const backupPanel = appSource.slice(start, end);
+
+    expect(backupPanel).toContain('className="backup-settings-action-grid"');
+    expect(backupPanel).not.toContain('className="backup-center-panel"');
+    expect(backupPanel).toContain("데이터 백업");
+    expect(backupPanel).toContain("첨부파일 제외");
+    expect(backupPanel).toContain("전체 백업");
+    expect(backupPanel).toContain("첨부파일 포함");
+    expect(backupPanel).toContain("데이터 복원");
+    expect(backupPanel).toContain("전체 복원");
+    expect(appSource).toContain('id="local-data-storage-card"');
+    expect(fullstackSource).toContain('id="server-data-storage-card"');
+    expect(appCss).toMatch(/\.backup-center-panel\s*\{[\s\S]*position:\s*absolute/);
+    expect(appCss).toMatch(/\.backup-settings-action-grid\s*\{[\s\S]*display:\s*grid/);
+  });
+
   it("[24] removes the fixed footer and integrates data controls into settings", () => {
     expect(appSource).not.toContain('<footer className="utility-footer"');
     expect(appSource).toContain("업무 데이터");

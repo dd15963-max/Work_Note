@@ -6157,6 +6157,122 @@ h2 {
   font-weight: 500;
 }
 
+.settings-disclosure > summary {
+  list-style: none;
+  cursor: pointer;
+  margin-bottom: 0;
+}
+
+.settings-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-disclosure > summary::after {
+  content: "펼치기";
+  flex: 0 0 auto;
+  color: #52647d;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.settings-disclosure[open] > summary {
+  margin-bottom: 12px;
+}
+
+.settings-disclosure[open] > summary::after {
+  content: "접기";
+}
+
+.settings-disclosure > summary > .data-status-badge {
+  margin-left: auto;
+}
+
+.backup-settings-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.backup-settings-action-grid button,
+.backup-settings-advanced-grid button {
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid #cfd9e7;
+  border-radius: 7px;
+  background: #fff;
+  padding: 8px 10px;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.backup-settings-action-grid button {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  text-align: left;
+}
+
+.backup-settings-action-grid button:hover,
+.backup-settings-advanced-grid button:hover {
+  border-color: var(--primary);
+}
+
+.backup-settings-action-grid button:disabled,
+.backup-settings-advanced-grid button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.backup-settings-action-grid small,
+.backup-settings-status {
+  color: #687386;
+  font-size: 0.72rem;
+}
+
+.backup-settings-status {
+  margin: 9px 0 0;
+}
+
+.backup-settings-advanced {
+  margin-top: 10px;
+  border-top: 1px solid #e1e7f0;
+  padding-top: 9px;
+}
+
+.backup-settings-advanced > summary {
+  width: max-content;
+  max-width: 100%;
+  color: #405875;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.backup-settings-advanced-grid {
+  display: grid;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.backup-settings-advanced-grid > div {
+  display: grid;
+  grid-template-columns: 80px repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 8px;
+}
+
+.backup-settings-advanced-grid > div > strong {
+  color: #52647d;
+  font-size: 0.75rem;
+}
+
+.backup-settings-advanced-grid .danger {
+  border-color: #efb8b1;
+  background: #fff4f2;
+  color: #9a382c;
+}
+
 .local-data-toast {
   position: fixed;
   right: 14px;
@@ -6891,5 +7007,15 @@ h2 {
   }
   .related-contact-registration {
     grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 560px) {
+  .backup-settings-action-grid,
+  .backup-settings-advanced-grid > div {
+    grid-template-columns: 1fr;
+  }
+
+  .backup-settings-advanced-grid > div > strong {
+    margin-top: 4px;
   }
 }

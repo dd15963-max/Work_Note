@@ -1145,9 +1145,13 @@ export function BackupSettingsPanel({
   };
 
   const exportJson = () => {
-    const payload = createBackupPayload(data, "manual-json");
-    downloadJson(payload, `sales-note-backup-${getFilenameTimestamp()}.json`);
-    setSaveMessage(`기록 백업 생성 · ${formatDateTime(new Date().toISOString())}`);
+    try {
+      const payload = createBackupPayload(data, "manual-json");
+      downloadJson(payload, `work-note-data-${getFilenameTimestamp()}.json`);
+      setSaveMessage(`데이터 백업 생성 · ${formatDateTime(new Date().toISOString())}`);
+    } catch (error) {
+      alert(`데이터 백업을 만들지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const exportZip = async () => {
@@ -1167,13 +1171,21 @@ export function BackupSettingsPanel({
   };
 
   const exportCsv = () => {
-    downloadWorkNoteCsvZip(data);
-    setSaveMessage(`CSV ZIP 내보내기 완료 · ${formatDateTime(new Date().toISOString())}`);
+    try {
+      downloadWorkNoteCsvZip(data);
+      setSaveMessage(`CSV 내보내기 완료 · ${formatDateTime(new Date().toISOString())}`);
+    } catch (error) {
+      alert(`CSV 파일을 만들지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const exportXlsx = () => {
-    downloadWorkNoteXlsx(data);
-    setSaveMessage(`엑셀 내보내기 완료 · ${formatDateTime(new Date().toISOString())}`);
+    try {
+      downloadWorkNoteXlsx(data);
+      setSaveMessage(`엑셀 내보내기 완료 · ${formatDateTime(new Date().toISOString())}`);
+    } catch (error) {
+      alert(`엑셀 파일을 만들지 못했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const auditAttachments = async () => {
@@ -1352,41 +1364,33 @@ const chooseJson = (mode: BackupImportMode) => {
     <div id="work-note-backup-center" className="backup-settings-panel">
       <div className="backup-settings-heading">
         <Archive size={18} />
-        <div><strong>백업 센터</strong><small>ZIP은 원본 파일까지, JSON은 기록만 저장합니다.</small></div>
+        <div><strong>백업 센터</strong><small>필요한 작업만 골라 실행하세요.</small></div>
       </div>
-      <div className="backup-center-panel">
-        <div>
-          <strong>내보내기</strong>
-          <button type="button" onClick={exportJson} disabled={Boolean(busy)}>기록 백업 JSON</button>
-          <button type="button" onClick={exportZip} disabled={Boolean(busy)}>전체 백업 ZIP</button>
-        </div>
-        <div>
-          <strong>불러오기</strong>
-          <button type="button" onClick={() => chooseJson("replace")} disabled={Boolean(busy)}>JSON 교체</button>
-          <button type="button" onClick={() => chooseZip("replace")} disabled={Boolean(busy)}>ZIP 교체</button>
-        </div>
-        <div>
-          <strong>병합</strong>
-          <button type="button" onClick={() => chooseJson("merge")} disabled={Boolean(busy)}>JSON 병합</button>
-          <button type="button" onClick={() => chooseZip("merge")} disabled={Boolean(busy)}>ZIP 병합</button>
-        </div>        <div>
-          <strong>동일 ID만</strong>
-          <button type="button" onClick={() => chooseJson("update")} disabled={Boolean(busy)}>JSON 업데이트</button>
-          <button type="button" onClick={() => chooseZip("update")} disabled={Boolean(busy)}>ZIP 업데이트</button>
-        </div>
-        <div>
-          <strong>점검</strong>
-          <button type="button" onClick={auditAttachments} disabled={Boolean(busy)}>첨부 원본 점검</button>
-          <button type="button" onClick={auditFullBackupZip} disabled={Boolean(busy)}>ZIP 자체 점검</button>
-        </div>
-        <div>
-          <strong>관리</strong>
-          <button type="button" onClick={exportCsv} disabled={Boolean(busy)}>CSV ZIP 내보내기</button>
-          <button type="button" onClick={exportXlsx} disabled={Boolean(busy)}>엑셀 내보내기</button>
-          <button className="danger backup-reset-button" type="button" onClick={resetWorkspace} disabled={Boolean(busy)}>전체 메모장 초기화</button>
-        </div>
-        <small>{busy || "ZIP은 원본 파일까지, JSON은 기록만 저장합니다."}</small>
+      <div className="backup-settings-action-grid">
+        <button type="button" onClick={exportJson} disabled={Boolean(busy)}>
+          <strong>데이터 백업</strong><small>첨부파일 제외</small>
+        </button>
+        <button type="button" onClick={exportZip} disabled={Boolean(busy)}>
+          <strong>전체 백업</strong><small>첨부파일 포함</small>
+        </button>
+        <button type="button" onClick={() => chooseJson("replace")} disabled={Boolean(busy)}>
+          <strong>데이터 복원</strong><small>JSON으로 교체</small>
+        </button>
+        <button type="button" onClick={() => chooseZip("replace")} disabled={Boolean(busy)}>
+          <strong>전체 복원</strong><small>ZIP으로 교체</small>
+        </button>
       </div>
+      <p className="backup-settings-status" role="status">{busy || "백업은 현재 Work Note 데이터를 다운로드합니다."}</p>
+      <details className="backup-settings-advanced">
+        <summary>추가 작업</summary>
+        <div className="backup-settings-advanced-grid">
+          <div><strong>병합</strong><button type="button" onClick={() => chooseJson("merge")} disabled={Boolean(busy)}>데이터 병합</button><button type="button" onClick={() => chooseZip("merge")} disabled={Boolean(busy)}>전체 병합</button></div>
+          <div><strong>업데이트</strong><button type="button" onClick={() => chooseJson("update")} disabled={Boolean(busy)}>데이터 업데이트</button><button type="button" onClick={() => chooseZip("update")} disabled={Boolean(busy)}>전체 업데이트</button></div>
+          <div><strong>내보내기</strong><button type="button" onClick={exportCsv} disabled={Boolean(busy)}>CSV</button><button type="button" onClick={exportXlsx} disabled={Boolean(busy)}>엑셀</button></div>
+          <div><strong>점검</strong><button type="button" onClick={auditAttachments} disabled={Boolean(busy)}>첨부 점검</button><button type="button" onClick={auditFullBackupZip} disabled={Boolean(busy)}>백업 점검</button></div>
+          <button className="danger backup-reset-button" type="button" onClick={resetWorkspace} disabled={Boolean(busy)}>전체 초기화</button>
+        </div>
+      </details>
       <input ref={jsonInputRef} type="file" accept="application/json,.json" hidden onChange={handleJsonFile} />
       <input ref={zipInputRef} type="file" accept="application/zip,.zip" hidden onChange={handleZipFile} />
     </div>
@@ -1431,14 +1435,14 @@ function LocalDataSettings({
               <span><b>최근 상태</b>{saveMessage || "저장 준비 완료"}</span>
             </div>
           </section>
-          <section className="data-settings-card">
-            <div className="data-settings-card-heading"><div><span>B</span><h3>데이터 / 저장</h3></div><span className="data-status-badge is-normal">정상</span></div>
+          <details className="data-settings-card settings-disclosure" id="local-data-storage-card">
+            <summary className="data-settings-card-heading"><div><span>B</span><h3>데이터 / 저장</h3><small>백업·복원</small></div><span className="data-status-badge is-normal">선택</span></summary>
             <div className="data-settings-status-grid">
               <span><b>안전 저장 모드</b>사용 중</span>
               <span><b>자동 스냅샷</b>{snapshotSummary.count}개 · {snapshotSummary.lastAt ? formatDateTime(snapshotSummary.lastAt) : "기록 없음"}</span>
             </div>
             <BackupSettingsPanel data={data} setData={setData} setSaveMessage={setSaveMessage} />
-          </section>
+          </details>
           <details className="data-settings-card settings-disclosure">
             <summary className="data-settings-card-heading"><div><span>C</span><h3>진단 / 고급</h3><small>새로고침·이전 버전</small></div></summary>
             <div className="data-settings-actions">
