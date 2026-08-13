@@ -7019,3 +7019,26 @@ h2 {
     margin-top: 4px;
   }
 }
+
+
+/* GENERAL_MEMO_HEADER_ACTION_START */
+.general-memo-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+}
+
+.general-memo-hero > div {
+  min-width: 0;
+}
+
+.general-memo-hero > button {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  justify-self: end;
+  margin: 0;
+  white-space: nowrap;
+}
+/* GENERAL_MEMO_HEADER_ACTION_END */
