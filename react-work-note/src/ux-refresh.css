@@ -62,8 +62,11 @@ body,
 }
 
 .general-memo-hero > button {
+  align-self: flex-start;
+  flex: 0 0 auto;
   min-width: 122px;
   min-height: 44px;
+  margin-left: auto;
   justify-content: center;
 }
 

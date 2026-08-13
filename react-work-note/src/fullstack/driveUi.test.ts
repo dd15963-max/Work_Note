@@ -136,6 +136,11 @@ describe("Google Drive UI requirements", () => {
     expect(uxRefreshCss).toContain("DRIVE_CONNECTION_ACTIONS_START");
   });
 
+  it("keeps the new memo action at the upper-right of the memo header", () => {
+    expect(uxRefreshCss).toMatch(/\.general-memo-hero > button\s*\{[\s\S]*align-self:\s*flex-start/);
+    expect(uxRefreshCss).toMatch(/\.general-memo-hero > button\s*\{[\s\S]*margin-left:\s*auto/);
+  });
+
   it("keeps backup actions clickable, compact, and collapsed until requested", () => {
     const start = appSource.indexOf("export function BackupSettingsPanel");
     const end = appSource.indexOf("function LocalDataSettings", start);
