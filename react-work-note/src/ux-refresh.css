@@ -61,13 +61,10 @@ body,
   color: var(--text-subtle, #667085);
 }
 
-.general-memo-hero > button {
+.general-memo-hero > .toolbar-cluster {
   align-self: flex-start;
   flex: 0 0 auto;
-  min-width: 122px;
-  min-height: 44px;
   margin-left: auto;
-  justify-content: center;
 }
 
 .general-memo-toolbar {
@@ -417,9 +414,13 @@ body,
     padding: 16px;
   }
 
-  .general-memo-hero > button,
+  .general-memo-hero > .toolbar-cluster,
   .general-memo-toolbar .search-box {
     width: 100%;
+  }
+
+  .general-memo-hero > .toolbar-cluster {
+    justify-content: space-between;
   }
 
   .general-memo-toolbar > span {

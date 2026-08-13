@@ -136,11 +136,19 @@ describe("Google Drive UI requirements", () => {
     expect(uxRefreshCss).toContain("DRIVE_CONNECTION_ACTIONS_START");
   });
 
-  it("keeps the new memo action at the upper-right in the production Site stylesheet", () => {
+  it("matches the new memo header to the shared work-header action pattern", () => {
+    const start = appSource.indexOf("function GeneralMemoPortal");
+    const end = appSource.indexOf("function GeneralMemoEditor", start);
+    const memoPortal = appSource.slice(start, end);
+
+    expect(memoPortal).toContain('<p className="eyebrow">QUICK MEMO</p>');
+    expect(memoPortal).toContain('className="toolbar-cluster"');
+    expect(memoPortal).toContain('className="count-label">{memos.length}/{searchedMemos.length}건');
+    expect(memoPortal).toContain("<Plus size={16} />");
+    expect(memoPortal).toContain("새 메모");
     expect(appCss).toContain("GENERAL_MEMO_HEADER_ACTION_START");
-    expect(appCss).toMatch(/\.general-memo-hero\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\) auto/);
-    expect(appCss).toMatch(/\.general-memo-hero > button\s*\{[\s\S]*grid-column:\s*2/);
-    expect(appCss).toMatch(/\.general-memo-hero > button\s*\{[\s\S]*justify-self:\s*end/);
+    expect(appCss).toMatch(/\.general-memo-hero > \.toolbar-cluster\s*\{[\s\S]*grid-column:\s*2/);
+    expect(appCss).toMatch(/\.general-memo-hero > \.toolbar-cluster\s*\{[\s\S]*justify-self:\s*end/);
   });
 
   it("keeps backup actions clickable, compact, and collapsed until requested", () => {

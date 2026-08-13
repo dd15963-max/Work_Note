@@ -742,10 +742,9 @@ function GeneralMemoPortal({
     ownerType: "memo",
     reasonLabel: "메모 파일"
   });
+  const searchedMemos = data.generalMemos.filter((memo) => generalMemoMatches(memo, query));
   const memos = sortGeneralMemosByUpdatedAt(
-    data.generalMemos
-      .filter((memo) => generalMemoMatches(memo, query))
-      .filter((memo) => generalMemoMatches(memo, memoQuery))
+    searchedMemos.filter((memo) => generalMemoMatches(memo, memoQuery))
   );
 
   const saveMemo = (draft: AnyRecord) => {
@@ -810,11 +809,14 @@ function GeneralMemoPortal({
         <div>
           <p className="eyebrow">QUICK MEMO</p>
           <h2>메모</h2>
-          <p>업무 중 떠오른 내용부터 먼저 적고, 업체와 파일은 필요할 때 연결하세요.</p>
         </div>
-        <button type="button" className="primary" onClick={() => setEditingMemo(createBlankGeneralMemo())}>
-          <Plus size={16} /> 새 메모
-        </button>
+        <div className="toolbar-cluster">
+          <span className="count-label">{memos.length}/{searchedMemos.length}건</span>
+          <button type="button" onClick={() => setEditingMemo(createBlankGeneralMemo())}>
+            <Plus size={16} />
+            새 메모
+          </button>
+        </div>
       </div>
 
       <div className="general-memo-toolbar panel">
@@ -822,7 +824,7 @@ function GeneralMemoPortal({
           <Search size={17} />
           <input value={memoQuery} onChange={(event) => setMemoQuery(event.target.value)} placeholder="제목, 내용, 관련 업체 검색" />
         </label>
-        <span>{memos.length}개 · 최근 수정순</span>
+        <span>최근 수정순</span>
       </div>
 
       {editingMemo && (

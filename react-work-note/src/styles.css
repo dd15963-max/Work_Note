@@ -7033,12 +7033,25 @@ h2 {
   min-width: 0;
 }
 
-.general-memo-hero > button {
+.general-memo-hero > .toolbar-cluster {
   grid-column: 2;
   grid-row: 1;
   align-self: start;
   justify-self: end;
   margin: 0;
   white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .general-memo-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .general-memo-hero > .toolbar-cluster {
+    grid-column: 1;
+    grid-row: 2;
+    width: 100%;
+    justify-content: space-between;
+  }
 }
 /* GENERAL_MEMO_HEADER_ACTION_END */
