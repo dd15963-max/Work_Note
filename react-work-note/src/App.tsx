@@ -63,6 +63,7 @@ import {
   normalizeGeneralMemo,
   sortGeneralMemosByUpdatedAt
 } from "./generalMemo";
+import { calendarWorkTitle } from "./calendarWorkTitle";
 import {
   collectRelatedContactOptions,
   defaultHeadquartersCompanyId,
@@ -8961,13 +8962,14 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
   });
   data.outputTasks.forEach((task, index) => {
     if (isClosed(firstText(task, ["status", "progressStatus"]))) return;
-    addWorkDateRangeItems(items, task, index, "output", `[출력] ${workTitle(task, "output")}`, joinParts([companyName(task) ? `업체: ${companyName(task)}` : task.companyUnknown ? "업체 미정" : "", firstText(task, ["outputType"]), firstText(task, ["memo", "description"])], " · "));
-    addTaxInvoiceScheduleItem(items, task, index, "output", `[출력] ${workTitle(task, "output")}`, firstText(task, ["status", "progressStatus"]), firstText(task, ["priority", "importance"]));
+    const calendarTitle = `[출력] ${calendarWorkTitle(task, "output")}`;
+    addWorkDateRangeItems(items, task, index, "output", calendarTitle, joinParts([companyName(task) ? `업체: ${companyName(task)}` : task.companyUnknown ? "업체 미정" : "", firstText(task, ["outputType"]), firstText(task, ["memo", "description"])], " · "));
+    addTaxInvoiceScheduleItem(items, task, index, "output", calendarTitle, firstText(task, ["status", "progressStatus"]), firstText(task, ["priority", "importance"]));
   });
 
   data.otherTasks.forEach((task, index) => {
     if (isClosed(firstText(task, ["status", "progressStatus"]))) return;
-    addWorkDateRangeItems(items, task, index, "other", `[기타] ${workTitle(task, "other")}`, joinParts([companyName(task) ? `업체: ${companyName(task)}` : task.companyUnknown ? "업체 미정" : "", firstText(task, ["memo", "description"])], " · "));
+    addWorkDateRangeItems(items, task, index, "other", `[기타] ${calendarWorkTitle(task, "other")}`, joinParts([companyName(task) ? `업체: ${companyName(task)}` : task.companyUnknown ? "업체 미정" : "", firstText(task, ["memo", "description"])], " · "));
   });
 
   return items.sort((a, b) => a.date.localeCompare(b.date) || Number(b.isImportant) - Number(a.isImportant) || priorityScoreFromText(b.priority) - priorityScoreFromText(a.priority));
