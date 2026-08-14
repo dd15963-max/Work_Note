@@ -29,7 +29,11 @@
     return firstText(record, ["title", "taskName", "name"]) || companyName(record) || "기타 업무";
   };
   const otherTaskTitle = (record) => firstText(record, ["title", "taskName", "name"]) || "기타 업무";
-  const outputAction = (record) => firstText(record, ["outputType"]) || firstText(record, ["title", "taskName", "outputName"]) || "출력";
+  const outputTaskTitle = (record) => firstText(record, ["title", "taskName", "workName", "outputName", "subject"]) || "출력 업무";
+  const outputCalendarLabel = (record) => {
+    const company = record.companyUnknown ? "" : firstText(record, ["company", "companyName", "clientName", "relatedCompany", "customerName"]);
+    return `[출력] ${company ? `${company} - ` : ""}${outputTaskTitle(record)}`;
+  };
   const labelWithCompany = (kind, company, action) => `[${kind}] ${clean(company) ? `${clean(company)}_` : ""}${clean(action) || `${kind} 업무`}`;
   const parseDateKey = (value) => {
     const text = clean(value);
@@ -178,7 +182,7 @@
     });
     asArray(data.outputTasks).forEach((task, index) => {
       if (isClosed(firstText(task, ["status", "progressStatus"]))) return;
-      addRangeItems(items, task, index, "output", labelWithCompany("출력", companyName(task), outputAction(task)), deadlineText(task));
+      addRangeItems(items, task, index, "output", outputCalendarLabel(task), deadlineText(task));
     });
     asArray(data.otherTasks).forEach((task, index) => {
       if (isClosed(firstText(task, ["status", "progressStatus"]))) return;

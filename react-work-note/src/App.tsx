@@ -63,7 +63,7 @@ import {
   normalizeGeneralMemo,
   sortGeneralMemosByUpdatedAt
 } from "./generalMemo";
-import { calendarWorkTitle } from "./calendarWorkTitle";
+import { calendarWorkTitle, outputCalendarTitle } from "./calendarWorkTitle";
 import {
   collectRelatedContactOptions,
   defaultHeadquartersCompanyId,
@@ -8962,7 +8962,7 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
   });
   data.outputTasks.forEach((task, index) => {
     if (isClosed(firstText(task, ["status", "progressStatus"]))) return;
-    const calendarTitle = `[출력] ${calendarWorkTitle(task, "output")}`;
+    const calendarTitle = outputCalendarTitle(task);
     addWorkDateRangeItems(items, task, index, "output", calendarTitle, joinParts([companyName(task) ? `업체: ${companyName(task)}` : task.companyUnknown ? "업체 미정" : "", firstText(task, ["outputType"]), firstText(task, ["memo", "description"])], " · "));
     addTaxInvoiceScheduleItem(items, task, index, "output", calendarTitle, firstText(task, ["status", "progressStatus"]), firstText(task, ["priority", "importance"]));
   });

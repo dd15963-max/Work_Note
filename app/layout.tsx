@@ -27,7 +27,7 @@ export default function RootLayout({
       </head>
       <body>
         {children}
-        <script defer src="/calendar-label-fix.js?v=sites" />
+        <script defer src="/calendar-label-fix.js?v=output-task-title" />
         <script defer src="/file-manager-modal.js?v=sites" />
         <script defer src="/input-key-fix.js?v=sites" />
         <script defer src="/sales-invoice-fields.js?v=sites" />
