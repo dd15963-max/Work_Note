@@ -4454,6 +4454,7 @@ function GenericWorkPortal({
     () => searched.filter(({ record }) => matchesListMode(record, workMode)),
     [searched, workMode]
   );
+  const quickStatusOptions = type === "settlement" ? SETTLEMENT_STATUS_OPTIONS : WORK_STATUS_OPTIONS;
 
   const closeEditor = () => {
     setEditingRecord(null);
@@ -4508,6 +4509,26 @@ function GenericWorkPortal({
       } as WorkNoteData;
     }, `${title} 업무 ${firstText(draft, ["id"]) ? "수정" : "등록"}`);
     closeEditor();
+  };
+
+  const updateWorkQuickStatus = (id: string, value: string) => {
+    const collectionKey = workAttachmentCollectionKey(type);
+    onPersist((current) => {
+      const now = new Date().toISOString();
+      const items = current[collectionKey] as AnyRecord[];
+      return {
+        ...current,
+        [collectionKey]: items.map((item, itemIndex) =>
+          recordId(item, itemIndex) === id
+            ? {
+                ...item,
+                status: value,
+                updatedAt: now
+              }
+            : item
+        )
+      } as WorkNoteData;
+    }, `${title} 목록 상태 변경`);
   };
 
   const deleteWorkRecord = async (record: AnyRecord, id: string) => {
@@ -4567,6 +4588,7 @@ function GenericWorkPortal({
         {filtered.map(({ record, originalIndex, id }) => {
           const attachments = asArray(record.attachments);
           const linkedSales = getLinkedSalesForWork(record, data.notes, data.materialSalesNotes);
+          const currentStatus = firstText(record, ["status", "progressStatus"]) || quickStatusOptions[0];
           return (
             <article className={`task-card ${type} ${record.isImportant ? "is-important" : ""} ${focusTarget?.portal === type && focusTarget.id === id ? "is-focus-target" : ""}`} key={id} data-record-id={id}>
               <div className="card-heading">
@@ -4578,9 +4600,15 @@ function GenericWorkPortal({
                   </div>
                 </div>
                 <div className="badge-stack">
-                  <Badge tone={statusTone(firstText(record, ["status", "progressStatus"]))}>
-                    {firstText(record, ["status", "progressStatus"]) || "상태 미정"}
-                  </Badge>
+                  <select
+                    className={`quick-select task-status-select tone-${statusTone(currentStatus)}`}
+                    value={currentStatus}
+                    onChange={(event) => updateWorkQuickStatus(id, event.target.value)}
+                    aria-label={`${workTitle(record, type)} 상태 변경`}
+                  >
+                    {!quickStatusOptions.includes(currentStatus) && <option value={currentStatus}>{currentStatus}</option>}
+                    {quickStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
+                  </select>
                   {firstText(record, ["priority", "importance"]) && (
                     <Badge tone={priorityTone(firstText(record, ["priority", "importance"]))}>
                       {firstText(record, ["priority", "importance"])}

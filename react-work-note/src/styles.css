@@ -283,6 +283,12 @@ h2 {
   color: var(--red);
 }
 
+.task-status-select {
+  width: auto;
+  min-width: 124px;
+  max-width: 100%;
+}
+
 .safety-strip {
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr);
