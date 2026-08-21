@@ -3,7 +3,9 @@ import { database, ensureSchema } from "@/db/runtime";
 import { decryptSecret, encryptSecret } from "./crypto";
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+export const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 const IDENTITY_SCOPES = "openid email";
+const GOOGLE_SCOPES = `${IDENTITY_SCOPES} ${DRIVE_SCOPE} ${SHEETS_SCOPE}`;
 
 export type GoogleDriveConnection = {
   userEmail: string;
@@ -62,6 +64,10 @@ function oauthConfig() {
     throw new Error("Google Drive OAuth 환경변수가 아직 설정되지 않았습니다.");
   }
   return { clientId, clientSecret, redirectUri };
+}
+
+export function hasGoogleSheetsScope(scope: string): boolean {
+  return scope.split(/\s+/).includes(SHEETS_SCOPE);
 }
 
 function fromRow(row: ConnectionRow): GoogleDriveConnection {
@@ -126,7 +132,7 @@ export async function createAuthorizationUrl(userEmail: string, returnTo: string
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: `${IDENTITY_SCOPES} ${DRIVE_SCOPE}`,
+    scope: GOOGLE_SCOPES,
     access_type: "offline",
     prompt: "consent select_account",
     include_granted_scopes: "true",
@@ -227,7 +233,7 @@ export async function saveDriveConnection(
       access_token_expires_at = excluded.access_token_expires_at,
       scope = excluded.scope, updated_at = excluded.updated_at, disconnected_at = NULL`)
     .bind(userEmail, googleEmail, refreshToken, await encryptSecret(tokens.access_token), expiresAt,
-      tokens.scope || `${IDENTITY_SCOPES} ${DRIVE_SCOPE}`,
+      tokens.scope || GOOGLE_SCOPES,
       stored?.google_email === googleEmail ? stored.root_folder_id : "",
       stored?.google_email === googleEmail ? stored.root_folder_name || "Work Note" : "Work Note",
       stored?.connected_at || now.toISOString(), stored?.last_synced_at || "", now.toISOString())

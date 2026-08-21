@@ -22,6 +22,7 @@ import {
 } from "react";
 import { App, BackupSettingsPanel, loadWorkNoteData } from "../App";
 import {
+  authorizeGoogleSheets,
   clearPendingSync,
   clearRemoteRuntime,
   cleanupEmptyDriveFolders,
@@ -31,6 +32,7 @@ import {
   flushPendingChanges,
   flushPendingDataset,
   getRecentDriveOperations,
+  getTeamShareSettings,
   getGoogleDriveStatus,
   hasCompletedMigration,
   initializeRemoteRuntime,
@@ -45,12 +47,15 @@ import {
   retryDriveOrganization,
   retryRemoteAttachments,
   runDriveMigration,
+  saveTeamShareSettings,
   softDeleteAllAccountData,
   syncServerDataset,
   testGoogleDriveConnection,
+  testTeamShareConnection,
   type DriveOrganizationResult,
   type GoogleDriveStatus,
   type SiteUser,
+  type TeamShareSettingsStatus,
 } from "./repository";
 import {
   clearLocalAttachmentCache,
@@ -193,11 +198,13 @@ export function FullstackRoot({ user }: { user: SiteUser }) {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("drive") === "connected" || params.has("driveError")) {
+    if (params.get("drive") === "connected" || params.has("driveError") || params.has("teamShare")) {
       setSettingsOpen(true);
+      if (params.has("teamShare")) setSettingsTarget("team-share");
       if (params.has("driveError")) setError(params.get("driveError") || "Google Drive 연결에 실패했습니다.");
       params.delete("drive");
       params.delete("driveError");
+      params.delete("teamShare");
       const query = params.toString();
       window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
     }
@@ -502,6 +509,11 @@ function ServerSettings({
   const [driveResult, setDriveResult] = useState<DriveOrganizationResult | null>(null);
   const [driveOperations, setDriveOperations] = useState<Record<string, unknown>[]>([]);
   const [driveLogsOpen, setDriveLogsOpen] = useState(false);
+  const [teamShare, setTeamShare] = useState<TeamShareSettingsStatus | null>(null);
+  const [teamSpreadsheet, setTeamSpreadsheet] = useState("");
+  const [teamSheetName, setTeamSheetName] = useState("영업 리드 건 관리");
+  const [teamDisplayName, setTeamDisplayName] = useState(user.displayName || "");
+  const [teamShareMessage, setTeamShareMessage] = useState("");
   const sync = useSyncState();
   const failedAttachmentIds = useMemo(
     () => collectFailedAttachmentIds(localData),
@@ -520,6 +532,15 @@ function ServerSettings({
     return status;
   };
 
+  const refreshTeamShare = async () => {
+    const status = await getTeamShareSettings();
+    setTeamShare(status);
+    setTeamSpreadsheet(status.spreadsheetUrl || status.spreadsheetId);
+    setTeamSheetName(status.sheetName || "영업 리드 건 관리");
+    setTeamDisplayName(status.displayName || user.displayName || "");
+    return status;
+  };
+
   useEffect(() => {
     void refreshDrive().catch((caught) => {
       setDrive({
@@ -528,10 +549,17 @@ function ServerSettings({
         error: caught instanceof Error ? caught.message : String(caught),
       });
     });
+    void refreshTeamShare().catch((caught) => {
+      setTeamShareMessage(caught instanceof Error ? caught.message : String(caught));
+    });
   }, []);
 
   useEffect(() => {
-    const target = initialTarget === "drive" ? "server-drive-settings-card" : "server-sync-status-card";
+    const target = initialTarget === "drive"
+      ? "server-drive-settings-card"
+      : initialTarget === "team-share"
+        ? "server-team-share-settings-card"
+        : "server-sync-status-card";
     document.getElementById(target)?.scrollIntoView({ block: "start" });
   }, [initialTarget]);
 
@@ -545,6 +573,31 @@ function ServerSettings({
     } finally {
       setBusy("");
     }
+  };
+
+  const runTeamShare = async (label: string, action: () => Promise<void>) => {
+    setBusy(label);
+    setTeamShareMessage("");
+    try {
+      await action();
+    } catch (caught) {
+      setTeamShareMessage(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const saveTeamSettings = async () => {
+    const status = await saveTeamShareSettings({
+      spreadsheet: teamSpreadsheet,
+      sheetName: teamSheetName,
+      displayName: teamDisplayName,
+    });
+    setTeamShare(status);
+    setTeamSpreadsheet(status.spreadsheetUrl || status.spreadsheetId);
+    setTeamSheetName(status.sheetName);
+    setTeamDisplayName(status.displayName);
+    return status;
   };
 
   const retryFailedFiles = async () => {
@@ -571,6 +624,11 @@ function ServerSettings({
 
   const syncTone = warningTone(sync.mode, Boolean(sync.error));
   const driveTone = !drive ? "is-saving" : drive.connected ? "is-normal" : "is-disconnected";
+  const teamShareTone = !teamShare
+    ? "is-saving"
+    : teamShare.verifiedAt && teamShare.sheetsAuthorized
+      ? "is-normal"
+      : "is-disconnected";
 
   return (
     <div className="server-settings-backdrop" onMouseDown={onClose}>
@@ -853,6 +911,66 @@ function ServerSettings({
                 )}
               </>
             )}
+          </section>
+
+          <section className="data-settings-card team-share-settings" id="server-team-share-settings-card">
+            <div className="data-settings-card-heading">
+              <div><span>E</span><h3>팀 공유 · Google Sheets</h3></div>
+              <DataStatusBadge
+                tone={teamShareTone}
+                label={!teamShare ? "확인 전" : teamShare.verifiedAt && teamShare.sheetsAuthorized ? "연결 확인됨" : "설정 필요"}
+              />
+            </div>
+            <p>장비 영업 업무만 ‘팀 공유’할 수 있습니다. 개인 저장이 먼저 완료되고, 같은 sharedId 행은 추가되지 않고 갱신됩니다.</p>
+            <div className="team-share-form">
+              <label>
+                <span>Google Sheets 주소</span>
+                <input
+                  value={teamSpreadsheet}
+                  onChange={(event) => setTeamSpreadsheet(event.target.value)}
+                  placeholder="https://docs.google.com/spreadsheets/d/..."
+                />
+              </label>
+              <label>
+                <span>탭 이름</span>
+                <input value={teamSheetName} onChange={(event) => setTeamSheetName(event.target.value)} />
+              </label>
+              <label>
+                <span>시트에 표시할 담당자</span>
+                <input value={teamDisplayName} onChange={(event) => setTeamDisplayName(event.target.value)} placeholder={user.displayName || user.email} />
+              </label>
+            </div>
+            <div className="data-settings-status-grid">
+              <span><b>Google 계정</b>{teamShare?.googleConnected ? teamShare.googleEmail || "연결됨" : "연결 필요"}</span>
+              <span><b>Sheets 권한</b>{teamShare?.sheetsAuthorized ? "승인됨" : "승인 필요"}</span>
+              <span><b>대상 탭</b>{teamSheetName || "영업 리드 건 관리"}</span>
+              <span><b>마지막 연결 확인</b>{formatSettingsTime(teamShare?.verifiedAt)}</span>
+            </div>
+            <div className="settings-actions">
+              <button type="button" disabled={Boolean(busy)} onClick={() => void runTeamShare("team-save", async () => {
+                await saveTeamSettings();
+                setTeamShareMessage("팀 공유 설정을 저장했습니다.");
+              })}>
+                설정 저장
+              </button>
+              <button type="button" disabled={Boolean(busy)} onClick={() => authorizeGoogleSheets()}>
+                Google Sheets 권한 승인
+              </button>
+              <button type="button" className="primary" disabled={Boolean(busy)} onClick={() => void runTeamShare("team-test", async () => {
+                await saveTeamSettings();
+                const status = await testTeamShareConnection();
+                setTeamShare(status);
+                setTeamShareMessage("시트 연결 확인 완료 · 헤더도 준비되었습니다.");
+              })}>
+                <ShieldCheck size={16} /> 저장 후 연결 확인
+              </button>
+              {teamShare?.spreadsheetUrl && (
+                <a className="settings-link-button" href={teamShare.spreadsheetUrl} target="_blank" rel="noreferrer">
+                  시트 열기
+                </a>
+              )}
+            </div>
+            {teamShareMessage && <p className="drive-settings-message" role="status">{teamShareMessage}</p>}
           </section>
 
           <section className="danger-zone data-settings-card">

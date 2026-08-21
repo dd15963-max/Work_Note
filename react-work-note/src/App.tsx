@@ -38,6 +38,7 @@ import {
   reconnectGoogleDrive,
   downloadRemoteAttachment,
   enqueueRemoteDatasetSync,
+  flushPendingDataset,
   isRemoteModeActive,
   queueRemoteAttachmentDelete,
   queueRemoteAttachmentUpload,
@@ -47,7 +48,8 @@ import {
   retryRemoteAttachments,
   softDeleteAllAccountData,
   updateRemoteAttachment,
-  uploadRemoteAttachment
+  uploadRemoteAttachment,
+  upsertTeamSharedSalesNote
 } from "./fullstack/repository";
 import {
   AttachmentFailurePanel,
@@ -530,12 +532,94 @@ export function App() {
     });
     setActivePortal(item.portal);
   };
+  const saveTeamShareFields = (
+    taskId: string,
+    values: AnyRecord,
+    reason: string
+  ): AnyRecord | null => {
+    const current = loadWorkNoteData();
+    let updated: AnyRecord | null = null;
+    const saved = saveWorkNoteData({
+      ...current,
+      notes: current.notes.map((note, index) => {
+        if (recordId(note, index) !== taskId) return note;
+        updated = { ...note, ...values };
+        return updated;
+      })
+    }, reason);
+    setData(saved);
+    setSaveMessage(`${reason} 저장됨 · ${formatDateTime(saved.updatedAt)}`);
+    return updated;
+  };
+
+  const syncTeamSalesNote = async (note: AnyRecord, taskId: string): Promise<void> => {
+    const syncing = saveTeamShareFields(taskId, {
+      sharedId: firstText(note, ["sharedId"]),
+      teamShared: Boolean(note.teamShared),
+      teamSyncStatus: "syncing",
+      teamSyncError: ""
+    }, "팀 공유 상태");
+    if (!syncing) throw new Error("공유할 영업 업무를 찾지 못했습니다.");
+    await flushPendingDataset();
+    try {
+      const result = await upsertTeamSharedSalesNote(syncing);
+      const synced = saveTeamShareFields(taskId, {
+        teamShared: true,
+        sharedId: result.sharedId,
+        teamSharedAt: firstText(syncing, ["teamSharedAt"]) || result.syncedAt,
+        teamSyncStatus: "synced",
+        teamSyncedAt: result.syncedAt,
+        teamSyncError: "",
+        teamSyncedSourceUpdatedAt: firstText(syncing, ["updatedAt"])
+      }, "팀 공유 완료");
+      await flushPendingDataset();
+      if (synced && firstText(synced, ["updatedAt"]) !== firstText(syncing, ["updatedAt"])) {
+        await syncTeamSalesNote(synced, taskId);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      saveTeamShareFields(taskId, {
+        teamShared: Boolean(syncing.teamShared),
+        sharedId: firstText(syncing, ["sharedId"]),
+        teamSyncStatus: "failed",
+        teamSyncError: message
+      }, "팀 공유 실패 기록");
+      throw error;
+    }
+  };
+
+  const shareTeamSalesNote = async (note: AnyRecord, index: number): Promise<void> => {
+    const taskId = recordId(note, index);
+    const sharedId = firstText(note, ["sharedId"]) || `sales-${crypto.randomUUID()}`;
+    const pending = saveTeamShareFields(taskId, {
+      id: firstText(note, ["id"]) || taskId,
+      sharedId,
+      teamShared: Boolean(note.teamShared),
+      teamSyncStatus: "pending",
+      teamSyncError: ""
+    }, "팀 공유 준비");
+    if (!pending) throw new Error("공유할 영업 업무를 찾지 못했습니다.");
+    await syncTeamSalesNote(pending, taskId);
+  };
+
   const persistData = (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => {
     try {
       const current = loadWorkNoteData();
       const saved = saveWorkNoteData(updater(current), reason);
       setData(saved);
       setSaveMessage(`${reason} 저장됨 · ${formatDateTime(saved.updatedAt)}`);
+      saved.notes.forEach((note, index) => {
+        if (!note.teamShared || !firstText(note, ["sharedId"])) return;
+        const id = recordId(note, index);
+        const previous = current.notes.find((item, itemIndex) => recordId(item, itemIndex) === id);
+        const changed = firstText(previous || {}, ["updatedAt"]) !== firstText(note, ["updatedAt"]);
+        const alreadySynced = firstText(note, ["teamSyncedSourceUpdatedAt"]) === firstText(note, ["updatedAt"]);
+        if (changed && !alreadySynced && note.teamSyncStatus !== "syncing") {
+          void syncTeamSalesNote(note, id).catch(() => {
+            // Personal Work Note save remains successful; the card exposes a retry action.
+          });
+        }
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSaveMessage(`저장 실패 · ${message}`);
@@ -673,7 +757,7 @@ export function App() {
         )}
         {activePortal === "memo" && <GeneralMemoPortal data={data} query={query} onPersist={persistData} />}
         {activePortal === "company" && <CompanyPortal data={data} query={query} view={companyView} setView={setCompanyView} onPersist={persistData} />}
-        {activePortal === "sales" && <SalesPortal data={data} query={query} onPersist={persistData} focusTarget={focusTarget} />}
+        {activePortal === "sales" && <SalesPortal data={data} query={query} onPersist={persistData} onTeamShare={shareTeamSalesNote} focusTarget={focusTarget} />}
         {activePortal === "settlement" && <GenericWorkPortal title="정산" records={data.settlementTasks} query={query} type="settlement" data={data} onPersist={persistData} focusTarget={focusTarget} onClearFocusTarget={() => setFocusTarget(null)} />}
         {activePortal === "output" && <GenericWorkPortal title="출력" records={data.outputTasks} query={query} type="output" data={data} onPersist={persistData} focusTarget={focusTarget} onClearFocusTarget={() => setFocusTarget(null)} />}
         {activePortal === "other" && <GenericWorkPortal title="기타" records={data.otherTasks} query={query} type="other" data={data} onPersist={persistData} focusTarget={focusTarget} onClearFocusTarget={() => setFocusTarget(null)} />}
@@ -2668,11 +2752,13 @@ function SalesPortal({
   data,
   query,
   onPersist,
+  onTeamShare,
   focusTarget
 }: {
   data: WorkNoteData;
   query: string;
   onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
+  onTeamShare: (note: AnyRecord, index: number) => Promise<void>;
   focusTarget: FocusTarget | null;
 }) {
   const [salesSection, setSalesSection] = useState<"equipment" | "material">("equipment");
@@ -2684,6 +2770,7 @@ function SalesPortal({
   const [salesPriorityFilter, setSalesPriorityFilter] = useState("all");
   const [salesSortKey, setSalesSortKey] = useState<SalesSortKey>("priority");
   const [salesSortDirection, setSalesSortDirection] = useState<SortDirection>("desc");
+  const [teamSharingIds, setTeamSharingIds] = useState<Set<string>>(() => new Set());
   const handledFocusTargetRef = useRef("");
   const searchedNotes = useMemo(
     () => data.notes.filter((note) => matchesRecord(note, query)),
@@ -2779,6 +2866,22 @@ function SalesPortal({
       };
     }, firstText(draft, ["id"]) ? "영업 메모 수정" : "영업 메모 등록");
     setEditingNote(null);
+  };
+
+  const shareNote = async (note: AnyRecord, index: number) => {
+    const id = recordId(note, index);
+    setTeamSharingIds((current) => new Set(current).add(id));
+    try {
+      await onTeamShare(note, index);
+    } catch (error) {
+      alert(`개인 업무는 저장되었지만 팀 공유에 실패했습니다.\n${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setTeamSharingIds((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+    }
   };
 
   const deleteNote = (note: AnyRecord, index: number) => {
@@ -3129,6 +3232,21 @@ function SalesPortal({
                     파일 {attachments.length}
                   </button>
 
+                  <button
+                    type="button"
+                    className={`team-share-button ${note.teamShared ? "is-shared" : ""} ${note.teamSyncStatus === "failed" ? "is-failed" : ""}`}
+                    disabled={teamSharingIds.has(id) || note.teamSyncStatus === "syncing" || (Boolean(note.teamShared) && note.teamSyncStatus !== "failed")}
+                    title={firstText(note, ["teamSyncError"]) || "이 영업 업무를 팀 Google Sheets에 공유합니다."}
+                    onClick={() => void shareNote(note, index)}
+                  >
+                    {teamSharingIds.has(id) || note.teamSyncStatus === "syncing"
+                      ? "동기화 중"
+                      : note.teamSyncStatus === "failed"
+                        ? "팀 공유 재시도"
+                        : note.teamShared
+                          ? "✓ 팀 공유됨"
+                          : "팀 공유"}
+                  </button>
                   <button type="button" onClick={() => setEditingNote(prepareSalesDraft(note, index))}>
                     수정
                   </button>

@@ -7060,4 +7060,22 @@ h2 {
     justify-content: space-between;
   }
 }
+.sales-management-actions .team-share-button {
+  border-color: #8aa8d6;
+  background: #eef5ff;
+  color: #244f8c;
+}
+
+.sales-management-actions .team-share-button.is-shared {
+  border-color: #9bcbb4;
+  background: #edf9f3;
+  color: #176642;
+}
+
+.sales-management-actions .team-share-button.is-failed {
+  border-color: #e1a59e;
+  background: #fff2f0;
+  color: #9a382c;
+}
+
 /* GENERAL_MEMO_HEADER_ACTION_END */

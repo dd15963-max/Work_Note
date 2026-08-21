@@ -86,6 +86,40 @@ export const workNoteGoogleOauthStates = sqliteTable("work_note_google_oauth_sta
   expiresAt: text("expires_at").notNull(),
 }, (table) => [index("work_note_google_oauth_states_user_idx").on(table.userEmail)]);
 
+export const workNoteTeamShareSettings = sqliteTable("work_note_team_share_settings", {
+  userEmail: text("user_email").primaryKey(),
+  spreadsheetId: text("spreadsheet_id").notNull(),
+  sheetName: text("sheet_name").notNull().default("영업 리드 건 관리"),
+  displayName: text("display_name").notNull().default(""),
+  verifiedAt: text("verified_at").notNull().default(""),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const workNoteTeamShareSyncs = sqliteTable(
+  "work_note_team_share_syncs",
+  {
+    userEmail: text("user_email").notNull(),
+    taskType: text("task_type").notNull(),
+    taskLocalId: text("task_local_id").notNull(),
+    sharedId: text("shared_id").notNull(),
+    spreadsheetId: text("spreadsheet_id").notNull(),
+    sheetName: text("sheet_name").notNull(),
+    status: text("status").notNull().default("pending"),
+    lockToken: text("lock_token").notNull().default(""),
+    lockExpiresAt: text("lock_expires_at").notNull().default(""),
+    lastError: text("last_error").notNull().default(""),
+    lastSyncedAt: text("last_synced_at").notNull().default(""),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userEmail, table.taskType, table.taskLocalId] }),
+    uniqueIndex("work_note_team_share_syncs_shared_id_unique").on(table.sharedId),
+    index("work_note_team_share_syncs_status_idx").on(table.status),
+  ],
+);
+
 export const workNoteFileRecovery = sqliteTable("work_note_file_recovery", {
   id: text("id").primaryKey(),
   userEmail: text("user_email").notNull(),

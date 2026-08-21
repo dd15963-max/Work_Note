@@ -17,6 +17,27 @@ export type SiteUser = {
   displayName?: string;
 };
 
+export type TeamShareSettingsStatus = {
+  configured: boolean;
+  spreadsheetId: string;
+  spreadsheetUrl: string;
+  sheetName: string;
+  displayName: string;
+  verifiedAt: string;
+  googleConnected: boolean;
+  sheetsAuthorized: boolean;
+  googleEmail: string;
+};
+
+export type TeamShareResult = {
+  sharedId: string;
+  rowNumber: number;
+  syncedAt: string;
+  operation: "append" | "update";
+};
+
+const teamShareRequests = new Map<string, Promise<TeamShareResult>>();
+
 export type GoogleDriveStatus = {
   connected: boolean;
   provider: "google_drive";
@@ -1126,6 +1147,70 @@ export async function getGoogleDriveStatus(includeQuota = false): Promise<Google
 
 export function connectGoogleDrive(returnTo = "/") {
   window.location.assign(`/api/google-drive/oauth/start?returnTo=${encodeURIComponent(returnTo)}`);
+}
+
+export async function getTeamShareSettings(): Promise<TeamShareSettingsStatus> {
+  ensureRuntime();
+  const response = await fetch("/api/google-sheets/settings", {
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<TeamShareSettingsStatus>;
+}
+
+export async function saveTeamShareSettings(input: {
+  spreadsheet: string;
+  sheetName: string;
+  displayName: string;
+}): Promise<TeamShareSettingsStatus> {
+  ensureRuntime();
+  const response = await fetch("/api/google-sheets/settings", {
+    method: "PUT",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<TeamShareSettingsStatus>;
+}
+
+export async function testTeamShareConnection(): Promise<TeamShareSettingsStatus> {
+  ensureRuntime();
+  const response = await fetch("/api/google-sheets/test", {
+    method: "POST",
+    credentials: "same-origin",
+  });
+  if (!response.ok) throw await responseError(response);
+  const payload = await response.json() as { settings: TeamShareSettingsStatus };
+  return payload.settings;
+}
+
+export function authorizeGoogleSheets(): void {
+  connectGoogleDrive("/?teamShare=1");
+}
+
+export function upsertTeamSharedSalesNote(
+  note: Record<string, unknown>,
+): Promise<TeamShareResult> {
+  ensureRuntime();
+  const taskId = String(note.id || "");
+  if (!taskId) return Promise.reject(new Error("공유할 영업 업무 ID가 없습니다."));
+  const current = teamShareRequests.get(taskId);
+  if (current) return current;
+  const request = fetch("/api/google-sheets/share", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ taskType: "equipment_sales", note }),
+  }).then(async (response) => {
+    if (!response.ok) throw await responseError(response);
+    return response.json() as Promise<TeamShareResult>;
+  }).finally(() => {
+    teamShareRequests.delete(taskId);
+  });
+  teamShareRequests.set(taskId, request);
+  return request;
 }
 
 export async function disconnectGoogleDrive(): Promise<void> {

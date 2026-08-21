@@ -92,6 +92,35 @@ async function ensureSchemaInner(): Promise<void> {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS work_note_google_oauth_states_user_idx
       ON work_note_google_oauth_states(user_email)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS work_note_team_share_settings (
+      user_email TEXT PRIMARY KEY,
+      spreadsheet_id TEXT NOT NULL,
+      sheet_name TEXT NOT NULL DEFAULT '영업 리드 건 관리',
+      display_name TEXT NOT NULL DEFAULT '',
+      verified_at TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS work_note_team_share_syncs (
+      user_email TEXT NOT NULL,
+      task_type TEXT NOT NULL,
+      task_local_id TEXT NOT NULL,
+      shared_id TEXT NOT NULL,
+      spreadsheet_id TEXT NOT NULL,
+      sheet_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      lock_token TEXT NOT NULL DEFAULT '',
+      lock_expires_at TEXT NOT NULL DEFAULT '',
+      last_error TEXT NOT NULL DEFAULT '',
+      last_synced_at TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_email, task_type, task_local_id)
+    )`),
+    db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS work_note_team_share_syncs_shared_id_unique
+      ON work_note_team_share_syncs(shared_id)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS work_note_team_share_syncs_status_idx
+      ON work_note_team_share_syncs(status)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS work_note_file_recovery (
       id TEXT PRIMARY KEY,
       user_email TEXT NOT NULL,
