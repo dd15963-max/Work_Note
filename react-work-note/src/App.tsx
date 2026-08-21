@@ -2216,7 +2216,6 @@ function CustomerCompanyPortal({
           <CompanyEditor
             draft={editingCompany}
             setDraft={setEditingCompany}
-            internalContacts={data.internalContacts}
             onSave={saveCompany}
             onCancel={() => setEditingCompany(null)}
           />
@@ -2245,13 +2244,12 @@ function CustomerCompanyPortal({
               <InfoLine label="주소" value={firstText(company, ["address"])} />
               <InfoLine label="서류" value={attachments.length ? `${attachments.length}개` : ""} />
               <InfoLine label="담당자" value={primaryContact ? companyContactSummary(primaryContact) : ""} />
-              {primaryContact && <CustomerInternalOwners contact={primaryContact} internalContacts={data.internalContacts} />}
               {extraContacts.length > 0 && (
                 <details className="company-contact-details">
                   <summary>추가 담당자 {extraContacts.length}명</summary>
                   <div>
                     {extraContacts.map((contact, contactIndex) => (
-                      <span key={recordId(contact, contactIndex)}>{companyContactSummary(contact) || "담당자"}{internalOwnerInlineSummary(contact, data.internalContacts) ? ` · 본사: ${internalOwnerInlineSummary(contact, data.internalContacts)}` : ""}</span>
+                      <span key={recordId(contact, contactIndex)}>{companyContactSummary(contact) || "담당자"}</span>
                     ))}
                   </div>
                 </details>
@@ -2573,13 +2571,11 @@ function InternalOwnerSelect({
 function CompanyEditor({
   draft,
   setDraft,
-  internalContacts,
   onSave,
   onCancel
 }: {
   draft: AnyRecord;
   setDraft: (draft: AnyRecord) => void;
-  internalContacts: AnyRecord[];
   onSave: (draft: AnyRecord) => void;
   onCancel: () => void;
 }) {
@@ -2595,7 +2591,7 @@ function CompanyEditor({
   const addContact = () => {
     setDraft({
       ...draft,
-      contacts: [...contacts, { id: createId("contact_"), name: "", department: "", title: "", phone: "", email: "", memo: "", salesOwnerId: "", technicalOwnerId: "", printOwnerId: "", otherOwnerId: "" }]
+      contacts: [...contacts, { id: createId("contact_"), name: "", department: "", title: "", phone: "", email: "", memo: "" }]
     });
   };
   const removeContact = (index: number) => {
@@ -2651,18 +2647,6 @@ function CompanyEditor({
               <TextField label="연락처" value={firstText(contact, ["phone"])} onChange={(value) => updateContact(index, "phone", value)} placeholder="010-0000-0000" />
               <TextField label="이메일" value={firstText(contact, ["email"])} onChange={(value) => updateContact(index, "email", value)} placeholder="name@example.com" />
               <TextField label="메모" value={firstText(contact, ["memo"])} onChange={(value) => updateContact(index, "memo", value)} placeholder="역할, 주의사항" />
-              {isCustomerCompany && <div className="internal-owner-selector-grid">
-                <strong className="internal-owner-selector-title">본사 담당자 연결</strong>
-                {CUSTOMER_OWNER_FIELDS.map((field) => (
-                  <InternalOwnerSelect
-                    key={field.key}
-                    label={field.label}
-                    value={firstText(contact, [field.key])}
-                    internalContacts={internalContacts}
-                    onChange={(value) => updateContact(index, field.key, value)}
-                  />
-                ))}
-              </div>}
               <button type="button" className="danger-button contact-remove-button" onClick={() => removeContact(index)}>
                 <Trash2 size={15} />
                 삭제
