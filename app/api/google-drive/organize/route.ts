@@ -81,6 +81,10 @@ export async function POST(request: Request) {
     if (action === "migration-preview") {
       return Response.json(await previewAttachmentOrganization(email));
     }
+    if (action === "sync-dataset") {
+      const dataset = await loadWorkNoteDataset(email);
+      return Response.json(await synchronizeAttachmentFoldersForDataset(email, dataset, 100));
+    }
     if (action === "migrate" || action === "retry") {
       const dataset = await loadWorkNoteDataset(email);
       const result = await synchronizeAttachmentFoldersForDataset(email, dataset, 500);

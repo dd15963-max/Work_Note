@@ -196,6 +196,8 @@ type AttachmentRecord = AnyRecord & {
 
 const STORAGE_KEY = "salesNoteAppDataV1";
 const REACT_AUTOSNAPSHOT_KEY = "workNoteReactAutoSnapshotsV1";
+const REACT_AUTOSNAPSHOT_LAST_KEY = "workNoteReactAutoSnapshotLastV1";
+const REACT_AUTOSNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
 const TASKS_SCROLL_KEY = "workNoteTasksScrollY";
 const LEGACY_APP_PATH = "../sales-note-app/";
 const ATTACHMENT_DB_NAME = "salesNoteAttachmentDbV1";
@@ -1252,6 +1254,7 @@ export function BackupSettingsPanel({
       const emptyData = createEmptyWorkNoteData();
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(emptyData));
       window.localStorage.removeItem(REACT_AUTOSNAPSHOT_KEY);
+      window.localStorage.removeItem(REACT_AUTOSNAPSHOT_LAST_KEY);
       const fresh = loadWorkNoteData();
       setData(fresh);
       setSaveMessage(`전체 메모장 초기화 완료 · ${formatDateTime(fresh.updatedAt || fresh.loadedAt)}`);
@@ -6396,7 +6399,6 @@ function saveWorkNoteData(data: WorkNoteData, reason: string): WorkNoteData {
   validateWorkNotePayload(payload);
   createReactAutoSnapshot(reason);
   const raw = JSON.stringify(payload);
-  JSON.parse(raw);
   window.localStorage.setItem(STORAGE_KEY, raw);
   enqueueRemoteDatasetSync(payload as WorkNoteData, reason);
   return loadWorkNoteData();
@@ -6412,6 +6414,10 @@ function safeParseStoredData(): AnyRecord {
 }
 
 function createReactAutoSnapshot(reason: string) {
+  const now = Date.now();
+  const lastAt = Number(window.localStorage.getItem(REACT_AUTOSNAPSHOT_LAST_KEY) || 0);
+  const forceSnapshot = /삭제|교체|초기화|병합|가져오기/.test(reason);
+  if (!forceSnapshot && lastAt > 0 && now - lastAt < REACT_AUTOSNAPSHOT_INTERVAL_MS) return;
   const currentRaw = window.localStorage.getItem(STORAGE_KEY);
   if (!currentRaw) return;
 
@@ -6426,6 +6432,7 @@ function createReactAutoSnapshot(reason: string) {
       ...(Array.isArray(snapshots) ? snapshots : [])
     ].slice(0, 3);
     window.localStorage.setItem(REACT_AUTOSNAPSHOT_KEY, JSON.stringify(next));
+    window.localStorage.setItem(REACT_AUTOSNAPSHOT_LAST_KEY, String(now));
   } catch {
     window.localStorage.removeItem(REACT_AUTOSNAPSHOT_KEY);
   }

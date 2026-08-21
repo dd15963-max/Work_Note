@@ -1,4 +1,5 @@
 import { normalizeDriveSyncErrorCode } from "../../../app/google-drive/error-code-contract";
+import { normalizeAttachmentStatus } from "../../../app/google-drive/status-contract";
 import { updateSyncState } from "./syncStore";
 import type {
   AttachmentRecord,
@@ -167,6 +168,9 @@ let user: SiteUser | null = null;
 let flushing: Promise<void> | null = null;
 let flushingAttachments: Promise<void> | null = null;
 let driveUploadQueueTail: Promise<void> = Promise.resolve();
+let driveOrganizationTimer: number | null = null;
+let driveOrganizationQueued = false;
+let driveOrganizationPromise: Promise<void> | null = null;
 const attachmentUploadPromises = new Map<string, Promise<AttachmentRecord>>();
 let onlineListenerAttached = false;
 
@@ -268,11 +272,15 @@ export function initializeRemoteRuntime(nextUser: SiteUser) {
       }));
     onlineListenerAttached = true;
   }
-  void flushPendingChanges();
+  void flushPendingDataset();
 }
 
 export function clearRemoteRuntime() {
   user = null;
+  if (driveOrganizationTimer != null) window.clearTimeout(driveOrganizationTimer);
+  driveOrganizationTimer = null;
+  driveOrganizationQueued = false;
+  driveOrganizationPromise = null;
   driveUploadQueueTail = Promise.resolve();
   attachmentUploadPromises.clear();
   updateSyncState({
@@ -370,6 +378,37 @@ export async function syncServerDataset(
     body: JSON.stringify(buildServerPayload(data)),
   });
   if (!response.ok) throw await responseError(response);
+  if (_mode === "sync") scheduleDriveDatasetOrganization();
+}
+
+function scheduleDriveDatasetOrganization() {
+  if (!isRemoteModeActive()) return;
+  driveOrganizationQueued = true;
+  if (driveOrganizationTimer != null) window.clearTimeout(driveOrganizationTimer);
+  driveOrganizationTimer = window.setTimeout(() => {
+    driveOrganizationTimer = null;
+    void flushDriveDatasetOrganization();
+  }, 1500);
+}
+
+async function flushDriveDatasetOrganization(): Promise<void> {
+  if (driveOrganizationPromise) return driveOrganizationPromise;
+  if (!driveOrganizationQueued || !isRemoteModeActive()) return;
+  driveOrganizationQueued = false;
+  driveOrganizationPromise = fetch("/api/google-drive/organize", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "sync-dataset" }),
+  }).then(async (response) => {
+    if (!response.ok && response.status !== 409) throw await responseError(response);
+  }).catch(() => {
+    // A later dataset save or the explicit retry action schedules a fresh pass.
+  }).finally(() => {
+    driveOrganizationPromise = null;
+    if (driveOrganizationQueued && isRemoteModeActive()) scheduleDriveDatasetOrganization();
+  });
+  return driveOrganizationPromise;
 }
 
 export function enqueueRemoteDatasetSync(
@@ -894,12 +933,18 @@ export async function getRemoteAttachmentMetadata(
 export async function refreshRemoteAttachments(
   ids: string[],
 ): Promise<AttachmentRecord[]> {
-  const records: AttachmentRecord[] = [];
-  for (const id of [...new Set(ids.filter(Boolean))]) {
-    const record = await getRemoteAttachmentMetadata(id);
-    if (record) records.push(record);
-  }
-  return records;
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  const records: Array<AttachmentRecord | null> = new Array(uniqueIds.length).fill(null);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < uniqueIds.length) {
+      const index = cursor;
+      cursor += 1;
+      records[index] = await getRemoteAttachmentMetadata(uniqueIds[index]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, uniqueIds.length) }, worker));
+  return records.filter((record): record is AttachmentRecord => Boolean(record));
 }
 
 export async function downloadRemoteAttachment(
@@ -935,7 +980,7 @@ export async function flushPendingChanges(): Promise<void> {
   await flushPendingAttachments();
 }
 
-async function flushPendingAttachments(): Promise<void> {
+export async function flushPendingAttachments(): Promise<void> {
   if (!isRemoteModeActive() || flushingAttachments) {
     return flushingAttachments || Promise.resolve();
   }
@@ -956,6 +1001,11 @@ async function flushPendingAttachments(): Promise<void> {
     let lastError = "";
     for (const id of readIdQueue(PENDING_ATTACHMENTS_KEY)) {
       try {
+        const remote = await getRemoteAttachmentMetadata(id);
+        if (remote && isFullySynchronizedAttachment(remote)) {
+          removePendingAttachment(id);
+          continue;
+        }
         const record = await readLocalAttachmentForRetry(id);
         if (!record?.blob) {
           throw new Error(`${id}: 로컬 첨부 원본을 찾지 못했습니다.`);
@@ -1014,6 +1064,17 @@ async function flushPendingAttachments(): Promise<void> {
   return flushingAttachments;
 }
 
+function isFullySynchronizedAttachment(record: AttachmentRecord): boolean {
+  const status = normalizeAttachmentStatus(record.syncStatus || record.uploadStatus, "pending");
+  return status === "synced"
+    && Boolean(record.driveFileId)
+    && (record.sourceStatus === "available" || Boolean(record.sourceAvailable));
+}
+
+export function clearPendingAttachmentSync(id: string) {
+  if (id) removePendingAttachment(id);
+}
+
 async function readLocalAttachmentForRetry(
   id: string,
 ): Promise<AttachmentRecord | null> {
@@ -1056,9 +1117,9 @@ export async function getServerCounts(): Promise<DataCounts> {
   return response.json() as Promise<DataCounts>;
 }
 
-export async function getGoogleDriveStatus(): Promise<GoogleDriveStatus> {
+export async function getGoogleDriveStatus(includeQuota = false): Promise<GoogleDriveStatus> {
   ensureRuntime();
-  const response = await fetch("/api/google-drive/status", { credentials: "same-origin", cache: "no-store" });
+  const response = await fetch(`/api/google-drive/status${includeQuota ? "?includeQuota=1" : ""}`, { credentials: "same-origin", cache: "no-store" });
   if (!response.ok) throw await responseError(response);
   return response.json() as Promise<GoogleDriveStatus>;
 }

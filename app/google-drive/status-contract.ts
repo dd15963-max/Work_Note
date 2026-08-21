@@ -33,6 +33,7 @@ export type DriveStatusOperationRow = {
   operation_type: string;
   status: string;
   updated_at: string;
+  count?: number;
 };
 
 const LEGACY_STATUS_MAP: Record<string, CanonicalAttachmentStatus> = {
@@ -203,10 +204,11 @@ export function summarizeOperationRows(rows: DriveStatusOperationRow[]) {
   let lastOperationSyncAt = "";
   for (const row of rows) {
     const status = String(row.status || "").trim().toLowerCase();
+    const count = Math.max(1, Number(row.count || 1));
     if (row.operation_type === "duplicate_folder_merge_batch") {
-      if (["pending", "in_progress", "uploading"].includes(status)) mergePendingCount += 1;
-      else if (["completed", "synced"].includes(status)) mergeCompletedCount += 1;
-      else if (["failed", "retry_required", "reconnect_required"].includes(status)) mergeFailedCount += 1;
+      if (["pending", "in_progress", "uploading"].includes(status)) mergePendingCount += count;
+      else if (["completed", "synced"].includes(status)) mergeCompletedCount += count;
+      else if (["failed", "retry_required", "reconnect_required"].includes(status)) mergeFailedCount += count;
     }
     if (CLEANUP_TYPES.has(row.operation_type) && ["completed", "synced"].includes(status)) {
       lastFolderCleanupAt = latestTimestamp(lastFolderCleanupAt, row.updated_at);

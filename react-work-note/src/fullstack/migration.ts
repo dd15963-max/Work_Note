@@ -1,8 +1,10 @@
 import {
   addMigrationLog,
+  clearPendingAttachmentSync,
   getServerCounts,
   markMigrationComplete,
   queueRemoteAttachmentUpload,
+  refreshRemoteAttachments,
   syncServerDataset,
   uploadRemoteAttachment
 } from "./repository";
@@ -109,6 +111,8 @@ export async function migrateLocalDataToServer(
   await syncServerDataset(data, "기존 브라우저 데이터 마이그레이션", "merge", batchId);
 
   const attachmentReferences = collectAttachmentReferences(data);
+  const remoteAttachments = await refreshRemoteAttachments([...attachmentReferences.keys()]).catch(() => []);
+  const remoteById = new Map(remoteAttachments.map((record) => [String(record.id || ""), record]));
   const failedAttachmentIds: string[] = [];
   let uploadedAttachmentCount = 0;
   let completed = 1;
@@ -120,6 +124,20 @@ export async function migrateLocalDataToServer(
     failedAttachmentIds: []
   });
   for (const [id, reference] of attachmentReferences.entries()) {
+    const remote = remoteById.get(id);
+    if (remote && isFullySynchronizedRemoteAttachment(remote)) {
+      clearPendingAttachmentSync(id);
+      uploadedAttachmentCount += 1;
+      completed += 1;
+      onProgress({
+        phase: "uploading",
+        message: `첨부파일 ${completed - 1}/${attachmentReferences.size}개 확인`,
+        completed,
+        total: counts.attachments + 1,
+        failedAttachmentIds: [...failedAttachmentIds]
+      });
+      continue;
+    }
     const stored = await getLocalAttachmentRecordById(id);
     if (!stored?.blob) {
       failedAttachmentIds.push(id);
@@ -183,6 +201,13 @@ export async function retryAttachmentMigration(ids: string[], onProgress: (compl
     onProgress(completed, wanted.length);
   }
   return failed;
+}
+
+function isFullySynchronizedRemoteAttachment(record: AttachmentRecord): boolean {
+  const status = text(record, ["syncStatus", "uploadStatus"]).toLowerCase().replace(/[\s-]+/g, "_");
+  return ["synced", "completed", "동기화_완료"].includes(status)
+    && Boolean(text(record, ["driveFileId"]))
+    && (text(record, ["sourceStatus"]) === "available" || Boolean(record.sourceAvailable));
 }
 
 async function getLocalAttachmentRecordById(id: string): Promise<AttachmentRecord | null> {

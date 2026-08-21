@@ -12,7 +12,7 @@ import {
 import { getSiteUser } from "@/app/site-user";
 import { database, ensureSchema } from "@/db/runtime";
 
-export async function GET() {
+export async function GET(request: Request) {
   const user = await getSiteUser();
   if (!user?.email) return Response.json({ error: "ChatGPT 로그인이 필요합니다." }, { status: 401 });
   const email = user.email.trim().toLowerCase();
@@ -21,12 +21,15 @@ export async function GET() {
     const connection = await getDriveConnection(email);
     if (!connection) return Response.json({ connected: false, provider: "google_drive" });
 
+    const includeQuota = new URL(request.url).searchParams.get("includeQuota") === "1";
     let quota: Record<string, unknown> | null = null;
-    try {
-      quota = await driveStorageQuota(email);
-      await markDriveReconnectReady(email);
-    } catch {
-      quota = null;
+    if (includeQuota) {
+      try {
+        quota = await driveStorageQuota(email);
+        await markDriveReconnectReady(email);
+      } catch {
+        quota = null;
+      }
     }
 
     const [attachmentResult, folderResult, operationResult] = await Promise.allSettled([
@@ -40,7 +43,8 @@ export async function GET() {
         last_synced_at FROM work_note_drive_folders
         WHERE user_email = ? AND trashed_at IS NULL`)
         .bind(email).all<DriveStatusFolderRow>(),
-      database().prepare(`SELECT operation_type, status, updated_at
+      database().prepare(`SELECT operation_type, status, MAX(updated_at) AS updated_at,
+        COUNT(*) AS count
         FROM work_note_drive_operations WHERE user_email = ? AND (
           operation_type = 'duplicate_folder_merge_batch' OR
           operation_type IN (
@@ -48,7 +52,7 @@ export async function GET() {
             'file_upload', 'file_upload_adopt', 'file_replace', 'file_move',
             'duplicate_file_move', 'migration', 'migration_adopt'
           )
-        )`).bind(email).all<DriveStatusOperationRow>(),
+        ) GROUP BY operation_type, status`).bind(email).all<DriveStatusOperationRow>(),
     ]);
 
     const metrics: Record<string, unknown> = {};

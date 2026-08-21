@@ -1,8 +1,4 @@
 import { database, emptyDataset, ensureSchema } from "@/db/runtime";
-import {
-  logDriveOperation,
-  synchronizeAttachmentFoldersForDataset,
-} from "@/app/google-drive/managed-folders";
 import { normalizeAttachmentStatus } from "@/app/google-drive/status-contract";
 import { getSiteUser } from "@/app/site-user";
 import { sanitizeBoundaryRecord } from "@/react-work-note/src/fullstack/boundarySanitizer";
@@ -257,17 +253,7 @@ export async function PUT(request: Request) {
       .bind(email, JSON.stringify(payload), String(payload.version || "sites-work-note-v1"), updatedAt)
       .run();
 
-    let driveSync: { checked: number; synchronized: number; failed: number } | null = null;
-    try {
-      driveSync = await synchronizeAttachmentFoldersForDataset(email, payload, 100);
-    } catch (error) {
-      await logDriveOperation(email, {
-        operationType: "dataset_sync",
-        status: "retry_required",
-        errorMessage: error instanceof Error ? error.message : String(error),
-      });
-    }
-    return Response.json({ ok: true, updatedAt, driveSync });
+    return Response.json({ ok: true, updatedAt, driveSyncQueued: true });
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : String(error));
   }

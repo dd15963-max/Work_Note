@@ -27,10 +27,12 @@ import {
   cleanupEmptyDriveFolders,
   connectGoogleDrive,
   disconnectGoogleDrive,
+  flushPendingAttachments,
   flushPendingChanges,
+  flushPendingDataset,
   getRecentDriveOperations,
   getGoogleDriveStatus,
-  getServerCounts,
+  hasCompletedMigration,
   initializeRemoteRuntime,
   loadServerDataset,
   mergeDuplicateDriveFolders,
@@ -44,6 +46,7 @@ import {
   retryRemoteAttachments,
   runDriveMigration,
   softDeleteAllAccountData,
+  syncServerDataset,
   testGoogleDriveConnection,
   type DriveOrganizationResult,
   type GoogleDriveStatus,
@@ -63,6 +66,7 @@ import type { DataCounts, MigrationProgress, WorkNoteData } from "./types";
 
 const STORAGE_KEY = "salesNoteAppDataV1";
 const AUTO_SNAPSHOT_KEY = "workNoteReactAutoSnapshotsV1";
+const AUTO_SNAPSHOT_LAST_KEY = "workNoteReactAutoSnapshotLastV1";
 
 type BootstrapState = "loading" | "ready" | "migration" | "error";
 
@@ -87,7 +91,7 @@ export function FullstackRoot({ user }: { user: SiteUser }) {
 
     const boot = async () => {
       try {
-        await flushPendingChanges();
+        await flushPendingDataset();
         const serverData = await loadServerDataset();
         if (cancelled) return;
 
@@ -112,6 +116,22 @@ export function FullstackRoot({ user }: { user: SiteUser }) {
         }
 
         if (localHasData) {
+          if (hasCompletedMigration()) {
+            await syncServerDataset(currentLocal, "완료된 기기 데이터 동기화");
+            const fresh = await loadServerDataset();
+            if (cancelled) return;
+            writeLocalData(fresh);
+            setMigration({
+              phase: "complete",
+              message: "기기 변경사항 동기화 완료",
+              completed: 1,
+              total: 1,
+              failedAttachmentIds: [],
+            });
+            setAppVersion((value) => value + 1);
+            setState("ready");
+            return;
+          }
           setMigration({
             phase: "ready",
             message: serverHasData
@@ -154,6 +174,12 @@ export function FullstackRoot({ user }: { user: SiteUser }) {
       clearRemoteRuntime();
     };
   }, [user.email, user.id]);
+
+  useEffect(() => {
+    if (state !== "ready") return;
+    const timer = window.setTimeout(() => void flushPendingAttachments(), 0);
+    return () => window.clearTimeout(timer);
+  }, [state]);
 
   useEffect(() => {
     const openSettings = (event: Event) => {
@@ -470,8 +496,8 @@ function ServerSettings({
 }) {
   const [busy, setBusy] = useState("");
   const [deleteText, setDeleteText] = useState("");
-  const [counts, setCounts] = useState<DataCounts | null>(null);
   const [drive, setDrive] = useState<GoogleDriveStatus | null>(null);
+  const [driveDetailsLoaded, setDriveDetailsLoaded] = useState(false);
   const [driveMessage, setDriveMessage] = useState("");
   const [driveResult, setDriveResult] = useState<DriveOrganizationResult | null>(null);
   const [driveOperations, setDriveOperations] = useState<Record<string, unknown>[]>([]);
@@ -486,15 +512,15 @@ function ServerSettings({
     () => readLatestOutputSavedAt(localData),
     [localData],
   );
+  const counts = useMemo(() => countWorkNoteData(localData), [localData]);
 
-  const refreshDrive = async () => {
-    const status = await getGoogleDriveStatus();
-    setDrive(status);
+  const refreshDrive = async (includeQuota = false) => {
+    const status = await getGoogleDriveStatus(includeQuota);
+    setDrive((current) => !includeQuota && current?.quota ? { ...status, quota: current.quota } : status);
     return status;
   };
 
   useEffect(() => {
-    void getServerCounts().then(setCounts).catch(() => setCounts(null));
     void refreshDrive().catch((caught) => {
       setDrive({
         connected: false,
@@ -582,7 +608,7 @@ function ServerSettings({
               <span><b>저장 구성</b>업무 기록 · 첨부 원본 · Google Drive 사본</span>
               <span><b>최종 출력 파일 저장</b>{formatSettingsTime(outputSavedAt)}</span>
             </div>
-            {counts && <CountSummary counts={counts} />}
+            <CountSummary counts={counts} />
           </section>
 
           <details className="data-settings-card settings-disclosure" id="server-data-storage-card">
@@ -682,7 +708,14 @@ function ServerSettings({
             )}
             {drive && (
               <>
-                <details className="settings-disclosure settings-disclosure-nested">
+                <details className="settings-disclosure settings-disclosure-nested" onToggle={(event) => {
+                  if (!event.currentTarget.open || driveDetailsLoaded) return;
+                  setDriveDetailsLoaded(true);
+                  void refreshDrive(true).catch((caught) => {
+                    setDriveDetailsLoaded(false);
+                    setDriveMessage(caught instanceof Error ? caught.message : String(caught));
+                  });
+                }}>
                   <summary>Drive 상태 자세히 <span>폴더·실패 파일·사용량</span></summary>
                   <div className="drive-status-grid">
                   <span>Google Drive 연결 <b>{drive.connected ? "연결됨" : "연결 필요"}</b></span>
@@ -829,6 +862,7 @@ function ServerSettings({
               if (!confirm("이 기기의 로컬 캐시를 비울까요? Sites 서버 데이터는 유지됩니다.")) return;
               clearPendingSync();
               window.localStorage.removeItem(AUTO_SNAPSHOT_KEY);
+              window.localStorage.removeItem(AUTO_SNAPSHOT_LAST_KEY);
               window.localStorage.removeItem(STORAGE_KEY);
               await clearLocalAttachmentCache();
               await onReload();
