@@ -208,6 +208,7 @@ const ATTACHMENT_DB_VERSION = 1;
 let zipCrcTable: Uint32Array | null = null;
 const SALES_STATUS_OPTIONS = ["신규 문의", "1차 대응 완료", "미팅 예정", "샘플/BMT 진행", "검토 중", "수주 가능성 높음", "보류", "완료", "실패/종료"];
 const SALES_ITEM_CATEGORY_OPTIONS = ["장비", "타사 장비", "기타"];
+const SALES_CHANNEL_OPTIONS = ["직판", "협력"];
 const PRIORITY_OPTIONS = ["긴급", "높음", "보통", "낮음"];
 const PURCHASE_POSSIBILITY_OPTIONS = ["미정", "낮음", "보통", "높음"];
 const QUOTE_STATUS_OPTIONS = ["미진행", "발송 완료", "진행 중", "불필요"];
@@ -3953,11 +3954,13 @@ function SalesEditor({
 
         <RelatedContactPicker draft={draft} setDraft={setDraft} data={data} onPersist={onPersist} />
         <TextField label="관심 장비/소재" value={firstText(draft, ["interest"])} onChange={(value) => updateField("interest", value)} placeholder="예: IMD-C" />
-        <SelectField label="구분" value={firstText(draft, ["itemCategory"]) || "장비"} onChange={(value) => updateField("itemCategory", value)} options={SALES_ITEM_CATEGORY_OPTIONS} />
+        <SelectField label="구분(직판/협력)" value={firstText(draft, ["salesChannel"]) || "직판"} onChange={(value) => updateField("salesChannel", value)} options={SALES_CHANNEL_OPTIONS} />
+        <SelectField label="품목 구분" value={firstText(draft, ["itemCategory"]) || "장비"} onChange={(value) => updateField("itemCategory", value)} options={SALES_ITEM_CATEGORY_OPTIONS} />
         <SelectField label="진행 상태" value={salesStatus(draft) || SALES_STATUS_OPTIONS[0]} onChange={(value) => updateField("status", value)} options={SALES_STATUS_OPTIONS} />
         <SelectField label="중요도" value={salesPriority(draft) || "보통"} onChange={(value) => updateField("priority", value)} options={PRIORITY_OPTIONS} />
         <SelectField label="견적 여부" value={firstText(draft, ["quoteStatus"]) || "미진행"} onChange={(value) => updateField("quoteStatus", value)} options={QUOTE_STATUS_OPTIONS} />
         <SelectField label="구매 가능성" value={firstText(draft, ["purchasePossibility"]) || "미정"} onChange={(value) => updateField("purchasePossibility", value)} options={PURCHASE_POSSIBILITY_OPTIONS} />
+        <TextField label="예산" value={firstText(draft, ["budgetAmount"])} onChange={(value) => updateField("budgetAmount", value)} placeholder="예: 15000000" />
         <TextField
           label="예상매출"
           value={firstText(draft, ["expectedRevenueAmount"])}
@@ -7840,6 +7843,8 @@ function createBlankSalesNote(): AnyRecord {
     contactEmail: "",
     relatedContactIds: [],
     interest: "",
+    salesChannel: "직판",
+    budgetAmount: "",
     itemCategory: "장비",
     status: SALES_STATUS_OPTIONS[0],
     priority: "보통",
@@ -7879,6 +7884,8 @@ function prepareSalesDraft(note: AnyRecord, index: number): AnyRecord {
     status: salesStatus(note) || SALES_STATUS_OPTIONS[0],
     priority: salesPriority(note) || "보통",
     interest: salesInterest(note),
+    salesChannel: SALES_CHANNEL_OPTIONS.includes(firstText(note, ["salesChannel"])) ? firstText(note, ["salesChannel"]) : "직판",
+    budgetAmount: firstText(note, ["budgetAmount"]),
     quoteStatus: firstText(note, ["quoteStatus"]) || "미진행",
     purchasePossibility: firstText(note, ["purchasePossibility"]) || "미정",
     expectedRevenueAmount: firstText(note, ["expectedRevenueAmount"]),
@@ -7909,6 +7916,8 @@ function normalizeSalesDraft(draft: AnyRecord, companies: AnyRecord[]): AnyRecor
     contactEmail: (companyUnknown || !customerContactAllowed) ? "" : (contact ? firstText(contact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])),
     relatedContactIds: relatedContactIds(draft),
     interest: firstText(draft, ["interest"]),
+    salesChannel: SALES_CHANNEL_OPTIONS.includes(firstText(draft, ["salesChannel"])) ? firstText(draft, ["salesChannel"]) : "직판",
+    budgetAmount: normalizeAmountString(firstText(draft, ["budgetAmount"])),
     itemCategory: normalizeSalesItemCategory(firstText(draft, ["itemCategory"])),
     status: normalizeSalesStatus(firstText(draft, ["status"])),
     priority: PRIORITY_OPTIONS.includes(firstText(draft, ["priority"])) ? firstText(draft, ["priority"]) : "보통",

@@ -1,15 +1,20 @@
 export const DEFAULT_TEAM_SHEET_NAME = "영업 리드 건 관리";
-export const TEAM_SHEET_HEADERS = [
-  "sharedId",
+export const TEAM_SHEET_VISIBLE_HEADERS = [
+  "타임라인",
   "담당자",
-  "업무 유형",
-  "업체",
-  "업무 제목",
-  "상태",
-  "시작일",
-  "종료일",
-  "최종 수정일",
+  "구분(직판, 협력)",
+  "고객사 명",
+  "고객사 담당자",
+  "연락처",
+  "이메일",
+  "관심제품",
+  "예산",
+  "견적발송여부",
+  "진행상태",
+  "세부내용",
 ] as const;
+export const TEAM_SHEET_HEADERS = [...TEAM_SHEET_VISIBLE_HEADERS, "sharedId"] as const;
+export const TEAM_SHEET_ID_COLUMN = "M";
 
 export type TeamShareSettings = {
   configured: boolean;
@@ -28,12 +33,15 @@ export type EquipmentSalesShareNote = {
   sharedId: string;
   company?: unknown;
   companyUnknown?: unknown;
-  nextAction?: unknown;
+  contactName?: unknown;
+  contactPhone?: unknown;
+  contactEmail?: unknown;
   interest?: unknown;
-  itemCategory?: unknown;
+  salesChannel?: unknown;
+  budgetAmount?: unknown;
+  quoteStatus?: unknown;
   status?: unknown;
-  meetingDate?: unknown;
-  nextContactDate?: unknown;
+  memo?: unknown;
   updatedAt?: unknown;
 };
 
@@ -51,13 +59,21 @@ export function quoteSheetName(sheetName: string): string {
   return `'${String(sheetName).replace(/'/g, "''")}'`;
 }
 
-export function validateHeaderRow(values: unknown[][] | undefined): "empty" | "valid" {
-  const row = Array.isArray(values?.[0]) ? values![0].map((value) => String(value ?? "").trim()) : [];
+export function validateHeaderRow(
+  values: unknown[][] | undefined,
+): "empty" | "needs_shared_id" | "valid" {
+  const row = Array.isArray(values?.[0])
+    ? values![0].map((value) => String(value ?? "").trim())
+    : [];
   if (row.length === 0 || row.every((value) => !value)) return "empty";
-  const valid = TEAM_SHEET_HEADERS.every((header, index) => row[index] === header);
-  if (!valid) {
-    throw new Error(`시트 1행은 다음 헤더여야 합니다: ${TEAM_SHEET_HEADERS.join(" | ")}`);
+  const visibleHeadersValid = TEAM_SHEET_VISIBLE_HEADERS.every(
+    (header, index) => row[index] === header,
+  );
+  if (!visibleHeadersValid) {
+    throw new Error(`시트 1행은 다음 헤더여야 합니다: ${TEAM_SHEET_VISIBLE_HEADERS.join(" | ")}`);
   }
+  if (!row[12]) return "needs_shared_id";
+  if (row[12] !== "sharedId") throw new Error("숨김 식별자 열(M1)은 sharedId여야 합니다.");
   return "valid";
 }
 
@@ -74,19 +90,40 @@ function text(value: unknown): string {
   return String(value ?? "").trim();
 }
 
+export function formatTimeline(value: unknown): string {
+  const parsed = new Date(text(value));
+  if (Number.isNaN(parsed.getTime())) return text(value);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(parsed);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}`;
+}
+
 export function equipmentSalesRow(
   note: EquipmentSalesShareNote,
   displayName: string,
 ): string[] {
   return [
-    text(note.sharedId),
+    formatTimeline(note.updatedAt),
     text(displayName),
-    "영업",
+    text(note.salesChannel) || "직판",
     text(note.company) || (note.companyUnknown ? "미정" : ""),
-    text(note.nextAction) || text(note.interest) || text(note.itemCategory) || "영업 업무",
+    text(note.contactName),
+    text(note.contactPhone),
+    text(note.contactEmail),
+    text(note.interest),
+    text(note.budgetAmount),
+    text(note.quoteStatus),
     text(note.status),
-    text(note.meetingDate),
-    text(note.nextContactDate),
-    text(note.updatedAt),
+    text(note.memo),
+    text(note.sharedId),
   ];
 }

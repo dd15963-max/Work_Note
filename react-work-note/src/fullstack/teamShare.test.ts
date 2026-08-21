@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   TEAM_SHEET_HEADERS,
+  TEAM_SHEET_VISIBLE_HEADERS,
   equipmentSalesRow,
   findSharedIdRows,
   parseSpreadsheetId,
@@ -27,32 +28,40 @@ describe("Google Sheets 팀 공유 계약", () => {
   it("빈 1행은 헤더 생성 대상으로 보고 정확한 헤더만 허용한다", () => {
     expect(validateHeaderRow(undefined)).toBe("empty");
     expect(validateHeaderRow([[]])).toBe("empty");
+    expect(validateHeaderRow([[...TEAM_SHEET_VISIBLE_HEADERS]])).toBe("needs_shared_id");
     expect(validateHeaderRow([[...TEAM_SHEET_HEADERS]])).toBe("valid");
     expect(() => validateHeaderRow([["다른 헤더"]])).toThrow("시트 1행");
   });
 
-  it("장비 영업 업무를 고정된 9개 열로 매핑한다", () => {
+  it("장비 영업 업무를 12개 표시 열과 숨김 sharedId 열로 매핑한다", () => {
     expect(equipmentSalesRow({
       id: "note-1",
       sharedId: "sales-uuid",
       company: "테스트 업체",
-      nextAction: "견적 전달",
+      contactName: "고객 담당자",
+      contactPhone: "010-1234-5678",
+      contactEmail: "customer@example.com",
       interest: "장비 A",
-      itemCategory: "3D 프린터",
+      salesChannel: "협력",
+      budgetAmount: "15000000",
+      quoteStatus: "발송 완료",
       status: "미팅 예정",
-      meetingDate: "2026-08-21",
-      nextContactDate: "2026-08-28",
+      memo: "상세 상담 내용",
       updatedAt: "2026-08-21T01:02:03.000Z",
-    }, "민수")).toEqual([
-      "sales-uuid",
-      "민수",
-      "영업",
+    }, "bsmin@carima.co.kr")).toEqual([
+      "2026-08-21 10:02",
+      "bsmin@carima.co.kr",
+      "협력",
       "테스트 업체",
-      "견적 전달",
+      "고객 담당자",
+      "010-1234-5678",
+      "customer@example.com",
+      "장비 A",
+      "15000000",
+      "발송 완료",
       "미팅 예정",
-      "2026-08-21",
-      "2026-08-28",
-      "2026-08-21T01:02:03.000Z",
+      "상세 상담 내용",
+      "sales-uuid",
     ]);
   });
 

@@ -9,6 +9,7 @@ import {
 import {
   DEFAULT_TEAM_SHEET_NAME,
   TEAM_SHEET_HEADERS,
+  TEAM_SHEET_ID_COLUMN,
   equipmentSalesRow,
   findSharedIdRows,
   parseSpreadsheetId,
@@ -21,6 +22,7 @@ import {
 export {
   DEFAULT_TEAM_SHEET_NAME,
   TEAM_SHEET_HEADERS,
+  TEAM_SHEET_ID_COLUMN,
   equipmentSalesRow,
   findSharedIdRows,
   parseSpreadsheetId,
@@ -175,6 +177,22 @@ async function appendValues(
   );
 }
 
+async function updateSpreadsheet(
+  userEmail: string,
+  spreadsheetId: string,
+  requests: Record<string, unknown>[],
+): Promise<void> {
+  await sheetsFetch(
+    userEmail,
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}:batchUpdate`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requests }),
+    },
+  );
+}
+
 async function verifySheetAccess(
   userEmail: string,
   setting: SettingsRow,
@@ -186,17 +204,51 @@ async function verifySheetAccess(
   }
   const response = await sheetsFetch(
     userEmail,
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(setting.spreadsheet_id)}?fields=spreadsheetId,sheets.properties.title`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(setting.spreadsheet_id)}?fields=spreadsheetId,sheets.properties(sheetId,title,gridProperties.columnCount)`,
   );
-  const payload = await response.json() as { sheets?: Array<{ properties?: { title?: string } }> };
-  const titles = (payload.sheets || []).map((sheet) => text(sheet.properties?.title));
-  if (!titles.includes(setting.sheet_name)) {
+  const payload = await response.json() as {
+    sheets?: Array<{ properties?: { sheetId?: number; title?: string; gridProperties?: { columnCount?: number } } }>;
+  };
+  const targetSheet = (payload.sheets || []).find(
+    (sheet) => text(sheet.properties?.title) === setting.sheet_name,
+  );
+  if (targetSheet?.properties?.sheetId === undefined) {
     throw new Error(`‘${setting.sheet_name}’ 탭을 찾지 못했습니다. 탭 이름을 그대로 확인해 주세요.`);
   }
-  const headerRange = `${quoteSheetName(setting.sheet_name)}!A1:I1`;
+
+  const sheetId = targetSheet.properties.sheetId;
+  const columnCount = Number(targetSheet.properties.gridProperties?.columnCount || 0);
+  const requests: Record<string, unknown>[] = [];
+  if (columnCount < 13) {
+    requests.push({
+      appendDimension: {
+        sheetId,
+        dimension: "COLUMNS",
+        length: 13 - columnCount,
+      },
+    });
+  }
+  requests.push({
+    updateDimensionProperties: {
+      range: { sheetId, dimension: "COLUMNS", startIndex: 12, endIndex: 13 },
+      properties: { hiddenByUser: true },
+      fields: "hiddenByUser",
+    },
+  });
+  await updateSpreadsheet(userEmail, setting.spreadsheet_id, requests);
+
+  const headerRange = `${quoteSheetName(setting.sheet_name)}!A1:M1`;
   const headerValues = await readValues(userEmail, setting.spreadsheet_id, headerRange);
-  if (validateHeaderRow(headerValues) === "empty") {
+  const headerState = validateHeaderRow(headerValues);
+  if (headerState === "empty") {
     await writeValues(userEmail, setting.spreadsheet_id, headerRange, [[...TEAM_SHEET_HEADERS]]);
+  } else if (headerState === "needs_shared_id") {
+    await writeValues(
+      userEmail,
+      setting.spreadsheet_id,
+      `${quoteSheetName(setting.sheet_name)}!${TEAM_SHEET_ID_COLUMN}1`,
+      [[TEAM_SHEET_HEADERS[12]]],
+    );
   }
 }
 
@@ -276,7 +328,7 @@ export async function upsertEquipmentSalesShare(
 
   try {
     await verifySheetAccess(userEmail, setting);
-    const idRange = `${quoteSheetName(setting.sheet_name)}!A2:A`;
+    const idRange = `${quoteSheetName(setting.sheet_name)}!${TEAM_SHEET_ID_COLUMN}2:${TEAM_SHEET_ID_COLUMN}`;
     const matchedRows = findSharedIdRows(
       await readValues(userEmail, setting.spreadsheet_id, idRange),
       sharedId,
@@ -288,21 +340,22 @@ export async function upsertEquipmentSalesShare(
       throw new Error("이 sharedId가 시트에 이미 존재합니다. 원본 업무에서 다시 시도해 주세요.");
     }
 
-    const row = equipmentSalesRow(note, setting.display_name || userEmail);
+    const connection = await getDriveConnection(userEmail);
+    const row = equipmentSalesRow(note, connection?.googleEmail || userEmail);
     const operation = matchedRows.length === 1 ? "update" : "append";
     let rowNumber = matchedRows[0] || 0;
     if (operation === "update") {
       await writeValues(
         userEmail,
         setting.spreadsheet_id,
-        `${quoteSheetName(setting.sheet_name)}!A${rowNumber}:I${rowNumber}`,
+        `${quoteSheetName(setting.sheet_name)}!A${rowNumber}:M${rowNumber}`,
         [row],
       );
     } else {
       await appendValues(
         userEmail,
         setting.spreadsheet_id,
-        `${quoteSheetName(setting.sheet_name)}!A:I`,
+        `${quoteSheetName(setting.sheet_name)}!A:M`,
         [row],
       );
       const rowsAfterAppend = findSharedIdRows(
