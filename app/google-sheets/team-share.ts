@@ -14,6 +14,7 @@ import {
   findSharedIdRows,
   parseSpreadsheetId,
   quoteSheetName,
+  resolveTeamShareAssignee,
   validateHeaderRow,
   type EquipmentSalesShareNote,
   type TeamShareSettings,
@@ -27,6 +28,7 @@ export {
   findSharedIdRows,
   parseSpreadsheetId,
   quoteSheetName,
+  resolveTeamShareAssignee,
   validateHeaderRow,
   type EquipmentSalesShareNote,
   type TeamShareSettings,
@@ -341,7 +343,10 @@ export async function upsertEquipmentSalesShare(
     }
 
     const connection = await getDriveConnection(userEmail);
-    const row = equipmentSalesRow(note, connection?.googleEmail || userEmail);
+    const row = equipmentSalesRow(
+      note,
+      resolveTeamShareAssignee(setting.display_name, connection?.googleEmail, userEmail),
+    );
     const operation = matchedRows.length === 1 ? "update" : "append";
     let rowNumber = matchedRows[0] || 0;
     if (operation === "update") {

@@ -90,6 +90,14 @@ function text(value: unknown): string {
   return String(value ?? "").trim();
 }
 
+export function resolveTeamShareAssignee(
+  displayName: unknown,
+  googleEmail: unknown,
+  userEmail: unknown,
+): string {
+  return text(displayName) || text(googleEmail) || text(userEmail);
+}
+
 export function formatTimeline(value: unknown): string {
   const parsed = new Date(text(value));
   if (Number.isNaN(parsed.getTime())) return text(value);

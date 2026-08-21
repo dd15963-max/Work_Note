@@ -6,6 +6,7 @@ import {
   findSharedIdRows,
   parseSpreadsheetId,
   quoteSheetName,
+  resolveTeamShareAssignee,
   validateHeaderRow,
 } from "../../../app/google-sheets/team-share-contract";
 
@@ -68,5 +69,12 @@ describe("Google Sheets 팀 공유 계약", () => {
   it("sharedId의 실제 행 번호를 찾고 중복도 감지할 수 있다", () => {
     expect(findSharedIdRows([["a"], ["target"], ["b"], ["target"]], "target"))
       .toEqual([3, 5]);
+  });
+
+  it("설정한 담당자 이름을 이메일보다 우선한다", () => {
+    expect(resolveTeamShareAssignee("백상민", "bsmin@carima.co.kr", "owner@example.com"))
+      .toBe("백상민");
+    expect(resolveTeamShareAssignee("", "bsmin@carima.co.kr", "owner@example.com"))
+      .toBe("bsmin@carima.co.kr");
   });
 });

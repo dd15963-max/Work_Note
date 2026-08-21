@@ -921,7 +921,7 @@ function ServerSettings({
                 label={!teamShare ? "확인 전" : teamShare.verifiedAt && teamShare.sheetsAuthorized ? "연결 확인됨" : "설정 필요"}
               />
             </div>
-            <p>장비 영업 업무만 ‘팀 공유’할 수 있습니다. 담당자는 연결된 Google 계정으로 자동 입력되고, 같은 업무는 새 행이 생기지 않고 갱신됩니다.</p>
+            <p>장비 영업 업무만 ‘팀 공유’할 수 있습니다. 담당자는 아래에 입력한 이름으로 저장되고, 같은 업무는 새 행이 생기지 않고 갱신됩니다.</p>
             <div className="team-share-form">
               <label>
                 <span>Google Sheets 주소</span>
@@ -935,9 +935,13 @@ function ServerSettings({
                 <span>탭 이름</span>
                 <input value={teamSheetName} onChange={(event) => setTeamSheetName(event.target.value)} />
               </label>
+              <label>
+                <span>시트 담당자 이름</span>
+                <input value={teamDisplayName} onChange={(event) => setTeamDisplayName(event.target.value)} placeholder="예: 백상민" />
+              </label>
             </div>
             <div className="data-settings-status-grid">
-              <span><b>담당자 자동 입력</b>{teamShare?.googleConnected ? teamShare.googleEmail || "연결됨" : "Google 연결 필요"}</span>
+              <span><b>시트 담당자</b>{teamDisplayName || "이름 입력 필요"}</span>
               <span><b>Sheets 권한</b>{teamShare?.sheetsAuthorized ? "승인됨" : "승인 필요"}</span>
               <span><b>대상 탭</b>{teamSheetName || "영업 리드 건 관리"}</span>
               <span><b>마지막 연결 확인</b>{formatSettingsTime(teamShare?.verifiedAt)}</span>
