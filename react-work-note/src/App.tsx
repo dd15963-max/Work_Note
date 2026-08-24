@@ -2055,36 +2055,95 @@ function formatKoreanFullDate(dateKey: string): string {
   return new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "long" }).format(date);
 }
 function CalendarGrid({ cursor, mode, items, onOpenItem }: { cursor: Date; mode: CalendarMode; items: ScheduleItem[]; onOpenItem: (item: ScheduleItem) => void }) {
+  const [openDate, setOpenDate] = useState<string | null>(null);
   const days = mode === "month" ? getCalendarMonthDays(cursor) : getCalendarWeekDays(cursor);
   const itemsByDate = groupByDate(items);
   const weekdayLabels = mode === "week" ? ["월", "화", "수", "목", "금", "토", "일"] : ["일", "월", "화", "수", "목", "금", "토"];
+  const openItems = openDate ? itemsByDate.get(openDate) || [] : [];
+
+  useEffect(() => {
+    if (!openDate) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenDate(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [openDate]);
+
+  const openScheduleItem = (item: ScheduleItem) => {
+    setOpenDate(null);
+    onOpenItem(item);
+  };
+
   return (
-    <div className={`calendar-grid ${mode === "week" ? "week-mode" : ""}`}>
-      {weekdayLabels.map((day) => (
-        <div className="calendar-weekday" key={day}>
-          {day}
-        </div>
-      ))}
-      {days.map((day) => {
-        const key = toDateKey(day);
-        const dayItems = itemsByDate.get(key) || [];
-        const muted = mode === "month" && day.getMonth() !== cursor.getMonth();
-        return (
-          <div className={`calendar-cell ${muted ? "is-muted" : ""} ${key === toDateKey(new Date()) ? "is-today" : ""}`} key={key}>
-            <strong>{day.getDate()}</strong>
-            <div className="calendar-items">
-              {dayItems.slice(0, mode === "week" ? 8 : 3).map((item) => (
-                <button type="button" className={`calendar-chip ${item.type} ${item.isImportant ? "is-important" : ""}`} key={item.id} title={`${item.title} ${item.detail}`} onClick={() => onOpenItem(item)}>
-                  {item.isImportant ? "⭐ " : ""}{item.title}
+    <>
+      <div className={`calendar-grid ${mode === "week" ? "week-mode" : ""}`}>
+        {weekdayLabels.map((day) => (
+          <div className="calendar-weekday" key={day}>
+            {day}
+          </div>
+        ))}
+        {days.map((day) => {
+          const key = toDateKey(day);
+          const dayItems = itemsByDate.get(key) || [];
+          const visibleLimit = mode === "week" ? 8 : 3;
+          const muted = mode === "month" && day.getMonth() !== cursor.getMonth();
+          return (
+            <div className={`calendar-cell ${muted ? "is-muted" : ""} ${key === toDateKey(new Date()) ? "is-today" : ""}`} key={key}>
+              <strong>{day.getDate()}</strong>
+              <div className="calendar-items">
+                {dayItems.slice(0, visibleLimit).map((item) => (
+                  <button type="button" className={`calendar-chip ${item.type} ${item.isImportant ? "is-important" : ""}`} key={item.id} title={`${item.title} ${item.detail}`} onClick={() => onOpenItem(item)}>
+                    {item.isImportant ? "⭐ " : ""}{item.title}
+                  </button>
+                ))}
+                {dayItems.length > visibleLimit && (
+                  <button
+                    type="button"
+                    className="calendar-more-button"
+                    onClick={() => setOpenDate(key)}
+                    aria-label={`${formatKoreanFullDate(key)} 업무 ${dayItems.length}건 모두 보기`}
+                  >
+                    +{dayItems.length - visibleLimit}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {openDate && (
+        <div className="calendar-day-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="calendar-day-modal-title" onMouseDown={() => setOpenDate(null)}>
+          <section className="calendar-day-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="section-title-row">
+              <div>
+                <p className="eyebrow">DAY SCHEDULE</p>
+                <h3 id="calendar-day-modal-title">{formatKoreanFullDate(openDate)}</h3>
+                <small>업무 {openItems.length}건</small>
+              </div>
+              <button type="button" className="icon-only-button" onClick={() => setOpenDate(null)} aria-label="날짜별 업무 닫기"><X size={17} /></button>
+            </div>
+            <div className="calendar-day-modal-list">
+              {openItems.map((item) => (
+                <button type="button" className={`calendar-day-item ${item.type} ${item.isImportant ? "is-important" : ""}`} key={item.id} onClick={() => openScheduleItem(item)}>
+                  <span className="calendar-day-item-heading">
+                    <b>{item.isImportant ? "⭐ " : ""}{item.title}</b>
+                    <em>{calendarScheduleTypeLabel(item.type)}</em>
+                  </span>
+                  {item.detail && <small>{item.detail}</small>}
+                  {item.status && <span className="calendar-day-item-status">{item.status}</span>}
                 </button>
               ))}
-              {dayItems.length > (mode === "week" ? 8 : 3) && <small>+{dayItems.length - (mode === "week" ? 8 : 3)}</small>}
             </div>
-          </div>
-        );
-      })}
-    </div>
+          </section>
+        </div>
+      )}
+    </>
   );
+}
+
+function calendarScheduleTypeLabel(type: ScheduleItem["type"]): string {
+  return { sales: "영업", settlement: "정산", output: "출력", other: "기타" }[type];
 }
 
 function ScheduleListItem({
