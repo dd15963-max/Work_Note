@@ -3,6 +3,7 @@ import {
   TEAM_SHEET_HEADERS,
   TEAM_SHEET_VISIBLE_HEADERS,
   equipmentSalesRow,
+  formatSalesChannelForSheet,
   findSharedIdRows,
   parseSpreadsheetId,
   quoteSheetName,
@@ -44,6 +45,8 @@ describe("Google Sheets 팀 공유 계약", () => {
       contactEmail: "customer@example.com",
       interest: "장비 A",
       salesChannel: "협력",
+      partnerCompany: "테스트 협력사",
+      partnerContactName: "박파트너",
       budgetAmount: "15000000",
       quoteStatus: "발송 완료",
       status: "미팅 예정",
@@ -52,7 +55,7 @@ describe("Google Sheets 팀 공유 계약", () => {
     }, "bsmin@carima.co.kr")).toEqual([
       "2026-08-21 10:02",
       "bsmin@carima.co.kr",
-      "협력",
+      "협력(테스트 협력사/박파트너)",
       "테스트 업체",
       "고객 담당자",
       "010-1234-5678",
@@ -64,6 +67,12 @@ describe("Google Sheets 팀 공유 계약", () => {
       "상세 상담 내용",
       "sales-uuid",
     ]);
+  });
+
+  it("협력 정보가 없거나 직판이면 기존 구분값을 유지한다", () => {
+    expect(formatSalesChannelForSheet({ id: "1", sharedId: "1", salesChannel: "협력" })).toBe("협력");
+    expect(formatSalesChannelForSheet({ id: "2", sharedId: "2", salesChannel: "직판", partnerCompany: "무시할 협력사", partnerContactName: "담당자" })).toBe("직판");
+    expect(formatSalesChannelForSheet({ id: "3", sharedId: "3" })).toBe("직판");
   });
 
   it("sharedId의 실제 행 번호를 찾고 중복도 감지할 수 있다", () => {

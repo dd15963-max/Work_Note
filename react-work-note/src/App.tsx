@@ -74,6 +74,7 @@ import {
   relatedContactIds,
   resolveRelatedContacts,
   type CompanyType,
+  type RelatedContactOption,
 } from "./contactStructure";
 
 type PortalId = "schedule" | "memo" | "company" | "sales" | "settlement" | "output" | "other" | "account";
@@ -2906,6 +2907,11 @@ function SalesPortal({
       return;
     }
 
+    if (normalized.salesChannel === "협력" && (!normalized.partnerCompany || !normalized.partnerContactName)) {
+      alert("협력사와 협력사 담당자를 선택해 주세요.");
+      return;
+    }
+
     onPersist((current) => {
       const now = new Date().toISOString();
       const previous = current.notes.find((note, index) => recordId(note, index) === normalized.id);
@@ -3557,14 +3563,13 @@ type RelatedContactRegistration = {
 function persistRelatedContact(
   onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void,
   values: RelatedContactRegistration,
-): string {
+): { contactId: string; companyId: string } {
   const contactId = createId(values.companyType === "partner" ? "partner_contact_" : "internal_contact_");
+  const companyId = values.companyId || (values.companyType === "partner" ? createId("company_") : defaultHeadquartersCompanyId());
   onPersist((current) => {
     const now = new Date().toISOString();
     let companies = current.companies;
-    let companyId = values.companyId;
     if (values.companyType === "headquarters") {
-      companyId = companyId || defaultHeadquartersCompanyId();
       if (!companies.some((company, index) => recordId(company, index) === companyId)) {
         companies = [...companies, { id: companyId, name: values.newCompanyName || "본사", companyType: "headquarters", status: "운영 중", contacts: [], createdAt: now, updatedAt: now }];
       }
@@ -3578,8 +3583,7 @@ function persistRelatedContact(
         }, ...current.internalContacts],
       };
     }
-    if (!companyId && values.newCompanyName.trim()) {
-      companyId = createId("company_");
+    if (!values.companyId && values.newCompanyName.trim()) {
       companies = [{ id: companyId, name: values.newCompanyName.trim(), companyType: "partner", status: "검토중", contacts: [], createdAt: now, updatedAt: now }, ...companies];
     }
     companies = companies.map((company, index) => recordId(company, index) === companyId ? {
@@ -3588,7 +3592,7 @@ function persistRelatedContact(
     } : company);
     return { ...current, companies };
   }, values.companyType === "partner" ? "협력사 담당자 등록" : "본사 담당자 등록");
-  return contactId;
+  return { contactId, companyId };
 }
 
 function CustomerContactFields({ draft, setDraft, visible }: { draft: AnyRecord; setDraft: (draft: AnyRecord) => void; visible: boolean }) {
@@ -3602,6 +3606,45 @@ function CustomerContactFields({ draft, setDraft, visible }: { draft: AnyRecord;
     </>
   );
 }
+function PartnerContactField({ draft, setDraft, data }: {
+  draft: AnyRecord;
+  setDraft: (draft: AnyRecord) => void;
+  data: WorkNoteData;
+}) {
+  const options = useMemo(
+    () => collectRelatedContactOptions(data).filter((contact) => contact.companyType === "partner"),
+    [data.companies, data.internalContacts],
+  );
+  const selectedId = firstText(draft, ["partnerContactId"]);
+  const selected = options.find((contact) => contact.id === selectedId);
+  const updatePartner = (contactId: string) => {
+    const contact = options.find((option) => option.id === contactId);
+    const retainedIds = relatedContactIds(draft).filter((id) => id !== selectedId);
+    setDraft({
+      ...draft,
+      partnerCompanyId: contact?.companyId || "",
+      partnerCompany: contact?.companyName || "",
+      partnerContactId: contact?.id || "",
+      partnerContactName: contact?.name || "",
+      relatedContactIds: contact ? [...new Set([...retainedIds, contact.id])] : retainedIds,
+    });
+  };
+
+  return (
+    <label className="field wide-field partner-contact-field">
+      <span>협력사 / 협력사 담당자</span>
+      <select value={selectedId} onChange={(event) => updatePartner(event.target.value)}>
+        <option value="">협력사 담당자를 선택해 주세요</option>
+        {!selected && selectedId && <option value={selectedId}>{firstText(draft, ["partnerCompany"])} / {firstText(draft, ["partnerContactName"])}</option>}
+        {options.map((contact) => (
+          <option key={contact.id} value={contact.id}>{contact.companyName} / {contact.name}{contact.position ? ` ${contact.position}` : ""}</option>
+        ))}
+      </select>
+      <small>목록에 없으면 아래 ‘관련 담당자 추가’에서 협력사 담당자를 등록하세요. 등록 후 자동으로 연결됩니다.</small>
+    </label>
+  );
+}
+
 function RelatedContactPicker({ draft, setDraft, data, onPersist }: {
   draft: AnyRecord;
   setDraft: (draft: AnyRecord) => void;
@@ -3618,12 +3661,52 @@ function RelatedContactPicker({ draft, setDraft, data, onPersist }: {
   const normalizedQuery = query.trim().toLocaleLowerCase("ko");
   const matches = options.filter((contact) => !selectedIds.includes(contact.id) && (!normalizedQuery || [contact.name, contact.position, contact.companyName, contact.phone, contact.email].join(" ").toLocaleLowerCase("ko").includes(normalizedQuery))).slice(0, 30);
   const companies = data.companies.filter((company) => normalizeCompanyType(company) === form.companyType);
-  const setIds = (ids: string[]) => setDraft({ ...draft, relatedContactIds: [...new Set(ids.filter(Boolean))] });
+  const setIds = (ids: string[]) => {
+    const uniqueIds = [...new Set(ids.filter(Boolean))];
+    const selectedPartnerId = firstText(draft, ["partnerContactId"]);
+    const partnerWasRemoved = Boolean(selectedPartnerId) && !uniqueIds.includes(selectedPartnerId);
+    setDraft({
+      ...draft,
+      relatedContactIds: uniqueIds,
+      ...(partnerWasRemoved ? {
+        partnerCompanyId: "",
+        partnerCompany: "",
+        partnerContactId: "",
+        partnerContactName: "",
+      } : {}),
+    });
+  };
+  const addContact = (contact: RelatedContactOption) => {
+    const nextDraft: AnyRecord = {
+      ...draft,
+      relatedContactIds: [...new Set([...selectedIds, contact.id])],
+    };
+    if (firstText(draft, ["salesChannel"]) === "협력" && contact.companyType === "partner") {
+      nextDraft.partnerCompanyId = contact.companyId;
+      nextDraft.partnerCompany = contact.companyName;
+      nextDraft.partnerContactId = contact.id;
+      nextDraft.partnerContactName = contact.name;
+    }
+    setDraft(nextDraft);
+    setOpen(false);
+    setQuery("");
+  };
   const register = () => {
     if (!form.name.trim()) { alert("이름을 입력해 주세요."); return; }
     if (form.companyType === "partner" && !form.companyId && !form.newCompanyName.trim()) { alert("소속 협력사를 선택하거나 새 협력사명을 입력해 주세요."); return; }
-    const id = persistRelatedContact(onPersist, { ...form, name: form.name.trim() });
-    setIds([...selectedIds, id]);
+    const persisted = persistRelatedContact(onPersist, { ...form, name: form.name.trim() });
+    const existingCompany = data.companies.find((company, index) => recordId(company, index) === persisted.companyId);
+    addContact({
+      id: persisted.contactId,
+      companyId: persisted.companyId,
+      companyName: existingCompany ? companyName(existingCompany) : (form.newCompanyName.trim() || "본사"),
+      companyType: form.companyType,
+      name: form.name.trim(),
+      position: form.position.trim(),
+      phone: form.phone.trim(),
+      email: form.email.trim(),
+      department: "",
+    });
     setForm({ companyType: form.companyType, companyId: "", newCompanyName: "", name: "", position: "", phone: "", email: "" });
     setRegistering(false); setQuery("");
   };
@@ -3636,7 +3719,7 @@ function RelatedContactPicker({ draft, setDraft, data, onPersist }: {
       </div>
       {open && <div className="related-contact-popover" role="dialog" aria-label="관련 담당자 검색 및 등록">
         <div className="related-contact-search"><Search size={16} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="이름, 소속, 직급, 연락처 검색" /><button type="button" onClick={() => setOpen(false)} aria-label="닫기"><X size={15} /></button></div>
-        {!registering && <><div className="related-contact-results">{matches.map((contact) => <button type="button" key={contact.id} onClick={() => setIds([...selectedIds, contact.id])}><strong>{contact.name}{contact.position ? " " + contact.position : ""}</strong><span>{contact.companyName} · {contact.companyType === "partner" ? "협력사" : "본사"}</span></button>)}{!matches.length && <p>검색 결과가 없습니다.</p>}</div><button type="button" className="related-contact-new" onClick={() => setRegistering(true)}><Plus size={15} /> 새 담당자 등록</button></>}
+        {!registering && <><div className="related-contact-results">{matches.map((contact) => <button type="button" key={contact.id} onClick={() => addContact(contact)}><strong>{contact.name}{contact.position ? " " + contact.position : ""}</strong><span>{contact.companyName} · {contact.companyType === "partner" ? "협력사" : "본사"}</span></button>)}{!matches.length && <p>검색 결과가 없습니다.</p>}</div><button type="button" className="related-contact-new" onClick={() => setRegistering(true)}><Plus size={15} /> 새 담당자 등록</button></>}
         {registering && <div className="related-contact-registration">
           <label><span>구분</span><select value={form.companyType} onChange={(event) => setForm({ ...form, companyType: event.target.value as "headquarters" | "partner", companyId: "", newCompanyName: "" })}><option value="headquarters">본사</option><option value="partner">협력사</option></select></label>
           <label><span>소속 업체</span><select value={form.companyId} onChange={(event) => setForm({ ...form, companyId: event.target.value })}><option value="">{form.companyType === "headquarters" ? "본사 (기본)" : "새 협력사 직접 입력"}</option>{companies.map((company, index) => <option key={recordId(company, index)} value={recordId(company, index)}>{companyName(company)}</option>)}</select></label>
@@ -4068,6 +4151,22 @@ function SalesEditor({
     [data.companies, companySearch]
   );
   const updateField = (key: string, value: string | boolean) => setDraft({ ...draft, [key]: value });
+  const updateSalesChannel = (value: string) => {
+    if (value !== "직판") {
+      setDraft({ ...draft, salesChannel: value });
+      return;
+    }
+    const partnerContactId = firstText(draft, ["partnerContactId"]);
+    setDraft({
+      ...draft,
+      salesChannel: value,
+      partnerCompanyId: "",
+      partnerCompany: "",
+      partnerContactId: "",
+      partnerContactName: "",
+      relatedContactIds: relatedContactIds(draft).filter((id) => id !== partnerContactId),
+    });
+  };
 
   const selectCompany = (value: string) => {
     if (value === "__unknown") {
@@ -4121,9 +4220,10 @@ function SalesEditor({
         />
         <CustomerContactFields draft={draft} setDraft={setDraft} visible={!selectedCompany || normalizeCompanyType(selectedCompany) === "customer"} />
 
-        <RelatedContactPicker draft={draft} setDraft={setDraft} data={data} onPersist={onPersist} />
         <TextField label="관심 장비/소재" value={firstText(draft, ["interest"])} onChange={(value) => updateField("interest", value)} placeholder="예: IMD-C" />
-        <SelectField label="구분(직판/협력)" value={firstText(draft, ["salesChannel"]) || "직판"} onChange={(value) => updateField("salesChannel", value)} options={SALES_CHANNEL_OPTIONS} />
+        <SelectField label="구분(직판/협력)" value={firstText(draft, ["salesChannel"]) || "직판"} onChange={updateSalesChannel} options={SALES_CHANNEL_OPTIONS} />
+        {firstText(draft, ["salesChannel"]) === "협력" && <PartnerContactField draft={draft} setDraft={setDraft} data={data} />}
+        <RelatedContactPicker draft={draft} setDraft={setDraft} data={data} onPersist={onPersist} />
         <SelectField label="품목 구분" value={firstText(draft, ["itemCategory"]) || "장비"} onChange={(value) => updateField("itemCategory", value)} options={SALES_ITEM_CATEGORY_OPTIONS} />
         <SelectField label="진행 상태" value={salesStatus(draft) || SALES_STATUS_OPTIONS[0]} onChange={(value) => updateField("status", value)} options={SALES_STATUS_OPTIONS} />
         <SelectField label="중요도" value={salesPriority(draft) || "보통"} onChange={(value) => updateField("priority", value)} options={PRIORITY_OPTIONS} />
@@ -8012,6 +8112,10 @@ function createBlankSalesNote(): AnyRecord {
     contactPhone: "",
     contactEmail: "",
     relatedContactIds: [],
+    partnerCompanyId: "",
+    partnerCompany: "",
+    partnerContactId: "",
+    partnerContactName: "",
     interest: "",
     salesChannel: "직판",
     budgetAmount: "",
@@ -8050,6 +8154,10 @@ function prepareSalesDraft(note: AnyRecord, index: number): AnyRecord {
     contactName: firstText(note, ["contactName", "managerName"]),
     contactPhone: firstText(note, ["contactPhone", "phone", "contact", "mobile"]),
     contactEmail: firstText(note, ["contactEmail", "email"]),
+    partnerCompanyId: firstText(note, ["partnerCompanyId"]),
+    partnerCompany: firstText(note, ["partnerCompany"]),
+    partnerContactId: firstText(note, ["partnerContactId"]),
+    partnerContactName: firstText(note, ["partnerContactName"]),
     itemCategory: salesCategory(note) || "장비",
     status: salesStatus(note) || SALES_STATUS_OPTIONS[0],
     priority: salesPriority(note) || "보통",
@@ -8074,6 +8182,9 @@ function normalizeSalesDraft(draft: AnyRecord, companies: AnyRecord[]): AnyRecor
     ? asArray(company.contacts).find((item, index) => recordId(item, index) === firstText(draft, ["contactId"]))
     : null;
   const companyUnknown = Boolean(draft.companyUnknown);
+  const salesChannel = SALES_CHANNEL_OPTIONS.includes(firstText(draft, ["salesChannel"])) ? firstText(draft, ["salesChannel"]) : "직판";
+  const selectedPartnerId = firstText(draft, ["partnerContactId"]);
+  const normalizedRelatedContactIds = relatedContactIds(draft).filter((id) => salesChannel === "협력" || id !== selectedPartnerId);
 
   return {
     id: firstText(draft, ["id"]) || createId("note_"),
@@ -8084,9 +8195,13 @@ function normalizeSalesDraft(draft: AnyRecord, companies: AnyRecord[]): AnyRecor
     contactName: (companyUnknown || !customerContactAllowed) ? "" : (contact ? firstText(contact, ["name", "contactName"]) : firstText(draft, ["contactName"])),
     contactPhone: (companyUnknown || !customerContactAllowed) ? "" : (contact ? firstText(contact, ["phone", "contactPhone"]) : firstText(draft, ["contactPhone"])),
     contactEmail: (companyUnknown || !customerContactAllowed) ? "" : (contact ? firstText(contact, ["email", "contactEmail"]) : firstText(draft, ["contactEmail"])),
-    relatedContactIds: relatedContactIds(draft),
+    relatedContactIds: normalizedRelatedContactIds,
+    partnerCompanyId: salesChannel === "협력" ? firstText(draft, ["partnerCompanyId"]) : "",
+    partnerCompany: salesChannel === "협력" ? firstText(draft, ["partnerCompany"]) : "",
+    partnerContactId: salesChannel === "협력" ? selectedPartnerId : "",
+    partnerContactName: salesChannel === "협력" ? firstText(draft, ["partnerContactName"]) : "",
     interest: firstText(draft, ["interest"]),
-    salesChannel: SALES_CHANNEL_OPTIONS.includes(firstText(draft, ["salesChannel"])) ? firstText(draft, ["salesChannel"]) : "직판",
+    salesChannel,
     budgetAmount: normalizeAmountString(firstText(draft, ["budgetAmount"])),
     itemCategory: normalizeSalesItemCategory(firstText(draft, ["itemCategory"])),
     status: normalizeSalesStatus(firstText(draft, ["status"])),

@@ -38,6 +38,8 @@ export type EquipmentSalesShareNote = {
   contactEmail?: unknown;
   interest?: unknown;
   salesChannel?: unknown;
+  partnerCompany?: unknown;
+  partnerContactName?: unknown;
   budgetAmount?: unknown;
   quoteStatus?: unknown;
   status?: unknown;
@@ -115,6 +117,13 @@ export function formatTimeline(value: unknown): string {
   return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}`;
 }
 
+export function formatSalesChannelForSheet(note: EquipmentSalesShareNote): string {
+  const channel = text(note.salesChannel) || "직판";
+  if (channel !== "협력") return channel;
+  const partner = [text(note.partnerCompany), text(note.partnerContactName)].filter(Boolean).join("/");
+  return partner ? `협력(${partner})` : channel;
+}
+
 export function equipmentSalesRow(
   note: EquipmentSalesShareNote,
   displayName: string,
@@ -122,7 +131,7 @@ export function equipmentSalesRow(
   return [
     formatTimeline(note.updatedAt),
     text(displayName),
-    text(note.salesChannel) || "직판",
+    formatSalesChannelForSheet(note),
     text(note.company) || (note.companyUnknown ? "미정" : ""),
     text(note.contactName),
     text(note.contactPhone),

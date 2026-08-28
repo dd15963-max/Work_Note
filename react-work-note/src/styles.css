@@ -6861,6 +6861,12 @@ h2 {
   margin-top: 0;
 }
 
+.partner-contact-field small {
+  color: #66758a;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 /* Related contacts */
 .related-contact-picker {
   position: relative;
