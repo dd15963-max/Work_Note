@@ -3665,6 +3665,7 @@ function CompanyCombobox({
   draft,
   setDraft,
   companies,
+  onPersist,
   companyLabel = "업체명",
   contactLabel = "고객사 담당자 선택",
   allowNoCompany = false
@@ -3672,6 +3673,7 @@ function CompanyCombobox({
   draft: AnyRecord;
   setDraft: (draft: AnyRecord) => void;
   companies: AnyRecord[];
+  onPersist: (updater: (current: WorkNoteData) => WorkNoteData, reason: string) => void;
   companyLabel?: string;
   contactLabel?: string;
   allowNoCompany?: boolean;
@@ -3683,6 +3685,7 @@ function CompanyCombobox({
   const selectedName = selectedCompany ? companyName(selectedCompany) : firstText(draft, ["company"]);
   const [query, setQuery] = useState(selectedName);
   const [open, setOpen] = useState(false);
+  const [quickCompanyDraft, setQuickCompanyDraft] = useState<AnyRecord | null>(null);
   const options = useMemo(
     () => companies.filter((company) => matchesText(company, query)).slice(0, 80),
     [companies, query]
@@ -3691,6 +3694,71 @@ function CompanyCombobox({
   useEffect(() => {
     if (!open) setQuery(selectedName);
   }, [open, selectedName]);
+
+  useEffect(() => {
+    if (!quickCompanyDraft) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setQuickCompanyDraft(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [quickCompanyDraft]);
+
+  const openQuickCompanyRegistration = () => {
+    const typedName = clean(query);
+    const shouldPrefill = typedName && typedName !== selectedName && typedName !== "업체 미정";
+    setQuickCompanyDraft({
+      ...createBlankCompany("customer"),
+      name: shouldPrefill ? typedName : "",
+      contactName: "",
+      contactTitle: "",
+      contactPhone: "",
+      contactEmail: ""
+    });
+    setOpen(false);
+  };
+
+  const saveQuickCompany = () => {
+    if (!quickCompanyDraft) return;
+    const name = firstText(quickCompanyDraft, ["name"]);
+    if (!name) {
+      alert("업체명을 입력해 주세요.");
+      return;
+    }
+    const similar = findSimilarCompanies(companies, name, "");
+    if (similar.length && !confirm(`비슷한 업체명이 있습니다.\n\n${similar.map(companyName).join("\n")}\n\n그래도 저장할까요?`)) return;
+
+    const contactValues = {
+      id: createId("contact_"),
+      name: firstText(quickCompanyDraft, ["contactName"]),
+      title: firstText(quickCompanyDraft, ["contactTitle"]),
+      phone: firstText(quickCompanyDraft, ["contactPhone"]),
+      email: firstText(quickCompanyDraft, ["contactEmail"]),
+      isPrimary: true
+    };
+    const hasContact = [contactValues.name, contactValues.title, contactValues.phone, contactValues.email].some(Boolean);
+    const normalized = normalizeCompanyDraft({
+      ...quickCompanyDraft,
+      contacts: hasContact ? [contactValues] : []
+    });
+    const now = new Date().toISOString();
+    const company: AnyRecord = { ...normalized, attachments: [], history: [], createdAt: now, updatedAt: now };
+    const primaryContact = asArray(company["contacts"])[0] || null;
+
+    onPersist((current) => ({ ...current, companies: [company, ...current.companies] }), "업무 등록 중 업체 추가");
+    setDraft({
+      ...draft,
+      companyId: firstText(company, ["id"]),
+      contactId: primaryContact ? recordId(primaryContact, 0) : "",
+      companyUnknown: false,
+      company: companyName(company),
+      contactName: primaryContact ? firstText(primaryContact, ["name"]) : "",
+      contactPhone: primaryContact ? firstText(primaryContact, ["phone"]) : "",
+      contactEmail: primaryContact ? firstText(primaryContact, ["email"]) : ""
+    });
+    setQuery(companyName(company));
+    setQuickCompanyDraft(null);
+  };
 
   const selectCompany = (value: string) => {
     if (value === "__unknown") {
@@ -3747,6 +3815,9 @@ function CompanyCombobox({
             }}
             placeholder="업체명, 담당자, 연락처, 이메일 검색"
           />
+          <button type="button" className="combo-quick-add-button" aria-label="새 업체 등록" onMouseDown={(event) => event.preventDefault()} onClick={openQuickCompanyRegistration}>
+            <Plus size={15} /><span>업체</span>
+          </button>
           <button type="button" aria-label="업체 목록 열기" onMouseDown={(event) => event.preventDefault()} onClick={() => {
               setOpen((current) => {
                 if (!current) setQuery("");
@@ -3797,6 +3868,43 @@ function CompanyCombobox({
             ))}
           </select>
         </label>
+      )}
+      {quickCompanyDraft && (
+        <div className="quick-company-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="quick-company-modal-title" onMouseDown={() => setQuickCompanyDraft(null)}>
+          <section className="quick-company-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="section-title-row">
+              <div>
+                <p className="eyebrow">QUICK COMPANY</p>
+                <h3 id="quick-company-modal-title">새 업체 등록</h3>
+                <small>저장하면 업체 DB에 등록되고 현재 업무에 바로 선택됩니다.</small>
+              </div>
+              <button type="button" className="icon-only-button" onClick={() => setQuickCompanyDraft(null)} aria-label="새 업체 등록 닫기"><X size={17} /></button>
+            </div>
+            <div className="quick-company-modal-body">
+              <label className="field">
+                <span>구분</span>
+                <select value={normalizeCompanyType(quickCompanyDraft)} onChange={(event) => setQuickCompanyDraft({ ...quickCompanyDraft, companyType: event.target.value as Exclude<CompanyType, "headquarters"> })}>
+                  <option value="customer">고객사</option>
+                  <option value="partner">협력사</option>
+                </select>
+              </label>
+              <TextField label="업체명" value={firstText(quickCompanyDraft, ["name"])} onChange={(value) => setQuickCompanyDraft({ ...quickCompanyDraft, name: value })} placeholder="예: 예시테크" />
+              <div className="quick-company-contact-heading">
+                <strong>첫 담당자 <small>선택 사항</small></strong>
+                <span>입력하면 업체 담당자 DB에도 함께 저장됩니다.</span>
+              </div>
+              <TextField label="담당자명" value={firstText(quickCompanyDraft, ["contactName"])} onChange={(value) => setQuickCompanyDraft({ ...quickCompanyDraft, contactName: value })} placeholder="예: 홍길동" />
+              <TextField label="직함" value={firstText(quickCompanyDraft, ["contactTitle"])} onChange={(value) => setQuickCompanyDraft({ ...quickCompanyDraft, contactTitle: value })} placeholder="예: 책임" />
+              <TextField label="연락처" value={firstText(quickCompanyDraft, ["contactPhone"])} onChange={(value) => setQuickCompanyDraft({ ...quickCompanyDraft, contactPhone: value })} placeholder="010-0000-0000" />
+              <TextField label="이메일" type="email" value={firstText(quickCompanyDraft, ["contactEmail"])} onChange={(value) => setQuickCompanyDraft({ ...quickCompanyDraft, contactEmail: value })} placeholder="name@example.com" />
+              <p className="quick-company-help">사업자번호·주소 등 상세 정보는 나중에 업체 탭에서 보완할 수 있습니다.</p>
+            </div>
+            <div className="quick-company-modal-actions">
+              <button type="button" onClick={() => setQuickCompanyDraft(null)}>취소</button>
+              <button type="button" className="primary" onClick={saveQuickCompany}><Plus size={15} /> 저장 후 선택</button>
+            </div>
+          </section>
+        </div>
       )}
     </div>
   );
@@ -3885,6 +3993,7 @@ function MaterialSalesEditor({
           draft={draft}
           setDraft={setDraft}
           companies={data.companies}
+          onPersist={onPersist}
           companyLabel="고객/업체명"
           contactLabel="고객사 담당자 선택"
         />
@@ -4006,6 +4115,7 @@ function SalesEditor({
           draft={draft}
           setDraft={setDraft}
           companies={data.companies}
+          onPersist={onPersist}
           companyLabel="고객/업체명"
           contactLabel="고객사 담당자 선택"
         />
@@ -4985,6 +5095,7 @@ function WorkEditor({
           draft={draft}
           setDraft={setDraft}
           companies={data.companies}
+          onPersist={onPersist}
           companyLabel={requiresTaskTitle ? "관련 업체 (선택)" : "업체명"}
           contactLabel="고객사 담당자 선택"
           allowNoCompany={requiresTaskTitle}
