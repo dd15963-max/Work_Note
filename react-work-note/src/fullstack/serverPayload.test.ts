@@ -20,6 +20,14 @@ function emptyData(overrides: Partial<WorkNoteData> = {}): WorkNoteData {
 }
 
 describe("buildServerPayload", () => {
+  it("preserves general memos when building the server dataset", () => {
+    const generalMemos = [{ id: "memo-1", title: "유지할 메모", body: "내용" }];
+
+    const payload = buildServerPayload(emptyData({ generalMemos }));
+
+    expect(payload.generalMemos).toEqual(generalMemos);
+  });
+
   it("keeps stable source IDs for sales contact, meeting, and planned billing schedules", () => {
     const payload = buildServerPayload(emptyData({
       notes: [{

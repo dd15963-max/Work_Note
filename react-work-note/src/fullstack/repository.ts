@@ -366,6 +366,7 @@ export async function loadServerDataset(): Promise<WorkNoteData> {
     ...emptyData(),
     version: String(payload.version || "sites-work-note-v1"),
     updatedAt: String(payload.updatedAt || payload.updated_at || ""),
+    generalMemos: asArray(payload.generalMemos),
     companies: asArray(payload.companies),
     internalContacts: asArray(payload.internalContacts),
     notes: asArray(payload.notes),
