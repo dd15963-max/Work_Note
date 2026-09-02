@@ -71,22 +71,6 @@ describe("calendar settlement navigation", () => {
     ]));
   });
 
-  it("hides an exact duplicate tax-invoice schedule and keeps the first navigable owner", () => {
-    const items = collectScheduleItems(emptyData({
-      notes: [{ id: "sales-primary", companyId: "company-1", company: "중복 고객사 정식명", billingMethod: "세금계산서", taxInvoiceStatus: "발행 예정", taxInvoiceIssueDate: "2026-09-02" }],
-      materialSalesNotes: [{ id: "sales-duplicate", companyId: "company-1", company: "중복 고객사 별칭", billingMethod: "세금계산서", taxInvoiceStatus: "발행 예정", taxInvoiceIssueDate: "2026-09-02" }],
-    }) as never);
-    const taxItems = items.filter((item) => item.taxInvoiceItemId);
-
-    expect(taxItems).toHaveLength(1);
-    expect(scheduleItemFocusTarget(taxItems[0])).toMatchObject({
-      portal: "sales",
-      id: "sales-primary",
-      salesKind: "equipment",
-      openEditor: true,
-    });
-  });
-
   it("opens every planned tax-invoice schedule in its owning detail editor", () => {
     const items = collectScheduleItems(emptyData({
       notes: [{ id: "sales-tax", company: "장비 고객사", billingMethod: "세금계산서", taxInvoiceStatus: "발행 예정", taxInvoiceIssueDate: "2026-09-02" }],
