@@ -357,6 +357,17 @@ function readTaskDetailFromLocation(): { portal: UnifiedWorkItem["portal"]; id: 
     salesKind: match[1] === "sales" ? (params.get("kind") === "material" ? "material" : "equipment") : undefined
   };
 }
+
+export function scheduleItemFocusTarget(item: ScheduleItem): FocusTarget {
+  return {
+    portal: item.sourceType,
+    id: item.sourceId,
+    taxInvoiceItemId: item.taxInvoiceItemId,
+    settlementRowId: item.settlementRowId,
+    salesKind: item.collectionKey === "materialSalesNotes" ? "material" : item.sourceType === "sales" ? "equipment" : undefined,
+    openEditor: item.sourceType === "settlement" || Boolean(item.taxInvoiceItemId)
+  };
+}
 export function App() {
   const [activePortal, setActivePortal] = useState<PortalId>("schedule");
   const [companyView, setCompanyView] = useState<CompanyType>("customer");
@@ -505,11 +516,7 @@ export function App() {
     clearTaskRoute();
     setQuery("");
     setFocusTarget({
-      portal: item.sourceType,
-      id: item.sourceId,
-      taxInvoiceItemId: item.taxInvoiceItemId,
-      settlementRowId: item.settlementRowId,
-      salesKind: item.collectionKey === "materialSalesNotes" ? "material" : item.sourceType === "sales" ? "equipment" : undefined,
+      ...scheduleItemFocusTarget(item),
       nonce: Date.now()
     });
     setActivePortal(item.sourceType);
@@ -4843,7 +4850,10 @@ function GenericWorkPortal({
     if (focusTarget?.portal !== type) return;
     const focusKey = `${focusTarget.portal}:${focusTarget.id}:${focusTarget.taxInvoiceItemId || ""}:${focusTarget.settlementRowId || ""}:${focusTarget.nonce ?? ""}`;
     if (handledFocusTargetRef.current === focusKey) return;
-    const target = searched.find(({ id }) => id === focusTarget.id);
+    const target = searched.find(({ id }) => id === focusTarget.id)
+      || records
+        .map((record, originalIndex) => ({ record, originalIndex, id: recordId(record, originalIndex) }))
+        .find(({ id }) => id === focusTarget.id);
     if (!target) return;
     handledFocusTargetRef.current = focusKey;
     setFocusedSettlementRowId(focusTarget.settlementRowId || "");
@@ -8817,7 +8827,10 @@ function normalizeTaxInvoiceDraft(draft: AnyRecord): AnyRecord {
     taxInvoiceReissueDate: !disabled && billingMethod === "세금계산서" && normalizedStatus === "재발행 완료" ? firstText(draft, ["taxInvoiceReissueDate", "invoiceReissueDate"]) : ""
   };
 }
-function normalizePaymentSchedule(rows: AnyRecord[]): AnyRecord[] {
+function normalizePaymentSchedule(
+  rows: AnyRecord[],
+  missingId: (row: AnyRecord, index: number) => string = () => createId("pay_")
+): AnyRecord[] {
   return rows
     .map((row, index) => {
       const billingMethod = billingMethodFor(row);
@@ -8829,7 +8842,7 @@ function normalizePaymentSchedule(rows: AnyRecord[]): AnyRecord[] {
           ? "발행 예정"
           : "";
       return {
-        id: firstText(row, ["id"]) || createId("pay_"),
+        id: firstText(row, ["id"]) || missingId(row, index),
         round: firstText(row, ["round"]) || (row.isTaxInvoiceOnly ? "" : String(index + 1)),
         dueDate: parseDateKey(firstText(row, ["dueDate"])) || firstText(row, ["dueDate"]),
         paidDate: parseDateKey(firstText(row, ["paidDate", "actualPaidDate", "paymentCompletedDate"])) || "",
@@ -9314,7 +9327,7 @@ function compareUnifiedWorkItems(a: UnifiedWorkItem, b: UnifiedWorkItem): number
     || compareDate(b.updatedAt, a.updatedAt)
     || a.title.localeCompare(b.title, "ko");
 }
-function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
+export function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
   const items: ScheduleItem[] = [];
 
   data.notes.forEach((note, index) => {
@@ -9323,6 +9336,14 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
     const priority = firstText(note, ["priority", "importance"]);
     addScheduleItem(items, note, index, firstText(note, ["nextContactDate"]), "[영업] 연락", joinParts([company, firstText(note, ["nextAction", "memo"])], " · "), "sales", status, priority);
     addScheduleItem(items, note, index, firstText(note, ["meetingDate"]), "[영업] 미팅", joinParts([company, firstText(note, ["nextAction", "memo"])], " · "), "sales", status, priority);
+    addTaxInvoiceScheduleItem(items, note, index, "sales", `[영업] ${company}`, status, priority);
+  });
+
+  data.materialSalesNotes.forEach((note, index) => {
+    const company = salesCustomer(note);
+    const status = firstText(note, ["status", "progressStatus"]);
+    const priority = firstText(note, ["priority", "importance"]);
+    addTaxInvoiceScheduleItem(items, note, index, "sales", `[영업] ${company}`, status, priority, "materialSalesNotes");
   });
 
   data.settlementTasks.forEach((task, index) => {
@@ -9330,7 +9351,10 @@ function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
     const priority = firstText(task, ["priority", "importance"]);
     const title = workTitle(task, "settlement");
     const isAdvance = firstText(task, ["paymentType"]).includes("선금");
-    const rows = normalizePaymentSchedule(asArray(task.paymentSchedule));
+    const rows = normalizePaymentSchedule(
+      asArray(task.paymentSchedule),
+      (_row, rowIndex) => `record-${rowIndex}`
+    );
     const activeRows = rows.filter((row) => !row.isTaxInvoiceOnly);
 
     if (!isClosed(status) || isAdvance) {
@@ -9419,7 +9443,8 @@ function addScheduleItem(
   idSuffix = "",
   taxInvoiceItemId = "",
   settlementRowId = "",
-  isImportantOverride?: boolean
+  isImportantOverride?: boolean,
+  collectionKeyOverride?: TaskCollectionKey
 ) {
   const date = parseDateKey(dateValue);
   if (!date) return;
@@ -9437,7 +9462,7 @@ function addScheduleItem(
     settlementRowId: settlementRowId || undefined,
     status,
     priority,
-    collectionKey: type === "sales" ? "notes" : type === "settlement" ? "settlementTasks" : type === "output" ? "outputTasks" : "otherTasks",
+    collectionKey: collectionKeyOverride || (type === "sales" ? "notes" : type === "settlement" ? "settlementTasks" : type === "output" ? "outputTasks" : "otherTasks"),
     isImportant: isImportantOverride ?? Boolean(record.isImportant)
   });
 }
@@ -9446,15 +9471,16 @@ function addTaxInvoiceScheduleItem(
   target: ScheduleItem[],
   record: AnyRecord,
   index: number,
-  type: Extract<ScheduleItem["type"], "settlement" | "output">,
+  type: Extract<ScheduleItem["type"], "sales" | "settlement" | "output">,
   title: string,
   status: string,
-  priority: string
+  priority: string,
+  collectionKeyOverride?: TaskCollectionKey
 ) {
   const billingMethod = billingMethodFor(record);
   if (billingMethod === "불필요") return;
   if (firstText(record, ["taxInvoiceStatus", "invoiceStatus"]) !== "발행 예정") return;
-  addScheduleItem(target, record, index, firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]), `${title} ${billingMethod}`, `${billingMethod} 발행 예정`, type, status, priority, "tax-invoice", "record-tax-invoice");
+  addScheduleItem(target, record, index, firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]), `${title} ${billingMethod}`, `${billingMethod} 발행 예정`, type, status, priority, "tax-invoice", "record-tax-invoice", "", undefined, collectionKeyOverride);
 }
 
 function addWorkDateRangeItems(
