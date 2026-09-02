@@ -9427,7 +9427,18 @@ export function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
     addWorkDateRangeItems(items, task, index, "other", `[기타] ${calendarWorkTitle(task, "other")}`, joinParts([companyName(task) ? `업체: ${companyName(task)}` : task.companyUnknown ? "업체 미정" : "", firstText(task, ["memo", "description"])], " · "));
   });
 
-  return items.sort((a, b) => a.date.localeCompare(b.date) || Number(b.isImportant) - Number(a.isImportant) || priorityScoreFromText(b.priority) - priorityScoreFromText(a.priority));
+  return deduplicateTaxInvoiceScheduleItems(items).sort((a, b) => a.date.localeCompare(b.date) || Number(b.isImportant) - Number(a.isImportant) || priorityScoreFromText(b.priority) - priorityScoreFromText(a.priority));
+}
+
+function deduplicateTaxInvoiceScheduleItems(items: ScheduleItem[]): ScheduleItem[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (!item.taxInvoiceItemId) return true;
+    const key = [item.date, item.type, clean(item.title), clean(item.detail)].join("::");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function addScheduleItem(
