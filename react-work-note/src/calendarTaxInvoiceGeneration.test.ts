@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { collectScheduleItems, scheduleItemFocusTarget } from "./App";
 
@@ -61,12 +61,17 @@ describe("calendar tax-invoice generation", () => {
   });
 
   it("does not load the legacy DOM generator or consume stored taskSchedules", () => {
-    const indexHtml = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+    const liveLayoutSource = readFileSync(new URL("../../app/layout.tsx", import.meta.url), "utf8");
+    const staticIndexSource = readFileSync(new URL("../../react/index.html", import.meta.url), "utf8");
     const items = taxItems(emptyData({
       notes: [{ id: "sales-1", company: "원본 업무", ...plannedInvoice }],
       taskSchedules: [{ id: "ghost", date: "2026-09-02", scheduleKind: "tax_invoice", title: "이동 불가 복제 일정" }],
     }));
-    expect(indexHtml).not.toContain("calendar-label-fix.js");
+    expect(liveLayoutSource).not.toContain("calendar-label-fix.js");
+    expect(staticIndexSource).not.toContain("calendar-label-fix.js");
+    expect(existsSync(new URL("../../public/calendar-label-fix.js", import.meta.url))).toBe(false);
+    expect(existsSync(new URL("../../react/calendar-label-fix.js", import.meta.url))).toBe(false);
+    expect(existsSync(new URL("../public/calendar-label-fix.js", import.meta.url))).toBe(false);
     expect(items).toHaveLength(1);
     expect(items[0].sourceId).toBe("sales-1");
   });
