@@ -9327,8 +9327,17 @@ function compareUnifiedWorkItems(a: UnifiedWorkItem, b: UnifiedWorkItem): number
     || compareDate(b.updatedAt, a.updatedAt)
     || a.title.localeCompare(b.title, "ko");
 }
+function salesTaxInvoiceIdentity(record: AnyRecord): string {
+  if (firstText(record, ["taxInvoiceStatus", "invoiceStatus"]) !== "발행 예정") return "";
+  const companyKey = firstText(record, ["companyId"]) || normalizeCompanySimilarityKey(salesCustomer(record));
+  const date = parseDateKey(firstText(record, ["taxInvoiceIssueDate", "invoiceIssueDate"]));
+  if (!companyKey || !date) return "";
+  return [companyKey, date, billingMethodFor(record)].join("::");
+}
+
 export function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
   const items: ScheduleItem[] = [];
+  const equipmentSalesTaxKeys = new Set(data.notes.map(salesTaxInvoiceIdentity).filter(Boolean));
 
   data.notes.forEach((note, index) => {
     const company = salesCustomer(note);
@@ -9340,6 +9349,8 @@ export function collectScheduleItems(data: WorkNoteData): ScheduleItem[] {
   });
 
   data.materialSalesNotes.forEach((note, index) => {
+    const taxKey = salesTaxInvoiceIdentity(note);
+    if (taxKey && equipmentSalesTaxKeys.has(taxKey)) return;
     const company = salesCustomer(note);
     const status = firstText(note, ["status", "progressStatus"]);
     const priority = firstText(note, ["priority", "importance"]);
