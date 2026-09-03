@@ -940,42 +940,35 @@ function GeneralMemoPortal({
           const id = recordId(memo, index);
           const attachments = asArray(memo.attachments);
           const company = generalMemoCompanyName(memo);
-          const filePanelOpen = filePanel === id;
           return (
             <article className="general-memo-card panel" key={id} data-record-id={id}>
               <div className="general-memo-card-main">
                 <div className="general-memo-card-heading">
-                  <strong>{generalMemoTitle(memo)}</strong>
-                  {company && <span className="general-memo-company-chip">{company}</span>}
+                  <div>
+                    <strong>{generalMemoTitle(memo)}</strong>
+                    <span>{company || "관련 업체 없음"}</span>
+                  </div>
+                  {attachments.length > 0 && <Badge tone="blue"><FileText size={13} /> 파일 {attachments.length}</Badge>}
                 </div>
                 <p className="general-memo-preview">{generalMemoBody(memo)}</p>
-              </div>
-              <div className="general-memo-attachment-section">
-                <div className="general-memo-attachment-tools">
-                  {attachments.length > 0 && <span><FileText size={14} /> 첨부 {attachments.length}개</span>}
-                  <button
-                    type="button"
-                    aria-expanded={filePanelOpen}
-                    onClick={() => setFilePanel(filePanelOpen ? null : id)}
-                  >
-                    <Upload size={14} />
-                    {filePanelOpen ? "첨부 접기" : attachments.length > 0 ? "첨부 관리" : "첨부 추가"}
-                  </button>
-                </div>
-                <AttachmentPreview record={memo} showAll />
-              </div>
-              <div className="general-memo-card-footer">
-                <span className="general-memo-meta">{formatGeneralMemoDateMeta(memo)}</span>
-                <div className="card-actions general-memo-actions">
-                  <button type="button" onClick={() => setEditingMemo(prepareGeneralMemoDraft(memo, index))}>
-                    <Pencil size={14} /> 수정
-                  </button>
-                  <button type="button" className="danger-button" onClick={() => void deleteMemo(memo, index)}>
-                    <Trash2 size={14} /> 삭제
-                  </button>
+                <div className="general-memo-meta">
+                  <span>수정 {formatDateTime(firstText(memo, ["updatedAt", "createdAt"]))}</span>
+                  {firstText(memo, ["createdAt"]) && <span>작성 {formatDateTime(firstText(memo, ["createdAt"]))}</span>}
                 </div>
               </div>
-              {filePanelOpen && (
+              <AttachmentPreview record={memo} />
+              <div className="card-actions general-memo-actions">
+                <button type="button" onClick={() => setFilePanel(filePanel === id ? null : id)}>
+                  <FileText size={15} /> 파일 {attachments.length}
+                </button>
+                <button type="button" onClick={() => setEditingMemo(prepareGeneralMemoDraft(memo, index))}>
+                  <Pencil size={15} /> 수정
+                </button>
+                <button type="button" className="danger-button" onClick={() => void deleteMemo(memo, index)}>
+                  <Trash2 size={15} /> 삭제
+                </button>
+              </div>
+              {filePanel === id && (
                 <div className="inline-file-panel">
                   <SalesFileManager
                     noteId={id}
@@ -1042,7 +1035,7 @@ function GeneralMemoEditor({
         <summary>관련 업체 연결 <span>선택</span></summary>
         <MemoCompanyPicker draft={draft} setDraft={setDraft} companies={companies} />
       </details>
-      {!firstText(draft, ["id"]) && <p className="general-memo-file-hint"><FileText size={15} /> 메모를 저장한 뒤 목록의 ‘첨부 추가’에서 자료를 첨부할 수 있습니다.</p>}
+      {!firstText(draft, ["id"]) && <p className="general-memo-file-hint"><FileText size={15} /> 메모를 저장한 뒤 목록의 ‘파일’에서 자료를 첨부할 수 있습니다.</p>}
       <EditorActionBar onSave={() => onSave(draft)} onCancel={onCancel} />
     </section>
   );
@@ -6045,19 +6038,18 @@ function getVisibleSettlementPreviewEntries(entries: Array<{ row: AnyRecord; ind
   });
   return entries.slice(Math.max(0, latestCompletedIndex), Math.max(0, latestCompletedIndex) + 4);
 }
-function AttachmentPreview({ record, showAll = false }: { record: AnyRecord; showAll?: boolean }) {
+function AttachmentPreview({ record }: { record: AnyRecord }) {
   const attachments = asArray(record.attachments);
   if (!attachments.length) return null;
-  const visibleAttachments = showAll ? attachments : attachments.slice(0, 3);
   return (
-    <div className={`attachment-preview ${showAll ? "attachment-preview-list" : ""}`}>
-      {visibleAttachments.map((file, index) => (
+    <div className="attachment-preview">
+      {attachments.slice(0, 3).map((file, index) => (
         <div className="attachment-chip" key={recordId(file, index)}>
           <span>{firstText(file, ["name", "fileName", "filename"]) || `파일 ${index + 1}`}</span>
           <AttachmentActions attachment={file} compact />
         </div>
       ))}
-      {!showAll && attachments.length > 3 && <div className="attachment-chip more-chip">+{attachments.length - 3}</div>}
+      {attachments.length > 3 && <div className="attachment-chip more-chip">+{attachments.length - 3}</div>}
     </div>
   );
 }
@@ -10229,25 +10221,6 @@ function formatDateTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return `${date.getFullYear()}.${`${date.getMonth() + 1}`.padStart(2, "0")}.${`${date.getDate()}`.padStart(2, "0")} ${`${date.getHours()}`.padStart(2, "0")}:${`${date.getMinutes()}`.padStart(2, "0")}`;
-}
-
-function formatGeneralMemoDateMeta(memo: AnyRecord): string {
-  const createdAt = firstText(memo, ["createdAt"]);
-  const updatedAt = firstText(memo, ["updatedAt"]);
-  if (!createdAt) return updatedAt ? `수정 ${formatDateTime(updatedAt)}` : "";
-  if (!updatedAt || updatedAt === createdAt) return `작성 ${formatDateTime(createdAt)}`;
-
-  const createdDate = new Date(createdAt);
-  const updatedDate = new Date(updatedAt);
-  const sameDay = !Number.isNaN(createdDate.getTime())
-    && !Number.isNaN(updatedDate.getTime())
-    && createdDate.getFullYear() === updatedDate.getFullYear()
-    && createdDate.getMonth() === updatedDate.getMonth()
-    && createdDate.getDate() === updatedDate.getDate();
-  const updatedLabel = sameDay
-    ? `${`${updatedDate.getHours()}`.padStart(2, "0")}:${`${updatedDate.getMinutes()}`.padStart(2, "0")}`
-    : formatDateTime(updatedAt);
-  return `작성 ${formatDateTime(createdAt)} · 수정 ${updatedLabel}`;
 }
 
 function formatMonthTitle(date: Date): string {

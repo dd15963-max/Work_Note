@@ -32,17 +32,17 @@ body,
 
 .general-memo-portal {
   display: grid;
-  gap: 10px;
+  gap: 16px;
 }
 
 .general-memo-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 16px;
-  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 24px;
   background:
-    radial-gradient(circle at 94% 0%, rgba(73, 103, 255, 0.08), transparent 30%),
+    radial-gradient(circle at 92% 5%, rgba(73, 103, 255, 0.12), transparent 32%),
     var(--surface, #fff);
 }
 
@@ -52,43 +52,37 @@ body,
 }
 
 .general-memo-hero h2 {
-  margin-top: 2px;
-  font-size: clamp(1.3rem, 2vw, 1.65rem);
+  margin-top: 3px;
+  font-size: clamp(1.55rem, 2.5vw, 2.15rem);
 }
 
-.general-memo-hero .eyebrow {
-  font-size: 0.68rem;
-  letter-spacing: 0.08em;
+.general-memo-hero > div > p:last-child {
+  margin-top: 7px;
+  color: var(--text-subtle, #667085);
 }
 
 .general-memo-hero > .toolbar-cluster {
-  grid-column: 2;
-  grid-row: 1;
-  align-self: start;
-  justify-self: end;
+  align-self: flex-start;
   flex: 0 0 auto;
-  margin: 0;
-  white-space: nowrap;
+  margin-left: auto;
 }
 
 .general-memo-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 8px 10px;
+  gap: 14px;
+  padding: 12px 14px;
 }
 
 .general-memo-toolbar .search-box {
   width: min(100%, 540px);
-  min-height: 38px;
   margin: 0;
-  padding-inline: 11px;
 }
 
 .general-memo-toolbar > span {
   color: var(--text-subtle, #667085);
-  font-size: 0.78rem;
+  font-size: 0.86rem;
   white-space: nowrap;
 }
 
@@ -96,7 +90,7 @@ body,
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
   align-items: start;
-  gap: 10px;
+  gap: 14px;
 }
 
 .general-memo-list > .empty-state {
@@ -105,154 +99,68 @@ body,
 
 .general-memo-card {
   display: grid;
-  gap: 10px;
-  padding: 16px 18px;
+  gap: 13px;
+  padding: 18px;
   overflow: hidden;
 }
 
 .general-memo-card-heading {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 7px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.general-memo-card-heading > div {
+  display: grid;
+  gap: 4px;
 }
 
 .general-memo-card-heading strong {
   color: var(--text, #172033);
-  font-size: 1.03rem;
+  font-size: 1.05rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
 
-.general-memo-company-chip {
-  display: inline-flex;
-  align-items: center;
-  max-width: 100%;
-  overflow: hidden;
-  border: 1px solid #cfdcf0;
-  border-radius: 999px;
-  background: #f3f7fd;
-  color: #385b8c;
-  padding: 2px 7px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+.general-memo-card-heading span,
 .general-memo-meta {
   color: var(--text-subtle, #667085);
-  font-size: 0.76rem;
-  line-height: 1.45;
+  font-size: 0.8rem;
+}
+
+.general-memo-card .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
 }
 
 .general-memo-preview {
   display: -webkit-box;
-  margin: 7px 0 0;
-  min-height: 0;
+  margin: 12px 0 0;
+  min-height: 4.7em;
   overflow: hidden;
   color: var(--text, #344054);
-  line-height: 1.52;
+  line-height: 1.58;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }
 
-.general-memo-attachment-section {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.general-memo-attachment-tools {
+.general-memo-meta {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 6px 10px;
-}
-
-.general-memo-attachment-tools > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--text-subtle, #667085);
-  font-size: 0.76rem;
-  font-weight: 700;
-}
-
-.general-memo-attachment-tools > button,
-.general-memo-actions button {
-  min-height: 30px;
-  border: 1px solid var(--border, #e4e7ec);
-  border-radius: 7px;
-  background: var(--surface, #fff);
-  color: var(--text, #344054);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 5px 8px;
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-
-.general-memo-card .attachment-preview-list {
-  display: grid;
-  gap: 4px;
-  margin: 0;
-  border: 0;
-  background: transparent;
-  padding: 0;
-}
-
-.general-memo-card .attachment-preview-list .attachment-chip {
-  width: 100%;
-  max-width: none;
-  min-width: 0;
-  justify-content: space-between;
-  border: 1px solid var(--border, #e4e7ec);
-  border-radius: 7px;
-  background: var(--surface-muted, #f8fafc);
-  padding: 5px 7px 5px 9px;
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-
-.general-memo-card .attachment-preview-list .attachment-chip > span {
-  max-width: none;
-  color: var(--text, #344054);
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-
-.general-memo-card .attachment-preview-list .attachment-actions {
-  opacity: 0.48;
-  transition: opacity 120ms ease;
-}
-
-.general-memo-card .attachment-preview-list .attachment-chip:hover .attachment-actions,
-.general-memo-card .attachment-preview-list .attachment-actions:focus-within {
-  opacity: 1;
-}
-
-.general-memo-card-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 7px 12px;
-  padding-top: 2px;
+  gap: 5px 12px;
+  margin-top: 14px;
 }
 
 .general-memo-actions {
   justify-content: flex-end;
-  flex: 0 0 auto;
   margin-top: 0;
-  margin-left: auto;
-  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border, #e4e7ec);
 }
 
 .general-memo-card .inline-file-panel {
@@ -498,11 +406,12 @@ body,
   .general-memo-hero,
   .general-memo-toolbar {
     align-items: stretch;
+    flex-direction: column;
   }
 
   .general-memo-hero,
   .general-memo-card {
-    padding: 14px;
+    padding: 16px;
   }
 
   .general-memo-hero > .toolbar-cluster,
@@ -511,9 +420,6 @@ body,
   }
 
   .general-memo-hero > .toolbar-cluster {
-    grid-column: 1;
-    grid-row: 2;
-    justify-self: stretch;
     justify-content: space-between;
   }
 
@@ -526,17 +432,14 @@ body,
   }
 
   .general-memo-actions {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .general-memo-actions button {
-    min-width: 68px;
+    min-width: 0;
     justify-content: center;
     padding-inline: 8px;
-  }
-
-  .general-memo-card .attachment-preview-list .attachment-actions {
-    opacity: 1;
   }
 
   .general-memo-card .sales-file-manager,
@@ -575,15 +478,17 @@ body,
     font-size: 0.78rem;
   }
 
-  .general-memo-card-footer {
-    align-items: flex-start;
+  .general-memo-card-heading {
     flex-direction: column;
   }
 
-  .general-memo-actions {
-    width: 100%;
-    margin-left: 0;
-    justify-content: flex-end;
+  .general-memo-actions button {
+    font-size: 0;
+  }
+
+  .general-memo-actions button svg {
+    width: 17px;
+    height: 17px;
   }
 }
 
