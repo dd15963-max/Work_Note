@@ -151,6 +151,23 @@ describe("Google Drive UI requirements", () => {
     expect(appCss).toMatch(/\.general-memo-hero > \.toolbar-cluster\s*\{[\s\S]*justify-self:\s*end/);
   });
 
+  it("keeps the memo list content-first without duplicate file counters", () => {
+    const start = appSource.indexOf("function GeneralMemoPortal");
+    const end = appSource.indexOf("function GeneralMemoEditor", start);
+    const memoPortal = appSource.slice(start, end);
+
+    expect(memoPortal).toContain('company && <span className="general-memo-company-chip">');
+    expect(memoPortal).not.toContain('company || "관련 업체 없음"');
+    expect(memoPortal).toContain("<AttachmentPreview record={memo} showAll />");
+    expect(memoPortal).toContain("첨부 {attachments.length}개");
+    expect(memoPortal).toContain('attachments.length > 0 ? "첨부 관리" : "첨부 추가"');
+    expect(memoPortal).not.toContain("파일 {attachments.length}");
+    expect(memoPortal).toContain('className="general-memo-card-footer"');
+    expect(memoPortal).toContain("formatGeneralMemoDateMeta(memo)");
+    expect(uxRefreshCss).toContain(".general-memo-card .attachment-preview-list");
+    expect(uxRefreshCss).toContain(".general-memo-card-footer");
+  });
+
   it("keeps backup actions clickable, compact, and collapsed until requested", () => {
     const start = appSource.indexOf("export function BackupSettingsPanel");
     const end = appSource.indexOf("function LocalDataSettings", start);
