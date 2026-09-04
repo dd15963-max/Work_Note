@@ -7366,3 +7366,36 @@ h2 {
     min-width: 0;
   }
 }
+
+/* Memo detail disclosure: no changes to attachment or action layouts. */
+.general-memo-card .general-memo-detail-trigger {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.general-memo-card .general-memo-detail-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.general-memo-card .general-memo-detail-trigger:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
+}
+
+.general-memo-card .general-memo-detail-body {
+  margin: 14px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.general-memo-card .general-memo-detail-dates {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-bottom: 12px;
+}

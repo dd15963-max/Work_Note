@@ -943,18 +943,22 @@ function GeneralMemoPortal({
           return (
             <article className="general-memo-card panel" key={id} data-record-id={id}>
               <div className="general-memo-card-main">
-                <div className="general-memo-card-heading">
-                  <div>
+                <details className="general-memo-details">
+                  <summary className="general-memo-detail-trigger" title="메모 상세보기">
                     <strong>{generalMemoTitle(memo)}</strong>
                     <span>{company || "관련 업체 없음"}</span>
+                  </summary>
+                  <div className="general-memo-detail-content">
+                    <p className="general-memo-detail-body">{generalMemoBody(memo)}</p>
+                    <div className="general-memo-detail-dates">
+                      <span>수정 {formatDateTime(firstText(memo, ["updatedAt", "createdAt"]))}</span>
+                      {firstText(memo, ["createdAt"]) && <>
+                        <span aria-hidden="true">/</span>
+                        <span>작성 {formatDateTime(firstText(memo, ["createdAt"]))}</span>
+                      </>}
+                    </div>
                   </div>
-                  {attachments.length > 0 && <Badge tone="blue"><FileText size={13} /> 파일 {attachments.length}</Badge>}
-                </div>
-                <p className="general-memo-preview">{generalMemoBody(memo)}</p>
-                <div className="general-memo-meta">
-                  <span>수정 {formatDateTime(firstText(memo, ["updatedAt", "createdAt"]))}</span>
-                  {firstText(memo, ["createdAt"]) && <span>작성 {formatDateTime(firstText(memo, ["createdAt"]))}</span>}
-                </div>
+                </details>
               </div>
               <AttachmentPreview record={memo} />
               <div className="card-actions general-memo-actions">

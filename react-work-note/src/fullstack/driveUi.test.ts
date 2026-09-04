@@ -151,6 +151,27 @@ describe("Google Drive UI requirements", () => {
     expect(appCss).toMatch(/\.general-memo-hero > \.toolbar-cluster\s*\{[\s\S]*justify-self:\s*end/);
   });
 
+  it("shows memo content and timestamps only in a closed-by-default detail disclosure", () => {
+    const start = appSource.indexOf("function GeneralMemoPortal");
+    const end = appSource.indexOf("function GeneralMemoEditor", start);
+    const portal = appSource.slice(start, end);
+    const details = portal.slice(portal.indexOf('<details className="general-memo-details">'), portal.indexOf('</details>'));
+    expect(details).toContain('<summary className="general-memo-detail-trigger"');
+    expect(details).toContain('{company || "관련 업체 없음"}');
+    expect(details).toContain('{generalMemoBody(memo)}');
+    expect(details).toContain('수정 {formatDateTime');
+    expect(details).toContain('작성 {formatDateTime');
+    expect(details).toContain('<span aria-hidden="true">/</span>');
+    expect(details).not.toContain(' open');
+    expect(portal).not.toContain('<Badge');
+    expect(portal).toContain('<AttachmentPreview record={memo} />');
+    expect(portal).toContain('<FileText size={15} /> 파일 {attachments.length}');
+    expect(portal).toContain('<Pencil size={15} /> 수정');
+    expect(portal).toContain('<Trash2 size={15} /> 삭제');
+    expect(appCss).toContain('.general-memo-card .general-memo-detail-trigger');
+    expect(appCss).toContain('gap: 6px 14px;');
+  });
+
   it("keeps backup actions clickable, compact, and collapsed until requested", () => {
     const start = appSource.indexOf("export function BackupSettingsPanel");
     const end = appSource.indexOf("function LocalDataSettings", start);
