@@ -1,5 +1,6 @@
 import { database, ensureSchema, fileBucket } from "@/db/runtime";
 import { getDriveConnection } from "@/app/google-drive/auth";
+import { releaseSyncedSource } from "@/app/google-drive/source-cleanup";
 import { decryptSecret, encryptSecret } from "@/app/google-drive/crypto";
 import {
   createDriveResumableSession,
@@ -230,6 +231,7 @@ async function finalizeMigration(
       destinationFolderId: folders.categoryFolderId,
     },
   });
+  await releaseSyncedSource(email, row.local_id);
 }
 
 export async function GET(request: Request) {

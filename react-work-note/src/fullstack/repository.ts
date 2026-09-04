@@ -839,7 +839,7 @@ async function uploadRemoteAttachmentOnce(
     operationToken: String(record.operationToken || `attachment:${record.id}:${fileSize}`),
   });
 
-  let sourceReady = session.sourceStatus === "available";
+  let sourceReady = session.status === "synced" || session.sourceStatus === "available";
   try {
     let sourceState = session;
     for (let sourceAttempt = 0; !sourceReady && sourceAttempt < 4; sourceAttempt += 1) {
@@ -891,7 +891,7 @@ async function uploadRemoteAttachmentOnce(
       await completeDriveUpload(record.id, fileName, session.sessionId, fileSize, onProgress, drive);
     });
   } catch (caught) {
-    if (caught instanceof RepositoryError) applySourceStatusFallback(caught, sourceReady);
+    if (caught instanceof RepositoryError) applySourceStatusFallback(caught, sourceReady && session.sourceStatus !== "released");
     throw caught;
   }
   removePendingAttachment(record.id);
@@ -901,9 +901,9 @@ async function uploadRemoteAttachmentOnce(
     ...(remote || {}),
     id: record.id,
     blob: record.blob,
-    sourceAvailable: true,
-    sourceLocation: "r2",
-    sourceStatus: "available",
+    sourceAvailable: remote?.sourceAvailable ?? false,
+    sourceLocation: remote?.sourceLocation || "google_drive",
+    sourceStatus: remote?.sourceStatus || "unknown",
     syncStatus: "synced",
     syncErrorCode: "",
     syncErrorMessage: "",
@@ -1234,6 +1234,33 @@ export async function testGoogleDriveConnection(): Promise<void> {
 export async function recheckGoogleDriveConnection(): Promise<GoogleDriveStatus> {
   await testGoogleDriveConnection();
   return getGoogleDriveStatus();
+}
+
+export type SiteSourceCleanupResult = { released: number; skipped: number; failed: number; bytes: number };
+
+export async function cleanupSyncedSiteSources(
+  onProgress?: (result: SiteSourceCleanupResult) => void,
+): Promise<SiteSourceCleanupResult> {
+  ensureRuntime();
+  const total: SiteSourceCleanupResult = { released: 0, skipped: 0, failed: 0, bytes: 0 };
+  let cursor = "";
+  for (;;) {
+    const response = await fetch("/api/google-drive/source-cleanup", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmed: true, cursor }),
+    });
+    if (!response.ok) throw await responseError(response);
+    const result = await response.json() as SiteSourceCleanupResult & { cursor: string; hasMore: boolean };
+    total.released += result.released;
+    total.skipped += result.skipped;
+    total.failed += result.failed;
+    total.bytes += result.bytes;
+    onProgress?.({ ...total });
+    if (!result.hasMore) return total;
+    if (!result.cursor || result.cursor <= cursor) throw new Error("원본 정리 진행 위치를 확인하지 못했습니다. 다시 시도해 주세요.");
+    cursor = result.cursor;
+  }
 }
 
 export async function migrateLegacyAttachmentsToDrive(

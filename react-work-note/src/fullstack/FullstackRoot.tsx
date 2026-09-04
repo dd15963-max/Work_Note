@@ -26,6 +26,7 @@ import {
   clearPendingSync,
   clearRemoteRuntime,
   cleanupEmptyDriveFolders,
+  cleanupSyncedSiteSources,
   connectGoogleDrive,
   disconnectGoogleDrive,
   flushPendingAttachments,
@@ -663,7 +664,7 @@ function ServerSettings({
               <span><b>마지막 Drive 동기화</b>{formatSettingsTime(drive?.lastDriveSyncAt || drive?.lastSyncedAt)}</span>
               <span><b>현재 동기화 중</b>{sync.mode === "saving" ? "예" : "아니요"}</span>
               <span><b>동기화 실패</b>{sync.error ? "오류 발생" : failedAttachmentIds.length ? `${failedAttachmentIds.length}개 확인 필요` : "없음"}</span>
-              <span><b>저장 구성</b>업무 기록 · 첨부 원본 · Google Drive 사본</span>
+              <span><b>저장 구성</b>업무 기록 · 임시 원본 · Google Drive 파일</span>
               <span><b>최종 출력 파일 저장</b>{formatSettingsTime(outputSavedAt)}</span>
             </div>
             <CountSummary counts={counts} />
@@ -813,8 +814,21 @@ function ServerSettings({
 
                 {drive.connected && (
                   <details className="settings-disclosure drive-management-disclosure">
-                    <summary>Google Drive 관리 <span>폴더 정리·파일 이전·로그</span></summary>
+                    <summary>Google Drive 관리 <span>사이트 원본·폴더 정리·파일 이전·로그</span></summary>
                     <div className="settings-actions drive-management-actions">
+                    <p>Drive 저장 확인 후 사이트 원본은 자동 정리됩니다. 실패 파일은 재시도를 위해 보관합니다.</p>
+                    <button type="button" disabled={Boolean(busy)} onClick={() => run("site-source-cleanup", async () => {
+                      if (!confirm("Drive 저장이 완료된 파일의 사이트 원본만 제거할까요? 파일의 존재와 크기를 확인한 뒤 제거하며, 실패·미완료 파일은 유지합니다. 이후 미리보기와 다운로드에는 Drive 연결이 필요합니다. 제거한 사이트 사본은 되돌릴 수 없지만 Drive 파일은 유지됩니다.")) return;
+                      const report = (result: { released: number; skipped: number; failed: number; bytes: number }) => {
+                        setDriveMessage(`사이트 원본 정리 · 완료 ${result.released}개 · 보류 ${result.skipped}개 · 실패 ${result.failed}개 · 확보 ${(result.bytes / 1024 / 1024).toFixed(1)} MB`);
+                      };
+                      const result = await cleanupSyncedSiteSources(report);
+                      report(result);
+                      await refreshDrive();
+                      await onReload();
+                    })}>
+                      <HardDrive size={16} /> 동기화 완료 원본 정리
+                    </button>
                     <button type="button" disabled={Boolean(busy)} onClick={() => run("duplicates-preview", async () => {
                       const result = await previewDuplicateDriveFolders();
                       setDriveResult(result);

@@ -192,7 +192,7 @@ function responseMetadata(id: string, row: AttachmentRow) {
     currentChunk: Number(row.current_chunk || 0),
     sourceStatus: row.source_status || "",
     sourceAvailable: row.source_status === "available",
-    sourceLocation: row.source_status === "available" ? "r2" : "",
+    sourceLocation: row.source_status === "available" ? "r2" : row.storage_provider === "google_drive" ? "google_drive" : "",
     previewAvailable: Boolean(row.preview_available),
     createdAt: row.created_at,
     updatedAt: row.updated_at,

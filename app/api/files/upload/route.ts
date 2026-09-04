@@ -1,4 +1,5 @@
 import { database, ensureSchema, fileBucket } from "@/db/runtime";
+import { releaseSyncedSource } from "@/app/google-drive/source-cleanup";
 import {
   accessTokenForUser,
   getDriveConnection,
@@ -615,7 +616,7 @@ async function uploadSourcePart(email: string, request: Request, sessionId: stri
     if (!session) throw new UploadProtocolError("INVALID_FILE_METADATA", "업로드 작업을 찾을 수 없습니다.", {
       stage: "source_chunk", status: 404,
     });
-    if (session.source_status === "available") return sessionResponse(session, { alreadyUploaded: true });
+    if (session.status === "synced" || session.source_status === "available") return sessionResponse(session, { alreadyUploaded: true });
     if (session.source_status === "missing" || session.error_code === "R2_UPLOAD_EXPIRED") {
       return reinitializeExpiredSourceMultipart(
         email,
@@ -693,6 +694,7 @@ async function completeSource(email: string, sessionId: string) {
     if (!session) throw new UploadProtocolError("INVALID_FILE_METADATA", "업로드 작업을 찾을 수 없습니다.", {
       stage: "source_complete", status: 404,
     });
+    if (session.status === "synced") return sessionResponse(session, { alreadyCompleted: true });
     const existingObject = await fileBucket().head(session.source_key);
     if (existingObject?.size === Number(session.total_bytes)) {
       return {
@@ -922,6 +924,7 @@ async function finalizeDriveUpload(
     status: "completed",
     completedAt: now,
   });
+  await releaseSyncedSource(email, session.attachment_id, session.id);
   return sessionResponse((await sessionForUser(email, session.id))!, { adopted });
 }
 
@@ -1158,6 +1161,10 @@ async function retryUpload(email: string, sessionId: string) {
   if (!session) throw new UploadProtocolError("INVALID_FILE_METADATA", "업로드 작업을 찾을 수 없습니다.", {
     stage: "retry", status: 404,
   });
+  if (session.status === "synced") {
+    await releaseSyncedSource(email, session.attachment_id);
+    return sessionResponse((await sessionForUser(email, sessionId))!);
+  }
   const now = new Date().toISOString();
   await database().batch([
     database().prepare(`UPDATE work_note_upload_sessions SET retry_count = retry_count + 1,

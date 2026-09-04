@@ -169,7 +169,7 @@ async function hydrateAttachmentMetadata(email: string, data: JsonRecord): Promi
           currentChunk: Number(row.current_chunk || 0),
           sourceStatus,
           sourceAvailable: sourceStatus === "available",
-          sourceLocation: sourceStatus === "available" ? "r2" : "unknown",
+          sourceLocation: sourceStatus === "available" ? "r2" : row.storage_provider === "google_drive" ? "google_drive" : "unknown",
           syncProgress: {
             stage: row.failure_stage || "",
             processedBytes,
