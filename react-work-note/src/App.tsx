@@ -66,6 +66,8 @@ import {
   sortGeneralMemosByUpdatedAt
 } from "./generalMemo";
 import { calendarWorkTitle, outputCalendarTitle } from "./calendarWorkTitle";
+import { prepareSalesBudget, saveSalesBudget } from "../../app/google-sheets/sales-budget";
+import { SalesBudgetFields } from "./SalesBudgetFields";
 import {
   collectRelatedContactOptions,
   defaultHeadquartersCompanyId,
@@ -2912,7 +2914,13 @@ function SalesPortal({
   };
 
   const saveNote = (draft: AnyRecord) => {
-    const normalized = normalizeSalesDraft(draft, data.companies);
+    let normalized: AnyRecord;
+    try {
+      normalized = normalizeSalesDraft(draft, data.companies);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "예산 입력값을 확인해 주세요.");
+      return;
+    }
     if (!normalized.company && !normalized.companyUnknown) {
       alert("업체를 선택하거나 미정을 체크해 주세요.");
       return;
@@ -4240,7 +4248,7 @@ function SalesEditor({
         <SelectField label="중요도" value={salesPriority(draft) || "보통"} onChange={(value) => updateField("priority", value)} options={PRIORITY_OPTIONS} />
         <SelectField label="견적 여부" value={firstText(draft, ["quoteStatus"]) || "미진행"} onChange={(value) => updateField("quoteStatus", value)} options={QUOTE_STATUS_OPTIONS} />
         <SelectField label="구매 가능성" value={firstText(draft, ["purchasePossibility"]) || "미정"} onChange={(value) => updateField("purchasePossibility", value)} options={PURCHASE_POSSIBILITY_OPTIONS} />
-        <TextField label="예산" value={firstText(draft, ["budgetAmount"])} onChange={(value) => updateField("budgetAmount", value)} placeholder="예: 15000000" />
+        <SalesBudgetFields draft={draft} setDraft={setDraft} />
         <TextField
           label="예상매출"
           value={firstText(draft, ["expectedRevenueAmount"])}
@@ -8132,7 +8140,7 @@ function createBlankSalesNote(): AnyRecord {
     partnerContactName: "",
     interest: "",
     salesChannel: "직판",
-    budgetAmount: "",
+    ...prepareSalesBudget(""),
     itemCategory: "장비",
     status: SALES_STATUS_OPTIONS[0],
     priority: "보통",
@@ -8177,7 +8185,7 @@ function prepareSalesDraft(note: AnyRecord, index: number): AnyRecord {
     priority: salesPriority(note) || "보통",
     interest: salesInterest(note),
     salesChannel: SALES_CHANNEL_OPTIONS.includes(firstText(note, ["salesChannel"])) ? firstText(note, ["salesChannel"]) : "직판",
-    budgetAmount: firstText(note, ["budgetAmount"]),
+    ...prepareSalesBudget(note.budgetAmount),
     quoteStatus: firstText(note, ["quoteStatus"]) || "미진행",
     purchasePossibility: firstText(note, ["purchasePossibility"]) || "미정",
     expectedRevenueAmount: firstText(note, ["expectedRevenueAmount"]),
@@ -8216,7 +8224,7 @@ function normalizeSalesDraft(draft: AnyRecord, companies: AnyRecord[]): AnyRecor
     partnerContactName: salesChannel === "협력" ? firstText(draft, ["partnerContactName"]) : "",
     interest: firstText(draft, ["interest"]),
     salesChannel,
-    budgetAmount: normalizeAmountString(firstText(draft, ["budgetAmount"])),
+    budgetAmount: saveSalesBudget(draft),
     itemCategory: normalizeSalesItemCategory(firstText(draft, ["itemCategory"])),
     status: normalizeSalesStatus(firstText(draft, ["status"])),
     priority: PRIORITY_OPTIONS.includes(firstText(draft, ["priority"])) ? firstText(draft, ["priority"]) : "보통",

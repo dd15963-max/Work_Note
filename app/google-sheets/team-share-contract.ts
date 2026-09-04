@@ -1,3 +1,5 @@
+import { normalizeSalesBudget } from "./sales-budget";
+
 export const DEFAULT_TEAM_SHEET_NAME = "영업 리드 건 관리";
 export const TEAM_SHEET_VISIBLE_HEADERS = [
   "타임라인",
@@ -137,7 +139,7 @@ export function equipmentSalesRow(
     text(note.contactPhone),
     text(note.contactEmail),
     text(note.interest),
-    text(note.budgetAmount),
+    normalizeSalesBudget(note.budgetAmount),
     text(note.quoteStatus),
     text(note.status),
     text(note.memo),
