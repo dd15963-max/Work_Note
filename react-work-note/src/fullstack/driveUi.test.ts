@@ -95,6 +95,14 @@ describe("Google Drive UI requirements", () => {
     expect(fullstackSource).toContain('id="drive-log-explorer-title"');
     expect(fullstackSource).not.toContain('aria-controls="drive-sync-retry-log"');
   });
+  it("renders Drive explorers above settings as independent full-screen windows", () => {
+    expect(fullstackSource).toContain('import { createPortal } from "react-dom";');
+    expect(fullstackSource.match(/return createPortal\(/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(fullstackSource.match(/document\.body,/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(uxRefreshCss).toMatch(/\.settings-explorer-backdrop\s*\{[\s\S]*background:\s*#eef2f7/);
+    expect(uxRefreshCss).toMatch(/\.settings-explorer-dialog\s*\{[\s\S]*height:\s*calc\(100vh - 48px\)/);
+  });
+
   it("hard-resets revoked credentials and stale resumable sessions before reconnecting", () => {
     const reconnectStart = repositorySource.indexOf("export async function reconnectGoogleDrive");
     const reconnectBody = repositorySource.slice(reconnectStart, repositorySource.indexOf("}", reconnectStart) + 1);

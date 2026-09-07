@@ -624,11 +624,11 @@ body,
 
 .settings-explorer-backdrop {
   align-items: center;
-  background: rgba(15, 23, 42, 0.48);
+  background: #eef2f7;
   display: flex;
   inset: 0;
   justify-content: center;
-  padding: 28px;
+  padding: 24px;
   position: fixed;
   z-index: 140;
 }
@@ -640,9 +640,9 @@ body,
   box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
-  height: min(760px, calc(100vh - 56px));
+  height: calc(100vh - 48px);
   overflow: hidden;
-  width: min(1120px, 100%);
+  width: min(1360px, calc(100vw - 48px));
 }
 
 .settings-explorer-header {

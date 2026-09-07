@@ -24,6 +24,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { App, BackupSettingsPanel, loadWorkNoteData } from "../App";
 import {
   authorizeGoogleSheets,
@@ -977,7 +978,7 @@ function DriveFolderExplorer({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div className="settings-explorer-backdrop" onMouseDown={(event) => {
       event.stopPropagation();
       onClose();
@@ -1046,7 +1047,8 @@ function DriveFolderExplorer({
           )}
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1085,7 +1087,7 @@ function DriveLogExplorer({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div className="settings-explorer-backdrop" onMouseDown={(event) => {
       event.stopPropagation();
       onClose();
@@ -1135,7 +1137,8 @@ function DriveLogExplorer({
           )}
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
