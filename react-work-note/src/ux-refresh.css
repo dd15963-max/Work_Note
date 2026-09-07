@@ -569,3 +569,399 @@ body,
   overflow-wrap: anywhere;
 }
 /* SETTLEMENT_ROW_ACTIONS_END */
+
+
+/* DRIVE_EXPLORER_MODAL_START */
+.drive-essential-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.drive-essential-actions > button {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #d7e0ec;
+  border-radius: 9px;
+  color: #27364d;
+  display: inline-flex;
+  font-weight: 700;
+  gap: 7px;
+  justify-content: center;
+  min-height: 40px;
+}
+
+.drive-recovery-callout {
+  align-items: center;
+  background: #fff8f6;
+  border: 1px solid #f4c7be;
+  border-radius: 10px;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 12px 13px;
+}
+
+.drive-recovery-callout > div {
+  display: grid;
+  gap: 3px;
+}
+
+.drive-recovery-callout strong {
+  color: #9c2f23;
+}
+
+.drive-recovery-callout span {
+  color: #785047;
+  font-size: 12px;
+}
+
+.drive-recovery-callout button {
+  flex: 0 0 auto;
+}
+
+.settings-explorer-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.48);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 28px;
+  position: fixed;
+  z-index: 140;
+}
+
+.settings-explorer-dialog {
+  background: #f8fafc;
+  border: 1px solid #d8e2ee;
+  border-radius: 16px;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: min(760px, calc(100vh - 56px));
+  overflow: hidden;
+  width: min(1120px, 100%);
+}
+
+.settings-explorer-header {
+  align-items: flex-start;
+  background: #fff;
+  border-bottom: 1px solid #e1e8f0;
+  display: flex;
+  justify-content: space-between;
+  padding: 19px 22px 16px;
+}
+
+.settings-explorer-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.settings-explorer-header h2,
+.settings-explorer-header p {
+  margin: 0;
+}
+
+.settings-explorer-header h2 {
+  color: #17243a;
+  font-size: 20px;
+}
+
+.settings-explorer-header p {
+  color: #6b778c;
+  font-size: 12px;
+}
+
+.settings-explorer-eyebrow {
+  color: #3a65a8;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.settings-explorer-close {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: #667085;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 36px;
+  min-width: 36px;
+}
+
+.settings-explorer-close:hover {
+  background: #eef3f8;
+  color: #17243a;
+}
+
+.settings-explorer-toolbar {
+  align-items: center;
+  background: #fff;
+  border-bottom: 1px solid #e1e8f0;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 11px 22px;
+}
+
+.drive-breadcrumbs {
+  align-items: center;
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.drive-breadcrumbs span {
+  align-items: center;
+  display: inline-flex;
+}
+
+.drive-breadcrumbs button {
+  background: transparent;
+  border: 0;
+  color: #344054;
+  font-weight: 700;
+  padding: 5px 6px;
+}
+
+.settings-explorer-search {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #d8e2ee;
+  border-radius: 9px;
+  color: #64748b;
+  display: flex;
+  flex: 0 1 340px;
+  gap: 7px;
+  min-width: 220px;
+  padding: 0 10px;
+}
+
+.settings-explorer-search input {
+  background: transparent;
+  border: 0;
+  min-height: 38px;
+  min-width: 0;
+  outline: none;
+  padding: 0;
+  width: 100%;
+}
+
+.settings-explorer-content {
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 22px 24px;
+}
+
+.drive-folder-grid {
+  display: grid;
+  gap: 9px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.drive-folder-grid button {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #dbe4ef;
+  border-radius: 10px;
+  color: #2d405e;
+  display: grid;
+  gap: 9px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 49px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.drive-folder-grid button:hover {
+  border-color: #95b4e4;
+  box-shadow: 0 4px 14px rgba(40, 89, 160, 0.08);
+}
+
+.drive-folder-grid button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drive-folder-grid button small {
+  color: #7a8799;
+}
+
+.drive-explorer-file-list,
+.drive-log-explorer-list {
+  display: grid;
+  gap: 7px;
+}
+
+.drive-explorer-file-row {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e0e7f0;
+  border-radius: 10px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  padding: 11px 12px;
+}
+
+.drive-explorer-file-row > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.drive-explorer-file-row strong,
+.drive-explorer-file-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drive-explorer-file-row small,
+.drive-explorer-file-row > span {
+  color: #778397;
+  font-size: 11px;
+}
+
+.drive-explorer-file-row > a {
+  border: 1px solid #cfd9e6;
+  border-radius: 8px;
+  color: #274f89;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 9px;
+  text-decoration: none;
+}
+
+.settings-explorer-empty {
+  align-items: center;
+  color: #78859a;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  min-height: 260px;
+  text-align: center;
+}
+
+.settings-explorer-empty strong {
+  color: #3c4a60;
+}
+
+.drive-log-toolbar {
+  justify-content: flex-start;
+}
+
+.drive-log-toolbar .settings-explorer-search {
+  flex: 1 1 auto;
+}
+
+.drive-log-toolbar select,
+.drive-log-toolbar button {
+  min-height: 40px;
+}
+
+.drive-log-explorer-list article {
+  background: #fff;
+  border: 1px solid #e0e7f0;
+  border-radius: 10px;
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+}
+
+.drive-log-explorer-list article > div {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.drive-log-explorer-list p,
+.drive-log-explorer-list small {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.drive-log-explorer-list p {
+  color: #55657b;
+  font-size: 12px;
+}
+
+.drive-log-explorer-list time {
+  color: #8893a3;
+  font-size: 11px;
+}
+
+.drive-log-status {
+  background: #eef2f7;
+  border-radius: 999px;
+  color: #526174;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 4px 8px;
+}
+
+.drive-log-status.is-completed,
+.drive-log-status.is-success,
+.drive-log-status.is-synced {
+  background: #e9f7ef;
+  color: #18794e;
+}
+
+.drive-log-status.is-failed,
+.drive-log-status.is-error {
+  background: #fff0ed;
+  color: #b42318;
+}
+
+.drive-log-error {
+  color: #b42318;
+}
+
+@media (max-width: 760px) {
+  .drive-essential-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .drive-recovery-callout,
+  .settings-explorer-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-explorer-backdrop {
+    padding: 0;
+  }
+
+  .settings-explorer-dialog {
+    border-radius: 0;
+    height: 100vh;
+  }
+
+  .settings-explorer-search {
+    flex-basis: auto;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .drive-folder-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .drive-explorer-file-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .drive-explorer-file-row > span {
+    display: none;
+  }
+}

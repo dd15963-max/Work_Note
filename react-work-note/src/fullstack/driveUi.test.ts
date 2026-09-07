@@ -88,11 +88,12 @@ describe("Google Drive UI requirements", () => {
     );
   });
 
-  it("keeps synchronization and retry logs hidden until requested", () => {
-    expect(fullstackSource).toContain("const [driveLogsOpen, setDriveLogsOpen] = useState(false);");
-    expect(fullstackSource).toContain("driveLogsOpen && driveOperations.length > 0");
-    expect(fullstackSource).toContain('aria-controls="drive-sync-retry-log"');
-    expect(fullstackSource).toContain('driveLogsOpen ? "로그 접기" : "동기화·재시도 로그 보기"');
+  it("opens Drive logs in a dedicated diagnostics explorer", () => {
+    expect(fullstackSource).toContain("const [driveLogExplorerOpen, setDriveLogExplorerOpen] = useState(false);");
+    expect(fullstackSource).toContain("<Search size={16} /> 로그 탐색");
+    expect(fullstackSource).toContain("function DriveLogExplorer(");
+    expect(fullstackSource).toContain('id="drive-log-explorer-title"');
+    expect(fullstackSource).not.toContain('aria-controls="drive-sync-retry-log"');
   });
   it("hard-resets revoked credentials and stale resumable sessions before reconnecting", () => {
     const reconnectStart = repositorySource.indexOf("export async function reconnectGoogleDrive");
@@ -121,19 +122,24 @@ describe("Google Drive UI requirements", () => {
     expect(retrySource).toContain("R2_UPLOAD_EXPIRED");
   });
 
-  it("keeps reconnect and disconnect controls visible outside advanced Drive management", () => {
+  it("keeps only essential Drive controls in the Drive settings card", () => {
     const cardStart = fullstackSource.indexOf('id="server-drive-settings-card"');
-    const managementStart = fullstackSource.indexOf('className="settings-disclosure drive-management-disclosure"', cardStart);
-    const visibleDriveControls = fullstackSource.slice(cardStart, managementStart);
-    const advancedDriveControls = fullstackSource.slice(managementStart, fullstackSource.indexOf("</details>", managementStart));
+    const cardEnd = fullstackSource.indexOf('id="server-team-share-settings-card"', cardStart);
+    const driveCard = fullstackSource.slice(cardStart, cardEnd);
 
     expect(cardStart).toBeGreaterThan(-1);
-    expect(managementStart).toBeGreaterThan(cardStart);
-    expect(visibleDriveControls).toContain("Google Drive 다시 연결");
-    expect(visibleDriveControls).toContain("연결 해제");
-    expect(visibleDriveControls).toContain("기존 파일과 폴더는 유지됩니다.");
-    expect(advancedDriveControls).not.toContain('run("disconnect"');
+    expect(driveCard).toContain("Google Drive 다시 연결");
+    expect(driveCard).toContain("연결 해제");
+    expect(driveCard).toContain("Google Drive 폴더 열기");
+    expect(driveCard).toContain("폴더 탐색");
+    expect(driveCard).toContain("빈 폴더 정리");
+    expect(driveCard).toContain("failedAttachmentIds.length > 0");
+    expect(driveCard).not.toContain("Drive 상태 자세히");
+    expect(driveCard).not.toContain("동기화 완료 원본 정리");
+    expect(driveCard).not.toContain("중복 폴더 병합 실행");
+    expect(driveCard).not.toContain("기존 R2 파일 Drive로 이전");
     expect(uxRefreshCss).toContain("DRIVE_CONNECTION_ACTIONS_START");
+    expect(uxRefreshCss).toContain("DRIVE_EXPLORER_MODAL_START");
   });
 
   it("matches the new memo header to the shared work-header action pattern", () => {
@@ -228,8 +234,8 @@ describe("Google Drive UI requirements", () => {
     expect(fullstackSource).toContain('id="server-sync-status-card"');
     expect(fullstackSource).toContain('id="server-drive-settings-card"');
     expect(fullstackSource).toContain("<BackupSettingsPanel");
-    expect(fullstackSource).toContain('value === undefined || value === null ? "확인 전"');
-    expect(fullstackSource).toContain('formatOptionalDriveMetric(drive.mergePendingCount, "건")');
+    expect(fullstackSource).toContain('id="server-data-storage-card"');
+    expect(fullstackSource).toContain('id="server-drive-settings-card"');
   });
 
   it("[25] shows cause, source, resolution, retry status, and actions on a failed file card", () => {

@@ -1,14 +1,18 @@
 "use client";
 
 import {
+  ChevronRight,
   Cloud,
   CloudOff,
   Database,
   Download,
+  File,
   FolderOpen,
+  FolderTree,
   HardDrive,
   LogOut,
   RefreshCw,
+  Search,
   Settings,
   ShieldCheck,
   Upload,
@@ -67,6 +71,12 @@ import {
   retryAttachmentMigration,
 } from "./migration";
 import { DriveOpenButton, isFailedAttachmentStatus } from "./driveUi";
+import {
+  collectDriveExplorerFiles,
+  drivePathBreadcrumbs,
+  listDriveFolderContents,
+  type DriveExplorerFile,
+} from "./driveExplorer";
 import { getSyncState, useSyncState } from "./syncStore";
 import type { DataCounts, MigrationProgress, WorkNoteData } from "./types";
 
@@ -509,7 +519,8 @@ function ServerSettings({
   const [driveMessage, setDriveMessage] = useState("");
   const [driveResult, setDriveResult] = useState<DriveOrganizationResult | null>(null);
   const [driveOperations, setDriveOperations] = useState<Record<string, unknown>[]>([]);
-  const [driveLogsOpen, setDriveLogsOpen] = useState(false);
+  const [driveFolderExplorerOpen, setDriveFolderExplorerOpen] = useState(false);
+  const [driveLogExplorerOpen, setDriveLogExplorerOpen] = useState(false);
   const [teamShare, setTeamShare] = useState<TeamShareSettingsStatus | null>(null);
   const [teamSpreadsheet, setTeamSpreadsheet] = useState("");
   const [teamSheetName, setTeamSheetName] = useState("영업 리드 건 관리");
@@ -518,6 +529,10 @@ function ServerSettings({
   const sync = useSyncState();
   const failedAttachmentIds = useMemo(
     () => collectFailedAttachmentIds(localData),
+    [localData],
+  );
+  const driveExplorerFiles = useMemo(
+    () => collectDriveExplorerFiles(localData),
     [localData],
   );
   const snapshot = useMemo(readServerSnapshotSummary, [localData.updatedAt]);
@@ -715,6 +730,19 @@ function ServerSettings({
               })}>
                 <ShieldCheck size={16} /> 데이터 연결 상태 재확인
               </button>
+              <button type="button" disabled={Boolean(busy)} onClick={() => {
+                if (driveOperations.length > 0) {
+                  setDriveLogExplorerOpen(true);
+                  return;
+                }
+                void run("logs", async () => {
+                  const operations = await getRecentDriveOperations();
+                  setDriveOperations(operations);
+                  setDriveLogExplorerOpen(true);
+                });
+              }}>
+                <Search size={16} /> 로그 탐색
+              </button>
             </div></div>
           </details>
 
@@ -760,162 +788,43 @@ function ServerSettings({
             )}
             {drive && (
               <>
-                <details className="settings-disclosure settings-disclosure-nested" onToggle={(event) => {
-                  if (!event.currentTarget.open || driveDetailsLoaded) return;
-                  setDriveDetailsLoaded(true);
-                  void refreshDrive(true).catch((caught) => {
-                    setDriveDetailsLoaded(false);
-                    setDriveMessage(caught instanceof Error ? caught.message : String(caught));
-                  });
-                }}>
-                  <summary>Drive 상태 자세히 <span>폴더·실패 파일·사용량</span></summary>
-                  <div className="drive-status-grid">
-                  <span>Google Drive 연결 <b>{drive.connected ? "연결됨" : "연결 필요"}</b></span>
-                  <span>정상 업체 폴더 <b>{formatOptionalDriveMetric(drive.canonicalCompanyFolderCount, "개")}</b></span>
-                  <span>중복 업체 폴더 <b>{formatOptionalDriveMetric(drive.duplicateCompanyFolderCount, "개")}</b></span>
-                  <span>중복 수업처 미정 폴더 <b>{formatOptionalDriveMetric(drive.duplicateUnknownCompanyFolderCount, "개")}</b></span>
-                  <span>병합 예정 <b>{formatOptionalDriveMetric(drive.mergePendingCount, "건")}</b></span>
-                  <span>병합 완료 <b>{formatOptionalDriveMetric(drive.mergeCompletedCount, "건")}</b></span>
-                  <span>병합 실패 <b>{formatOptionalDriveMetric(drive.mergeFailedCount, "건")}</b></span>
-                  <span>Drive 저장 실패 파일 <b>{formatOptionalDriveMetric(drive.failedFileCount, "개")}</b></span>
-                  <span>재시도 필요 파일 <b>{formatOptionalDriveMetric(drive.retryRequiredCount, "개")}</b></span>
-                  <span>마지막 Drive 동기화 <b>{formatSettingsTime(drive.lastDriveSyncAt || drive.lastSyncedAt)}</b></span>
-                  <span>마지막 폴더 정리 <b>{formatSettingsTime(drive.lastFolderCleanupAt)}</b></span>
-                  {drive.quota?.usage && (
-                    <span>Drive 사용량 <b>{formatStorageSize(drive.quota.usage)}{drive.quota.limit ? ` / ${formatStorageSize(drive.quota.limit)}` : ""}</b></span>
-                  )}
-                  </div>
-                </details>
-
                 <DriveOpenButton
                   href={drive.rootFolderUrl}
                   label="Google Drive 폴더 열기"
                   disabledReason={drive.connected ? "폴더 정보를 불러오지 못했습니다." : "먼저 Google Drive 연결을 완료해주세요."}
                 />
 
-                {driveMessage && <p className="drive-settings-message" role="status">{driveMessage}</p>}
-                {driveResult && <DriveOrganizationSummary result={driveResult} />}
-                {driveLogsOpen && driveOperations.length > 0 && (
-                  <section className="drive-log-disclosure" id="drive-sync-retry-log" aria-label="동기화·재시도 로그">
-                    <div className="drive-log-disclosure-heading">
-                      <strong>동기화·재시도 로그</strong>
-                      <span>{driveOperations.length}건</span>
+                <div className="drive-essential-actions" aria-label="Google Drive 파일 관리">
+                  <button
+                    type="button"
+                    disabled={!drive.connected}
+                    onClick={() => setDriveFolderExplorerOpen(true)}
+                  >
+                    <FolderTree size={16} /> 폴더 탐색
+                  </button>
+                  <button type="button" disabled={Boolean(busy) || !drive.connected} onClick={() => run("cleanup", async () => {
+                    if (!confirm("비어 있는 Work Note 관리 폴더만 Google Drive 휴지통으로 이동할까요? 파일이 들어 있는 폴더는 유지됩니다.")) return;
+                    const result = await cleanupEmptyDriveFolders();
+                    setDriveMessage(`빈 폴더 정리 완료 · 성공 ${result.cleaned || 0}개 · 제외 ${result.excluded || 0}개 · 실패 ${result.failed || 0}개`);
+                    await refreshDrive();
+                  })}>
+                    <FolderOpen size={16} /> 빈 폴더 정리
+                  </button>
+                </div>
+
+                {failedAttachmentIds.length > 0 && (
+                  <div className="drive-recovery-callout" role="status">
+                    <div>
+                      <strong>저장 실패 파일 {failedAttachmentIds.length}개</strong>
+                      <span>사이트 원본을 보관하고 있어 안전하게 다시 시도할 수 있습니다.</span>
                     </div>
-                    <DriveOperationList operations={driveOperations} />
-                  </section>
+                    <button type="button" disabled={Boolean(busy)} onClick={() => run("retry-files", retryFailedFiles)}>
+                      <RefreshCw size={16} /> 다시 시도
+                    </button>
+                  </div>
                 )}
 
-                {drive.connected && (
-                  <details className="settings-disclosure drive-management-disclosure">
-                    <summary>Google Drive 관리 <span>사이트 원본·폴더 정리·파일 이전·로그</span></summary>
-                    <div className="settings-actions drive-management-actions">
-                    <p>Drive 저장 확인 후 사이트 원본은 자동 정리됩니다. 실패 파일은 재시도를 위해 보관합니다.</p>
-                    <button type="button" disabled={Boolean(busy)} onClick={() => run("site-source-cleanup", async () => {
-                      if (!confirm("Drive 저장이 완료된 파일의 사이트 원본만 제거할까요? 파일의 존재와 크기를 확인한 뒤 제거하며, 실패·미완료 파일은 유지합니다. 이후 미리보기와 다운로드에는 Drive 연결이 필요합니다. 제거한 사이트 사본은 되돌릴 수 없지만 Drive 파일은 유지됩니다.")) return;
-                      const report = (result: { released: number; skipped: number; failed: number; bytes: number }) => {
-                        setDriveMessage(`사이트 원본 정리 · 완료 ${result.released}개 · 보류 ${result.skipped}개 · 실패 ${result.failed}개 · 확보 ${(result.bytes / 1024 / 1024).toFixed(1)} MB`);
-                      };
-                      const result = await cleanupSyncedSiteSources(report);
-                      report(result);
-                      await refreshDrive();
-                      await onReload();
-                    })}>
-                      <HardDrive size={16} /> 동기화 완료 원본 정리
-                    </button>
-                    <button type="button" disabled={Boolean(busy)} onClick={() => run("duplicates-preview", async () => {
-                      const result = await previewDuplicateDriveFolders();
-                      setDriveResult(result);
-                      setDriveMessage(`중복 폴더 미리보기 · 업체 ${result.duplicateCompanyFolders || 0}개 · 메모 ${result.duplicateMemoFolders || 0}개 · 이동 파일 ${result.filesToMove || 0}개`);
-                    })}>
-                      <FolderOpen size={16} /> 폴더 구조 미리보기
-                    </button>
-                    <button type="button" disabled={Boolean(busy) || !driveResult?.planFingerprint} onClick={() => run("duplicates-merge", async () => {
-                      if (!confirm(`미리 본 계획대로 중복 폴더를 병합할까요?\n이동 파일 ${driveResult?.filesToMove || 0}개 · 보호된 사용자 폴더 ${driveResult?.protectedUserFolders || 0}개`)) return;
-                      const result = await mergeDuplicateDriveFolders(driveResult?.planFingerprint || "");
-                      setDriveResult(result);
-                      setDriveMessage(`중복 폴더 병합 완료 · 파일 이동 ${result.filesMoved || 0}개 · 폴더 휴지통 이동 ${result.foldersTrashed || 0}개 · 실패 ${result.failed || 0}개`);
-                      await refreshDrive();
-                    })}>
-                      <FolderOpen size={16} /> 중복 폴더 병합 실행
-                    </button>
-                    <button type="button" disabled={Boolean(busy)} onClick={() => run("cleanup-preview", async () => {
-                      const result = await previewEmptyDriveFolders();
-                      setDriveResult(result);
-                      setDriveMessage(`빈 폴더 미리보기 · 정리 예정 ${result.empty || 0}개 · 보호/제외 ${result.excluded || 0}개`);
-                    })}>
-                      빈 폴더 정리 미리보기
-                    </button>
-                    <button type="button" disabled={Boolean(busy)} onClick={() => run("cleanup", async () => {
-                      if (!confirm("미리 확인한 비어 있는 Work Note 관리 폴더만 휴지통으로 이동할까요?")) return;
-                      const result = await cleanupEmptyDriveFolders();
-                      setDriveResult(result);
-                      setDriveMessage(`빈 폴더 정리 완료 · 성공 ${result.cleaned || 0}개 · 제외 ${result.excluded || 0}개 · 실패 ${result.failed || 0}개`);
-                      await refreshDrive();
-                    })}>
-                      빈 폴더 정리
-                    </button>
-                    <button type="button" disabled={Boolean(busy)} onClick={() => run("migration-preview", async () => {
-                      const result = await previewDriveMigration();
-                      setDriveResult(result);
-                      setDriveMessage(`기존 파일 정리 미리보기 · 이동 ${result.moveRequired || 0}개 · 제외 ${result.excluded || 0}개`);
-                    })}>
-                      기존 파일 정리 미리보기
-                    </button>
-                    <button type="button" disabled={Boolean(busy)} onClick={() => run("migration", async () => {
-                      if (!confirm("기존 Work Note 파일을 canonical 업체·메모·종류 폴더로 이동할까요? 파일 ID와 링크는 유지됩니다.")) return;
-                      const result = await runDriveMigration();
-                      setDriveResult(asDriveOrganizationResult(result.remaining, result));
-                      setDriveMessage(`기존 파일 정리 완료 · 성공 ${result.synchronized || 0}개 · 실패 ${result.failed || 0}개`);
-                      await refreshDrive();
-                    })}>
-                      기존 파일 폴더 정리 실행
-                    </button>
-                    <button type="button" disabled={Boolean(busy) || !drive.legacyFileCount} onClick={() => run("legacy-migrate", async () => {
-                      if (!confirm(`기존 Site 원본 ${drive.legacyFileCount || 0}개를 Google Drive로 안전하게 이전할까요? 검증 전에는 R2 원본을 삭제하지 않습니다.`)) return;
-                      const result = await migrateLegacyAttachmentsToDrive((migrated, remaining) => {
-                        setDriveMessage(`기존 파일 이전 ${migrated}개 완료 · 남은 파일 ${remaining}개`);
-                      });
-                      setDriveMessage(`이전 완료 ${result.migrated}개 · 실패 ${result.failed}개 · 남음 ${result.remaining}개`);
-                      await refreshDrive();
-                    })}>
-                      기존 R2 파일 Drive로 이전
-                    </button>
-                    <button type="button" disabled={Boolean(busy) || !failedAttachmentIds.length} onClick={() => run("retry-files", retryFailedFiles)}>
-                      <RefreshCw size={16} /> 실패 파일 다시 시도
-                    </button>
-                    <button type="button" disabled={Boolean(busy)} onClick={() => run("refresh-failures", refreshFailureState)}>
-                      <RefreshCw size={16} /> 실패 항목 새로고침
-                    </button>
-                    <button type="button" disabled={Boolean(busy)} onClick={() => run("drive-test", async () => {
-                      await testGoogleDriveConnection();
-                      await refreshDrive();
-                      setDriveMessage("Google Drive 연결이 정상입니다.");
-                    })}>
-                      <ShieldCheck size={16} /> Google Drive 연결 재확인
-                    </button>
-                    <button
-                      type="button"
-                      disabled={Boolean(busy)}
-                      aria-expanded={driveLogsOpen}
-                      aria-controls="drive-sync-retry-log"
-                      onClick={() => {
-                        if (driveOperations.length > 0) {
-                          setDriveLogsOpen((current) => !current);
-                          return;
-                        }
-                        void run("logs", async () => {
-                          const operations = await getRecentDriveOperations();
-                          setDriveOperations(operations);
-                          setDriveLogsOpen(operations.length > 0);
-                          setDriveMessage("최근 동기화·재시도 로그 " + operations.length + "건을 불러왔습니다.");
-                        });
-                      }}
-                    >
-                      {driveLogsOpen ? "로그 접기" : "동기화·재시도 로그 보기"}
-                    </button>
-                    </div>
-                  </details>
-                )}
+                {driveMessage && <p className="drive-settings-message" role="status">{driveMessage}</p>}
               </>
             )}
             </div>
@@ -1022,6 +931,210 @@ function ServerSettings({
           </a>
         </div>
       </section>
+
+      {driveFolderExplorerOpen && (
+        <DriveFolderExplorer
+          account={drive?.googleEmail || user.email}
+          files={driveExplorerFiles}
+          onClose={() => setDriveFolderExplorerOpen(false)}
+        />
+      )}
+
+      {driveLogExplorerOpen && (
+        <DriveLogExplorer
+          operations={driveOperations}
+          busy={busy === "logs"}
+          onClose={() => setDriveLogExplorerOpen(false)}
+          onRefresh={() => run("logs", async () => {
+            const operations = await getRecentDriveOperations();
+            setDriveOperations(operations);
+          })}
+        />
+      )}
+    </div>
+  );
+}
+
+function DriveFolderExplorer({
+  account,
+  files,
+  onClose,
+}: {
+  account: string;
+  files: DriveExplorerFile[];
+  onClose: () => void;
+}) {
+  const [currentPath, setCurrentPath] = useState("");
+  const [query, setQuery] = useState("");
+  const breadcrumbs = drivePathBreadcrumbs(currentPath);
+  const contents = listDriveFolderContents(files, currentPath, query);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="settings-explorer-backdrop" onMouseDown={(event) => {
+      event.stopPropagation();
+      onClose();
+    }}>
+      <section className="settings-explorer-dialog" role="dialog" aria-modal="true" aria-labelledby="drive-folder-explorer-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="settings-explorer-header">
+          <div>
+            <span className="settings-explorer-eyebrow">GOOGLE DRIVE</span>
+            <h2 id="drive-folder-explorer-title">폴더 탐색</h2>
+            <p>{account || "연결된 계정"} · Work Note 첨부파일 {files.length}개</p>
+          </div>
+          <button type="button" className="settings-explorer-close" aria-label="폴더 탐색 닫기" onClick={onClose}><X size={20} /></button>
+        </header>
+
+        <div className="settings-explorer-toolbar">
+          <nav className="drive-breadcrumbs" aria-label="현재 폴더">
+            <button type="button" onClick={() => setCurrentPath("")}>Work Note</button>
+            {breadcrumbs.map((item) => (
+              <span key={item.path}>
+                <ChevronRight size={14} />
+                <button type="button" onClick={() => setCurrentPath(item.path)}>{item.name}</button>
+              </span>
+            ))}
+          </nav>
+          <label className="settings-explorer-search">
+            <Search size={16} />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="파일명, 폴더, 업무 검색" />
+          </label>
+        </div>
+
+        <div className="settings-explorer-content">
+          {contents.folders.length > 0 && (
+            <div className="drive-folder-grid">
+              {contents.folders.map((folder) => (
+                <button type="button" key={folder.path} onClick={() => setCurrentPath(folder.path)}>
+                  <FolderOpen size={19} />
+                  <span>{folder.name}</span>
+                  <small>{folder.fileCount}개</small>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {contents.files.length > 0 && (
+            <div className="drive-explorer-file-list">
+              {contents.files.map((file) => (
+                <article key={file.id} className="drive-explorer-file-row">
+                  <File size={18} />
+                  <div>
+                    <strong>{file.fileName}</strong>
+                    <small>{file.sourceLabel} · {file.ownerTitle}{file.fileSize ? ` · ${formatStorageSize(String(file.fileSize))}` : ""}</small>
+                  </div>
+                  <span>{formatSettingsTime(file.lastSyncedAt)}</span>
+                  <a href={file.driveWebViewLink} target="_blank" rel="noopener noreferrer">Drive에서 열기</a>
+                </article>
+              ))}
+            </div>
+          )}
+
+          {!contents.folders.length && !contents.files.length && (
+            <div className="settings-explorer-empty">
+              <FolderTree size={32} />
+              <strong>{query ? "검색 결과가 없습니다." : "이 폴더에 표시할 파일이 없습니다."}</strong>
+              <span>Drive 저장이 완료된 Work Note 첨부파일만 표시됩니다.</span>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function DriveLogExplorer({
+  operations,
+  busy,
+  onClose,
+  onRefresh,
+}: {
+  operations: Record<string, unknown>[];
+  busy: boolean;
+  onClose: () => void;
+  onRefresh: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("all");
+  const statuses = Array.from(new Set(operations.map((operation) => String(operation.status || "unknown"))));
+  const filtered = operations.filter((operation) => {
+    const matchesStatus = status === "all" || String(operation.status || "unknown") === status;
+    const haystack = [
+      operation.operation_type,
+      operation.status,
+      operation.before_path,
+      operation.after_path,
+      operation.target_id,
+      operation.error_message,
+    ].map((value) => String(value || "")).join(" ").toLocaleLowerCase("ko");
+    return matchesStatus && haystack.includes(query.trim().toLocaleLowerCase("ko"));
+  });
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="settings-explorer-backdrop" onMouseDown={(event) => {
+      event.stopPropagation();
+      onClose();
+    }}>
+      <section className="settings-explorer-dialog" role="dialog" aria-modal="true" aria-labelledby="drive-log-explorer-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="settings-explorer-header">
+          <div>
+            <span className="settings-explorer-eyebrow">DIAGNOSTICS</span>
+            <h2 id="drive-log-explorer-title">로그 탐색</h2>
+            <p>최근 Google Drive 동기화·재시도 기록 {operations.length}건</p>
+          </div>
+          <button type="button" className="settings-explorer-close" aria-label="로그 탐색 닫기" onClick={onClose}><X size={20} /></button>
+        </header>
+
+        <div className="settings-explorer-toolbar drive-log-toolbar">
+          <label className="settings-explorer-search">
+            <Search size={16} />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="작업, 경로, 오류 검색" />
+          </label>
+          <select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="로그 상태 필터">
+            <option value="all">모든 상태</option>
+            {statuses.map((item) => <option key={item} value={item}>{item}</option>)}
+          </select>
+          <button type="button" disabled={busy} onClick={onRefresh}><RefreshCw className={busy ? "is-spinning" : ""} size={16} /> 새로고침</button>
+        </div>
+
+        <div className="settings-explorer-content">
+          {filtered.length > 0 ? (
+            <div className="drive-log-explorer-list">
+              {filtered.map((operation, index) => (
+                <article key={String(operation.id || index)}>
+                  <div>
+                    <strong>{String(operation.operation_type || "Drive 작업")}</strong>
+                    <span className={`drive-log-status is-${String(operation.status || "unknown").toLowerCase()}`}>{String(operation.status || "unknown")}</span>
+                  </div>
+                  <p>{String(operation.after_path || operation.before_path || operation.target_id || "경로 정보 없음")}</p>
+                  {Boolean(operation.error_message) && <small className="drive-log-error">{String(operation.error_message)}</small>}
+                  <time>{formatSettingsTime(operation.completed_at || operation.updated_at || operation.created_at)}</time>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="settings-explorer-empty">
+              <Search size={32} />
+              <strong>{operations.length ? "조건에 맞는 로그가 없습니다." : "최근 Drive 로그가 없습니다."}</strong>
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
@@ -1084,6 +1197,7 @@ function readLatestOutputSavedAt(data: WorkNoteData): string {
 function collectFailedAttachmentIds(data: WorkNoteData): string[] {
   const ids = new Set<string>();
   const collections = [
+    data.generalMemos,
     data.companies,
     data.notes,
     data.materialSalesNotes,
