@@ -1527,9 +1527,9 @@ function LocalDataSettings({
           <button type="button" aria-label="설정 닫기" onClick={onClose}><X size={18} /></button>
         </header>
         <div className="local-settings-scroll">
-          <section className="data-settings-card" id="local-sync-status-card">
-            <div className="data-settings-card-heading"><div><span>A</span><h3>일반</h3></div><span className="data-status-badge is-normal">정상</span></div>
-            <div className="data-settings-status-grid">
+          <details className="data-settings-card settings-disclosure" id="local-sync-status-card">
+            <summary className="data-settings-card-heading"><div><span>A</span><h3>일반</h3></div><span className="data-status-badge is-normal">정상</span></summary>
+            <div className="settings-disclosure-body"><div className="data-settings-status-grid">
               <span><b>업무 데이터</b>이 브라우저에 저장</span>
               <span><b>Google Drive</b>Sites에서만 연결 가능</span>
               <span><b>마지막 로컬 저장</b>{formatDateTime(data.updatedAt || data.loadedAt)}</span>
@@ -1538,29 +1538,31 @@ function LocalDataSettings({
               <span><b>동기화 실패</b>{data.error ? "오류 발생" : "없음"}</span>
               <span><b>최종 출력 파일 저장</b>{outputSavedAt ? formatDateTime(outputSavedAt) : "기록 없음"}</span>
               <span><b>최근 상태</b>{saveMessage || "저장 준비 완료"}</span>
-            </div>
-          </section>
+            </div></div>
+          </details>
           <details className="data-settings-card settings-disclosure" id="local-data-storage-card">
             <summary className="data-settings-card-heading"><div><span>B</span><h3>데이터 / 저장</h3><small>백업·복원</small></div><span className="data-status-badge is-normal">선택</span></summary>
-            <div className="data-settings-status-grid">
+            <div className="settings-disclosure-body"><div className="data-settings-status-grid">
               <span><b>안전 저장 모드</b>사용 중</span>
               <span><b>자동 스냅샷</b>{snapshotSummary.count}개 · {snapshotSummary.lastAt ? formatDateTime(snapshotSummary.lastAt) : "기록 없음"}</span>
             </div>
-            <BackupSettingsPanel data={data} setData={setData} setSaveMessage={setSaveMessage} />
+            <BackupSettingsPanel data={data} setData={setData} setSaveMessage={setSaveMessage} /></div>
           </details>
           <details className="data-settings-card settings-disclosure">
             <summary className="data-settings-card-heading"><div><span>C</span><h3>진단 / 고급</h3><small>새로고침·이전 버전</small></div></summary>
-            <div className="data-settings-actions">
+            <div className="settings-disclosure-body"><div className="data-settings-actions">
               <button type="button" onClick={onRefresh}><RefreshCw size={16} /> 데이터 새로고침</button>
               <button type="button" onClick={() => setSaveMessage("로컬 데이터 연결 상태가 정상입니다.")}><CheckCircle2 size={16} /> 연결 상태 재확인</button>
               <a className="icon-text-button" href={LEGACY_APP_PATH}><ExternalLink size={15} /> 이전 버전 확인</a>
+            </div></div>
+          </details>
+          <details className="data-settings-card settings-disclosure drive-disabled-card" id="local-drive-settings-card">
+            <summary className="data-settings-card-heading"><div><span>D</span><h3>Google Drive</h3></div><span className="data-status-badge is-disconnected">연결 끊김</span></summary>
+            <div className="settings-disclosure-body">
+              <p>GitHub Pages에서는 Google Drive 관리 기능을 사용할 수 없습니다. 비공개 Work Note Site에서 연결과 폴더 관리를 진행해 주세요.</p>
+              <DriveOpenButton label="Google Drive 폴더 열기" disabledReason="먼저 비공개 Work Note Site에서 Google Drive 연결을 완료해주세요." />
             </div>
           </details>
-          <section className="data-settings-card drive-disabled-card">
-            <div className="data-settings-card-heading"><div><span>D</span><h3>Google Drive</h3></div><span className="data-status-badge is-disconnected">연결 끊김</span></div>
-            <p>GitHub Pages에서는 Google Drive 관리 기능을 사용할 수 없습니다. 비공개 Work Note Site에서 연결과 폴더 관리를 진행해 주세요.</p>
-            <DriveOpenButton label="Google Drive 폴더 열기" disabledReason="먼저 비공개 Work Note Site에서 Google Drive 연결을 완료해주세요." />
-          </section>
         </div>
       </section>
     </div>

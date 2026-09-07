@@ -191,6 +191,29 @@ describe("Google Drive UI requirements", () => {
     expect(appCss).toMatch(/\.backup-settings-action-grid\s*\{[\s\S]*display:\s*grid/);
   });
 
+  it("makes every top-level settings card expandable and collapsed by default", () => {
+    const localStart = appSource.indexOf("function LocalDataSettings");
+    const localEnd = appSource.indexOf("function readSnapshotSummary", localStart);
+    const localSettings = appSource.slice(localStart, localEnd);
+    const serverStart = fullstackSource.indexOf("function ServerSettings");
+    const serverEnd = fullstackSource.indexOf("function DataStatusBadge", serverStart);
+    const serverSettings = fullstackSource.slice(serverStart, serverEnd);
+
+    expect(localSettings).not.toContain('<section className="data-settings-card"');
+    expect(localSettings).toContain('<details className="data-settings-card settings-disclosure" id="local-sync-status-card">');
+    expect(localSettings).toContain('id="local-drive-settings-card"');
+    expect(serverSettings).not.toContain('<section className="data-settings-card"');
+    expect(serverSettings).toContain('<details className="data-settings-card settings-disclosure" id="server-sync-status-card">');
+    expect(serverSettings).toContain('id="server-drive-settings-card"');
+    expect(serverSettings).toContain('id="server-team-share-settings-card"');
+    expect(serverSettings).toContain('id="server-local-data-clear-card"');
+    expect(serverSettings).toContain('id="server-account-delete-card"');
+    expect(serverSettings).toContain("targetCard instanceof HTMLDetailsElement");
+    expect(serverSettings).toContain("targetCard.open = true");
+    expect(serverSettings).not.toMatch(/<details className="(?:data-settings-card|danger-zone data-settings-card)[^>]*"[^>]*\sopen(?:=|>)/);
+    expect(uxRefreshCss).toContain(".settings-disclosure.data-settings-card > .settings-disclosure-body");
+  });
+
   it("[24] removes the fixed footer and integrates data controls into settings", () => {
     expect(appSource).not.toContain('<footer className="utility-footer"');
     expect(appSource).toContain("업무 데이터");

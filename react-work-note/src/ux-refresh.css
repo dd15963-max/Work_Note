@@ -275,6 +275,16 @@ body,
   padding: 0 18px 18px;
 }
 
+.settings-disclosure.data-settings-card > .settings-disclosure-body {
+  min-width: 0;
+  padding: 0 18px 18px;
+}
+
+.drive-storage-settings > .settings-disclosure-body {
+  display: grid;
+  gap: 12px;
+}
+
 .settings-disclosure-nested,
 .drive-management-disclosure {
   margin-top: 14px;

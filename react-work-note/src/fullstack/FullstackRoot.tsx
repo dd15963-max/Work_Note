@@ -561,7 +561,9 @@ function ServerSettings({
       : initialTarget === "team-share"
         ? "server-team-share-settings-card"
         : "server-sync-status-card";
-    document.getElementById(target)?.scrollIntoView({ block: "start" });
+    const targetCard = document.getElementById(target);
+    if (targetCard instanceof HTMLDetailsElement) targetCard.open = true;
+    targetCard?.scrollIntoView({ block: "start" });
   }, [initialTarget]);
 
   const run = async (label: string, action: () => Promise<void>) => {
@@ -652,12 +654,12 @@ function ServerSettings({
         </header>
 
         <div className="server-settings-scroll">
-          <section className="data-settings-card" id="server-sync-status-card">
-            <div className="data-settings-card-heading">
+          <details className="data-settings-card settings-disclosure" id="server-sync-status-card">
+            <summary className="data-settings-card-heading">
               <div><span>A</span><h3>일반</h3></div>
               <DataStatusBadge tone={syncTone} label={syncStatusLabel(sync.mode, sync.pendingCount)} />
-            </div>
-            <div className="data-settings-status-grid">
+            </summary>
+            <div className="settings-disclosure-body"><div className="data-settings-status-grid">
               <span><b>업무 데이터</b>{sync.mode === "offline" ? "연결 끊김" : "안전하게 저장됨"}</span>
               <span><b>Google Drive</b>{!drive ? "확인 전" : drive.connected ? `연결됨 · ${drive.googleEmail || "계정 확인됨"}` : "연결 필요"}</span>
               <span><b>마지막 서버 동기화</b>{formatSettingsTime(sync.lastSyncedAt)}</span>
@@ -667,15 +669,15 @@ function ServerSettings({
               <span><b>저장 구성</b>업무 기록 · 임시 원본 · Google Drive 파일</span>
               <span><b>최종 출력 파일 저장</b>{formatSettingsTime(outputSavedAt)}</span>
             </div>
-            <CountSummary counts={counts} />
-          </section>
+            <CountSummary counts={counts} /></div>
+          </details>
 
           <details className="data-settings-card settings-disclosure" id="server-data-storage-card">
             <summary className="data-settings-card-heading">
               <div><span>B</span><h3>데이터 / 저장</h3><small>백업·복원·이전</small></div>
               <DataStatusBadge tone="is-normal" label="선택" />
             </summary>
-            <div className="data-settings-status-grid">
+            <div className="settings-disclosure-body"><div className="data-settings-status-grid">
               <span><b>안전 저장 모드</b>사용 중</span>
               <span><b>자동 스냅샷</b>{snapshot.count}개 · {formatSettingsTime(snapshot.lastAt)}</span>
               <span><b>마이그레이션</b>{progress.message}</span>
@@ -690,15 +692,15 @@ function ServerSettings({
               <button type="button" disabled={Boolean(busy)} onClick={onMigrate}>
                 <Upload size={16} /> 로컬 데이터를 Sites로 이전
               </button>
-            </div>
+            </div></div>
           </details>
 
-          <details className="data-settings-card settings-disclosure">
+          <details className="data-settings-card settings-disclosure" id="server-diagnostics-card">
             <summary className="data-settings-card-heading">
               <div><span>C</span><h3>진단 / 고급</h3><small>새로고침·복구·연결 확인</small></div>
               {sync.error && <DataStatusBadge tone="is-error" label="오류 발생" />}
             </summary>
-            <div className="settings-actions">
+            <div className="settings-disclosure-body"><div className="settings-actions">
               <button type="button" disabled={Boolean(busy)} onClick={() => run("reload", onReload)}>
                 <RefreshCw size={16} /> 서버 데이터 새로고침
               </button>
@@ -723,14 +725,15 @@ function ServerSettings({
               })}>
                 <ShieldCheck size={16} /> 데이터 연결 상태 재확인
               </button>
-            </div>
+            </div></div>
           </details>
 
-          <section className="data-settings-card drive-storage-settings" id="server-drive-settings-card">
-            <div className="data-settings-card-heading">
+          <details className="data-settings-card settings-disclosure drive-storage-settings" id="server-drive-settings-card">
+            <summary className="data-settings-card-heading">
               <div><span>D</span><h3>Google Drive</h3></div>
               <DataStatusBadge tone={driveTone} label={!drive ? "확인 전" : drive.connected ? "정상" : "연결 끊김"} />
-            </div>
+            </summary>
+            <div className="settings-disclosure-body">
             {!drive && <p>Google Drive 연결 상태를 확인하고 있습니다.</p>}
             {drive && (
               <div className={`drive-connection-panel ${drive.connected ? "is-connected" : "is-disconnected"}`}>
@@ -925,16 +928,18 @@ function ServerSettings({
                 )}
               </>
             )}
-          </section>
+            </div>
+          </details>
 
-          <section className="data-settings-card team-share-settings" id="server-team-share-settings-card">
-            <div className="data-settings-card-heading">
+          <details className="data-settings-card settings-disclosure team-share-settings" id="server-team-share-settings-card">
+            <summary className="data-settings-card-heading">
               <div><span>E</span><h3>팀 공유 · Google Sheets</h3></div>
               <DataStatusBadge
                 tone={teamShareTone}
                 label={!teamShare ? "확인 전" : teamShare.verifiedAt && teamShare.sheetsAuthorized ? "연결 확인됨" : "설정 필요"}
               />
-            </div>
+            </summary>
+            <div className="settings-disclosure-body">
             <p>장비 영업 업무만 ‘팀 공유’할 수 있습니다. 담당자는 아래에 입력한 이름으로 저장되고, 같은 업무는 새 행이 생기지 않고 갱신됩니다.</p>
             <div className="team-share-form">
               <label>
@@ -985,10 +990,12 @@ function ServerSettings({
               )}
             </div>
             {teamShareMessage && <p className="drive-settings-message" role="status">{teamShareMessage}</p>}
-          </section>
+            </div>
+          </details>
 
-          <section className="danger-zone data-settings-card">
-            <h3>이 기기의 임시 데이터 삭제</h3>
+          <details className="danger-zone data-settings-card settings-disclosure" id="server-local-data-clear-card">
+            <summary className="data-settings-card-heading"><div><span>F</span><h3>이 기기의 임시 데이터 삭제</h3></div></summary>
+            <div className="settings-disclosure-body">
             <p>Sites 서버 데이터는 유지하고 이 기기의 캐시와 자동 스냅샷만 비웁니다.</p>
             <button type="button" disabled={Boolean(busy)} onClick={() => run("local-clear", async () => {
               if (!confirm("이 기기의 로컬 캐시를 비울까요? Sites 서버 데이터는 유지됩니다.")) return;
@@ -1001,10 +1008,12 @@ function ServerSettings({
             })}>
               로컬 임시 데이터 삭제
             </button>
-          </section>
+            </div>
+          </details>
 
-          <section className="danger-zone data-settings-card">
-            <h3>계정 데이터 전체 삭제</h3>
+          <details className="danger-zone data-settings-card settings-disclosure" id="server-account-delete-card">
+            <summary className="data-settings-card-heading"><div><span>G</span><h3>계정 데이터 전체 삭제</h3></div></summary>
+            <div className="settings-disclosure-body">
             <p>현재 계정의 업무 데이터와 첨부 메타데이터를 삭제 상태로 전환합니다. 실행하려면 <b>전체 삭제</b>를 입력하세요.</p>
             <input value={deleteText} onChange={(event) => setDeleteText(event.target.value)} placeholder="전체 삭제" />
             <button type="button" className="danger-button" disabled={deleteText !== "전체 삭제" || Boolean(busy)} onClick={() => run("delete", async () => {
@@ -1015,7 +1024,8 @@ function ServerSettings({
             })}>
               계정 데이터 전체 삭제
             </button>
-          </section>
+            </div>
+          </details>
 
           <a className="settings-signout-link" href="/signout-with-chatgpt?return_to=/">
             <LogOut size={16} /> 로그아웃
