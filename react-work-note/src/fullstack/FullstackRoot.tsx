@@ -674,25 +674,15 @@ function ServerSettings({
 
           <details className="data-settings-card settings-disclosure" id="server-data-storage-card">
             <summary className="data-settings-card-heading">
-              <div><span>B</span><h3>데이터 / 저장</h3><small>백업·복원·이전</small></div>
-              <DataStatusBadge tone="is-normal" label="선택" />
+              <div><span>B</span><h3>데이터 / 저장</h3><small>내보내기·불러오기</small></div>
             </summary>
-            <div className="settings-disclosure-body"><div className="data-settings-status-grid">
-              <span><b>안전 저장 모드</b>사용 중</span>
-              <span><b>자동 스냅샷</b>{snapshot.count}개 · {formatSettingsTime(snapshot.lastAt)}</span>
-              <span><b>마이그레이션</b>{progress.message}</span>
-              <span><b>백업 원본</b>JSON 기록 또는 첨부 포함 ZIP</span>
+            <div className="settings-disclosure-body">
+              <BackupSettingsPanel
+                data={localData as ReturnType<typeof loadWorkNoteData>}
+                setData={onLocalDataChanged}
+                setSaveMessage={setDriveMessage}
+              />
             </div>
-            <BackupSettingsPanel
-              data={localData as ReturnType<typeof loadWorkNoteData>}
-              setData={onLocalDataChanged}
-              setSaveMessage={setDriveMessage}
-            />
-            <div className="settings-actions">
-              <button type="button" disabled={Boolean(busy)} onClick={onMigrate}>
-                <Upload size={16} /> 로컬 데이터를 Sites로 이전
-              </button>
-            </div></div>
           </details>
 
           <details className="data-settings-card settings-disclosure" id="server-diagnostics-card">

@@ -172,23 +172,30 @@ describe("Google Drive UI requirements", () => {
     expect(appCss).toContain('gap: 6px 14px;');
   });
 
-  it("keeps backup actions clickable, compact, and collapsed until requested", () => {
+  it("shows only the three essential data and export actions", () => {
     const start = appSource.indexOf("export function BackupSettingsPanel");
     const end = appSource.indexOf("function LocalDataSettings", start);
     const backupPanel = appSource.slice(start, end);
+    const panelUi = backupPanel.slice(backupPanel.lastIndexOf("  return ("));
+    const localStart = appSource.indexOf('id="local-data-storage-card"');
+    const localCard = appSource.slice(localStart, appSource.indexOf("</details>", localStart));
+    const serverStart = fullstackSource.indexOf('id="server-data-storage-card"');
+    const serverCard = fullstackSource.slice(serverStart, fullstackSource.indexOf("</details>", serverStart));
 
-    expect(backupPanel).toContain('className="backup-settings-action-grid"');
-    expect(backupPanel).not.toContain('className="backup-center-panel"');
-    expect(backupPanel).toContain("데이터 백업");
-    expect(backupPanel).toContain("첨부파일 제외");
-    expect(backupPanel).toContain("전체 백업");
-    expect(backupPanel).toContain("첨부파일 포함");
-    expect(backupPanel).toContain("데이터 복원");
-    expect(backupPanel).toContain("전체 복원");
-    expect(appSource).toContain('id="local-data-storage-card"');
-    expect(fullstackSource).toContain('id="server-data-storage-card"');
-    expect(appCss).toMatch(/\.backup-center-panel\s*\{[\s\S]*position:\s*absolute/);
-    expect(appCss).toMatch(/\.backup-settings-action-grid\s*\{[\s\S]*display:\s*grid/);
+    expect(panelUi).toContain('className="backup-settings-action-grid"');
+    expect(panelUi).toContain("데이터 내보내기");
+    expect(panelUi).toContain("데이터 불러오기");
+    expect(panelUi).toContain("엑셀 내보내기");
+    expect(panelUi.match(/<button /g)).toHaveLength(3);
+    expect(panelUi).not.toContain("전체 백업");
+    expect(panelUi).not.toContain("전체 복원");
+    expect(panelUi).not.toContain("추가 작업");
+    expect(panelUi).not.toContain("CSV");
+    expect(panelUi).not.toContain("전체 초기화");
+    expect(localCard).not.toContain("data-settings-status-grid");
+    expect(serverCard).not.toContain("data-settings-status-grid");
+    expect(serverCard).not.toContain("로컬 데이터를 Sites로 이전");
+    expect(appCss).toMatch(/\.backup-settings-action-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\(3/);
   });
 
   it("makes every top-level settings card expandable and collapsed by default", () => {

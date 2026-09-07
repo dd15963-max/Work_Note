@@ -1,5 +1,4 @@
 import {
-  Archive,
   ArrowDown,
   ArrowLeft,
   ArrowUp,
@@ -1467,35 +1466,18 @@ const chooseJson = (mode: BackupImportMode) => {
   };
   return (
     <div id="work-note-backup-center" className="backup-settings-panel">
-      <div className="backup-settings-heading">
-        <Archive size={18} />
-        <div><strong>백업 센터</strong><small>필요한 작업만 골라 실행하세요.</small></div>
-      </div>
       <div className="backup-settings-action-grid">
         <button type="button" onClick={exportJson} disabled={Boolean(busy)}>
-          <strong>데이터 백업</strong><small>첨부파일 제외</small>
-        </button>
-        <button type="button" onClick={exportZip} disabled={Boolean(busy)}>
-          <strong>전체 백업</strong><small>첨부파일 포함</small>
+          <strong>데이터 내보내기</strong><small>첨부파일 제외</small>
         </button>
         <button type="button" onClick={() => chooseJson("replace")} disabled={Boolean(busy)}>
-          <strong>데이터 복원</strong><small>JSON으로 교체</small>
+          <strong>데이터 불러오기</strong><small>첨부파일 제외</small>
         </button>
-        <button type="button" onClick={() => chooseZip("replace")} disabled={Boolean(busy)}>
-          <strong>전체 복원</strong><small>ZIP으로 교체</small>
+        <button type="button" onClick={exportXlsx} disabled={Boolean(busy)}>
+          <strong>엑셀 내보내기</strong><small>업무 데이터</small>
         </button>
       </div>
-      <p className="backup-settings-status" role="status">{busy || "백업은 현재 Work Note 데이터를 다운로드합니다."}</p>
-      <details className="backup-settings-advanced">
-        <summary>추가 작업</summary>
-        <div className="backup-settings-advanced-grid">
-          <div><strong>병합</strong><button type="button" onClick={() => chooseJson("merge")} disabled={Boolean(busy)}>데이터 병합</button><button type="button" onClick={() => chooseZip("merge")} disabled={Boolean(busy)}>전체 병합</button></div>
-          <div><strong>업데이트</strong><button type="button" onClick={() => chooseJson("update")} disabled={Boolean(busy)}>데이터 업데이트</button><button type="button" onClick={() => chooseZip("update")} disabled={Boolean(busy)}>전체 업데이트</button></div>
-          <div><strong>내보내기</strong><button type="button" onClick={exportCsv} disabled={Boolean(busy)}>CSV</button><button type="button" onClick={exportXlsx} disabled={Boolean(busy)}>엑셀</button></div>
-          <div><strong>점검</strong><button type="button" onClick={auditAttachments} disabled={Boolean(busy)}>첨부 점검</button><button type="button" onClick={auditFullBackupZip} disabled={Boolean(busy)}>백업 점검</button></div>
-          <button className="danger backup-reset-button" type="button" onClick={resetWorkspace} disabled={Boolean(busy)}>전체 초기화</button>
-        </div>
-      </details>
+      <p className="backup-settings-status" role="status">{busy || "필요한 작업을 선택해 주세요."}</p>
       <input ref={jsonInputRef} type="file" accept="application/json,.json" hidden onChange={handleJsonFile} />
       <input ref={zipInputRef} type="file" accept="application/zip,.zip" hidden onChange={handleZipFile} />
     </div>
@@ -1541,12 +1523,10 @@ function LocalDataSettings({
             </div></div>
           </details>
           <details className="data-settings-card settings-disclosure" id="local-data-storage-card">
-            <summary className="data-settings-card-heading"><div><span>B</span><h3>데이터 / 저장</h3><small>백업·복원</small></div><span className="data-status-badge is-normal">선택</span></summary>
-            <div className="settings-disclosure-body"><div className="data-settings-status-grid">
-              <span><b>안전 저장 모드</b>사용 중</span>
-              <span><b>자동 스냅샷</b>{snapshotSummary.count}개 · {snapshotSummary.lastAt ? formatDateTime(snapshotSummary.lastAt) : "기록 없음"}</span>
+            <summary className="data-settings-card-heading"><div><span>B</span><h3>데이터 / 저장</h3><small>내보내기·불러오기</small></div></summary>
+            <div className="settings-disclosure-body">
+              <BackupSettingsPanel data={data} setData={setData} setSaveMessage={setSaveMessage} />
             </div>
-            <BackupSettingsPanel data={data} setData={setData} setSaveMessage={setSaveMessage} /></div>
           </details>
           <details className="data-settings-card settings-disclosure">
             <summary className="data-settings-card-heading"><div><span>C</span><h3>진단 / 고급</h3><small>새로고침·이전 버전</small></div></summary>
